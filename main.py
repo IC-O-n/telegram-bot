@@ -12,7 +12,7 @@ if not TOKEN or not GEMINI_API_KEY:
 
 # Инициализируем Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-pro")
+model = genai.GenerativeModel("gemini-pro-1.0")
 
 async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Привет! Я бот, который использует Google Gemini API.")
