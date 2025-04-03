@@ -3,3 +3,4 @@ aiohttp
 python-telegram-bot
 openai
 python-telegram-bot[webhooks]
+google-generativeai

@@ -1,26 +1,31 @@
-import os
-import openai
+iimport os
+import google.generativeai as genai
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Получаем токены из переменных окружения
 TOKEN = os.getenv("TOKEN")
-openai.api_key = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not TOKEN or not openai.api_key:
-    raise ValueError("Отсутствует токен Telegram или OpenAI API.")
+if not TOKEN or not GEMINI_API_KEY:
+    raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
+
+# Инициализируем Gemini API
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-pro")
 
 async def start(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text("Привет! Я бот, который использует OpenAI.")
+    await update.message.reply_text("Привет! Я бот, который использует Google Gemini API.")
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     user_message = update.message.text
-    client = openai.OpenAI()
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": user_message}]
-    )
-    reply_text = response["choices"][0]["message"]["content"]
+    
+    try:
+        response = model.generate_content(user_message)
+        reply_text = response.text  # Получаем текст из ответа
+    except Exception as e:
+        reply_text = f"Ошибка: {str(e)}"
+
     await update.message.reply_text(reply_text)
 
 def main():
