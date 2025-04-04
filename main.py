@@ -100,23 +100,22 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 # Генерация изображения по запросу
 async def generate_image(update: Update, context: CallbackContext) -> None:
-    prompt = update.message.text  # Получаем текст сообщения
+    prompt = " ".join(context.args)
+    if not prompt:
+        await update.message.reply_text("Напиши, что ты хочешь сгенерировать! Например:\n/generate_image футуристический бургер")
+        return
 
-    # Если текст запроса указывает на генерацию изображения, вызываем модель "imagen-3.0-generate-002"
-    if prompt.lower().find("сгенерируй") != -1 or prompt.lower().find("изображение") != -1:
-        try:
-            # Генерация изображения с помощью "imagen-3.0-generate-002"
-            response = model_image.generate_content([
-                {"text": prompt}
-            ])
-            # Отправляем сгенерированное изображение
-            image_data = response.images[0].image_data
-            image_base64 = base64.b64encode(image_data).decode('utf-8')
-            await update.message.reply_photo(photo=image_base64, caption=f"Вот твоё изображение по запросу: {prompt}")
-        except Exception as e:
-            await update.message.reply_text(f"Произошла ошибка при генерации изображения: {str(e)}")
-    else:
-        await update.message.reply_text("Я не понял, что ты хочешь сгенерировать. Попробуй уточнить запрос.")
+    try:
+        # Генерация изображения с помощью "imagen-3.0-generate-002"
+        response = model_image.generate_content([
+            {"text": prompt}
+        ])
+        # Отправляем сгенерированное изображение
+        image_data = response.images[0].image_data
+        image_base64 = base64.b64encode(image_data).decode('utf-8')
+        await update.message.reply_photo(photo=image_base64, caption="Вот твоё сгенерированное изображение!")
+    except Exception as e:
+        await update.message.reply_text(f"Произошла ошибка при генерации изображения: {str(e)}")
 
 # Команда для сброса истории
 async def reset(update: Update, context: CallbackContext) -> None:
@@ -130,7 +129,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_image))
+    app.add_handler(CommandHandler("generate_image", generate_image))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
     print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и контекста.")
