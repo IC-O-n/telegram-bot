@@ -8,7 +8,7 @@ import google.generativeai as genai
 
 # Конфигурация
 TOKEN = os.getenv("TOKEN")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not TOKEN or not GOOGLE_API_KEY:
     raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
