@@ -15,8 +15,9 @@ if not TOKEN or not GOOGLE_API_KEY:
 
 genai.configure(api_key=GOOGLE_API_KEY)
 
-# Создание модели
-model = genai.GenerativeModel("gemini-2.0-flash")
+# Создание моделей
+model_text = genai.GenerativeModel("gemini-2.0-flash")  # для обработки текста и изображений
+model_image = genai.GenerativeModel("imagen-3.0-generate-002")  # для генерации изображений
 
 # Хранение истории сообщений
 user_histories = {}
@@ -75,7 +76,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     try:
         # Добавляем новое сообщение в историю
         history.append({"role": "user", "parts": contents})
-        response = model.generate_content(history)
+        response = model_text.generate_content(history)
 
         # Ответ и фильтрация
         reply = response.text.strip()
@@ -97,27 +98,39 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         await message.reply_text(f"Произошла ошибка: {str(e)}")
 
+# Генерация изображения по запросу
+async def generate_image(update: Update, context: CallbackContext) -> None:
+    prompt = update.message.text  # Получаем текст сообщения
+
+    # Если текст запроса указывает на генерацию изображения, вызываем модель "imagen-3.0-generate-002"
+    if prompt.lower().find("сгенерируй") != -1 or prompt.lower().find("изображение") != -1:
+        try:
+            # Генерация изображения с помощью "imagen-3.0-generate-002"
+            response = model_image.generate_content([
+                {"text": prompt}
+            ])
+            # Отправляем сгенерированное изображение
+            image_data = response.images[0].image_data
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            await update.message.reply_photo(photo=image_base64, caption=f"Вот твоё изображение по запросу: {prompt}")
+        except Exception as e:
+            await update.message.reply_text(f"Произошла ошибка при генерации изображения: {str(e)}")
+    else:
+        await update.message.reply_text("Я не понял, что ты хочешь сгенерировать. Попробуй уточнить запрос.")
+
 # Команда для сброса истории
 async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     user_histories.pop(user_id, None)
     await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
 
-# Команда для будущей генерации изображений (заглушка)
-async def generate_image(update: Update, context: CallbackContext) -> None:
-    prompt = " ".join(context.args)
-    if not prompt:
-        await update.message.reply_text("Напиши, что ты хочешь сгенерировать! Например:\n/generate_image футуристический бургер")
-        return
-
-    await update.message.reply_text("⚙️ Генерация изображения пока недоступна в API Gemini. Ожидаем активации от Google!")
 # Запуск бота
 def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(CommandHandler("generate_image", generate_image))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_image))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
     print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и контекста.")
