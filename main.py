@@ -86,7 +86,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         history.append({"role": "model", "parts": [reply]})
         user_histories[user_id] = history[-10:]  # ограничиваем историю (последние 10)
 
-        await message.reply_text(f"NutriBot:\n{reply}")
+        await message.reply_text(f"{reply}")
 
     except Exception as e:
         await message.reply_text(f"Произошла ошибка: {str(e)}")
