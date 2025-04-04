@@ -79,8 +79,14 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
         # Ответ и фильтрация
         reply = response.text.strip()
+
+        # Объединяем описание всех изображений в одно сообщение
         if "bounding box detections" in reply and "`json" in reply:
             reply = reply.split("bounding box detections")[0].strip()
+
+        # Если на фото несколько объектов, это нужно объединить в одно сообщение
+        if "На этом фото" in reply:
+            reply = reply.replace("На этом фото", "\n\nНа этом фото")
 
         # Сохраняем ответ в историю
         history.append({"role": "model", "parts": [reply]})
@@ -105,10 +111,10 @@ async def generate_image(update: Update, context: CallbackContext) -> None:
         return
 
     await update.message.reply_text("⚙️ Генерация изображения пока недоступна в API Gemini. Ожидаем активации от Google!")
-
 # Запуск бота
 def main():
     app = Application.builder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("generate_image", generate_image))
