@@ -27,7 +27,7 @@ async def download_and_encode(file: File) -> dict:
     async with aiohttp.ClientSession() as session:
         async with session.get(telegram_file.file_path) as resp:
             data = await resp.read()
-    mime_type = file.mime_type or "application/octet-stream"
+    mime_type = file.mime_type if hasattr(file, 'mime_type') else "image/jpeg"  # Используем image/jpeg как дефолт
 
     return {
         "inline_data": {
@@ -109,11 +109,11 @@ async def generate_image(update: Update, context: CallbackContext) -> None:
 # Запуск бота
 def main():
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("generate_image", generate_image))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+
     print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и контекста.")
     app.run_polling()
 
