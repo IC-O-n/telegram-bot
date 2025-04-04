@@ -1,108 +1,121 @@
 import os
-import google.generativeai as genai
-from telegram import Update
+import base64
+import aiohttp
+import telegram
+from telegram import Update, File
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+import google.generativeai as genai
 
-# Настройка API Gemini
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
+# Конфигурация
+TOKEN = os.getenv("TOKEN")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not TOKEN or not GOOGLE_API_KEY:
+    raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
+
+genai.configure(api_key=GOOGLE_API_KEY)
+
+# Создание модели
 model = genai.GenerativeModel("gemini-2.0-flash")
 
-# Telegram Token
-TELEGRAM_TOKEN = os.getenv("TOKEN")
+# Хранение истории сообщений
+user_histories = {}
 
-# Хранилище последних медиа от пользователя
-user_last_media = {}
+# Загрузка и кодирование файла
+async def download_and_encode(file: File) -> dict:
+    telegram_file = await file.get_file()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(telegram_file.file_path) as resp:
+            data = await resp.read()
+    mime_type = file.mime_type or "application/octet-stream"
 
-# Поддерживаемые типы файлов
-SUPPORTED_MIME_TYPES = {
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".pdf": "application/pdf",
-    ".webp": "image/webp",
-    ".txt": "text/plain",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".mp4": "video/mp4",
-    ".mp3": "video/mp4"
-}
-
-
-def guess_mime_type(file_path: str) -> str:
-    for ext, mime in SUPPORTED_MIME_TYPES.items():
-        if file_path.lower().endswith(ext):
-            return mime
-    return "application/octet-stream"  # fallback
-
-
-async def start(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text("Привет! Отправь мне изображение, документ, текст или всё вместе — я всё пойму! 💡")
-
-
-async def handle_message(update: Update, context: CallbackContext) -> None:
-    user_id = update.effective_user.id
-    media_parts = []
-
-    # 1. Обработка фото
-    if update.message.photo:
-        for photo in update.message.photo:
-            file = await context.bot.get_file(photo.file_id)
-            photo_bytes = await file.download_as_bytearray()
-            media_parts.append({
-                "mime_type": "image/jpeg",
-                "data": bytes(photo_bytes)
-            })
-
-    # 2. Обработка документов
-    if update.message.document:
-        document = update.message.document
-        file = await context.bot.get_file(document.file_id)
-        doc_bytes = await file.download_as_bytearray()
-        filename = document.file_name
-        mime_type = guess_mime_type(filename)
-        media_parts.append({
+    return {
+        "inline_data": {
             "mime_type": mime_type,
-            "data": bytes(doc_bytes)
-        })
+            "data": base64.b64encode(data).decode("utf-8"),
+        }
+    }
 
-    # 3. Текст
-    text = update.message.caption or update.message.text
-    if text:
-        media_parts.append({"text": text})
+# Команда /start
+async def start(update: Update, context: CallbackContext) -> None:
+    await update.message.reply_text("Привет! Я NutriBot 🤖\nОтправь мне фото, текст или документ — и я помогу!\n\nЯ помню контекст и умею анализировать изображения.")
 
-    # 4. Если есть что-то — отправим в Gemini
-    if media_parts:
-        response = model.generate_content(media_parts)
-        await update.message.reply_text(response.text)
-        return
+# Основная логика
+async def handle_message(update: Update, context: CallbackContext) -> None:
+    message = update.message
+    user_id = message.from_user.id
+    user_text = message.caption or message.text or ""
+    contents = []
 
-    # 5. Если ничего нет, но ранее было изображение/файл
-    if not media_parts and text:
-        if user_id in user_last_media:
-            parts = user_last_media[user_id] + [{"text": text}]
-            response = model.generate_content(parts)
-            await update.message.reply_text(response.text)
-            user_last_media.pop(user_id, None)
+    # Собираем все файлы (фото и документы)
+    media_files = message.photo or []
+    if message.document:
+        media_files.append(message.document)
+
+    # Кодируем все файлы
+    for file in media_files:
+        try:
+            part = await download_and_encode(file)
+            contents.append(part)
+        except Exception as e:
+            await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
             return
 
-    # 6. Если только медиа (без текста) — запоминаем
-    if media_parts and not text:
-        user_last_media[user_id] = media_parts
-        await update.message.reply_text("Файл(ы) получены. Теперь напиши, что ты хочешь узнать.")
+    # Добавляем текст, если есть
+    if user_text:
+        contents.insert(0, {"text": user_text})
+
+    if not contents:
+        await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
-    await update.message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
+    # Загружаем историю (если есть)
+    history = user_histories.get(user_id, [])
 
+    try:
+        # Добавляем новое сообщение в историю
+        history.append({"role": "user", "parts": contents})
+        response = model.generate_content(history)
 
+        # Ответ и фильтрация
+        reply = response.text.strip()
+        if "bounding box detections" in reply and "`json" in reply:
+            reply = reply.split("bounding box detections")[0].strip()
+
+        # Сохраняем ответ в историю
+        history.append({"role": "model", "parts": [reply]})
+        user_histories[user_id] = history[-10:]  # ограничиваем историю (последние 10)
+
+        await message.reply_text(f"NutriBot:\n{reply}")
+
+    except Exception as e:
+        await message.reply_text(f"Произошла ошибка: {str(e)}")
+
+# Команда для сброса истории
+async def reset(update: Update, context: CallbackContext) -> None:
+    user_id = update.message.from_user.id
+    user_histories.pop(user_id, None)
+    await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
+
+# Команда для будущей генерации изображений (заглушка)
+async def generate_image(update: Update, context: CallbackContext) -> None:
+    prompt = " ".join(context.args)
+    if not prompt:
+        await update.message.reply_text("Напиши, что ты хочешь сгенерировать! Например:\n/generate_image футуристический бургер")
+        return
+
+    await update.message.reply_text("⚙️ Генерация изображения пока недоступна в API Gemini. Ожидаем активации от Google!")
+
+# Запуск бота
 def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_message))
-
-    print("Бот запущен...")
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("generate_image", generate_image))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+    print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и контекста.")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
