@@ -1,4 +1,5 @@
 import os
+import re
 import base64
 import aiohttp
 import telegram
@@ -23,6 +24,8 @@ user_histories = {}
 
 QUESTION_FLOW = [
     ("name", "Как тебя зовут?"),
+    ("age", "Сколько тебе лет?"),
+    ("gender", "Какой у тебя пол? (м/ж)"),
     ("goal", "Какая у тебя цель? (похудеть, набрать массу, просто ЗОЖ и т.п.)"),
     ("experience", "Какой у тебя уровень активности и тренировочного опыта?"),
     ("food_prefs", "Есть ли предпочтения в еде? (веганство, без глютена и т.п.)"),
@@ -36,6 +39,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     update_user(user_id, {"question_index": 0})
     first_question = QUESTION_FLOW[0][1]
+    
+    await update.message.reply_text(
+        "NutriBot:\nПривет! Я твой персональный фитнес-ассистент NutriBot. "
+        "Давай начнем с короткой анкеты 🙌"
+    )
     await update.message.reply_text(first_question)
 
 # --- Сброс истории ---
@@ -65,24 +73,15 @@ async def download_and_encode(file: File) -> dict:
 # --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    text = update.message.text.strip().lower()
+    text = update.message.text.strip()
+    text_lower = text.lower()
     user = get_user(user_id)
-
     question_index = user.get("question_index", 0)
 
-    # Режим общения после анкеты
-    if question_index is None:
-        if "цель" in text:
-            goal = user.get("goal", "Я пока не знаю твою цель.")
-            await update.message.reply_text(f"Ты указал(а), что твоя цель — {goal}.")
-            return
-        await update.message.reply_text("Я помню твою анкету! Спроси меня о чём-нибудь или напиши /reset, чтобы начать заново.")
-        return
-
-    # Режим анкеты
+    # --- Если заполняем анкету ---
     if isinstance(question_index, int) and question_index < len(QUESTION_FLOW):
         key, _ = QUESTION_FLOW[question_index]
-        update_user(user_id, {key: update.message.text})
+        update_user(user_id, {key: text})
 
         question_index += 1
         if question_index < len(QUESTION_FLOW):
@@ -91,7 +90,62 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(next_question)
         else:
             update_user(user_id, {"question_index": None})
-            await update.message.reply_text("Спасибо! Я записал твою анкету 🎯 Готов помогать тебе достигать цели!")
+            await update.message.reply_text(
+                "Спасибо! Я записал твою анкету 🎯 Готов помогать тебе достигать цели!"
+            )
+        return
+
+    # --- Если анкета завершена, но пользователь сообщает новую инфу ---
+    updates = {}
+
+    # Пример: Я вешу 70 кг / Текущий вес 72
+    weight_match = re.search(r"(вешу|вес)\s*(\d{2,3})", text_lower)
+    if weight_match:
+        updates["current_weight"] = weight_match.group(2)
+
+    # Пример: Мне 25 лет
+    age_match = re.search(r"мне\s*(\d{1,2})\s*лет", text_lower)
+    if age_match:
+        updates["age"] = age_match.group(1)
+
+    # Пример: Я парень / Я девушка
+    if "я парень" in text_lower or "я мужчина" in text_lower:
+        updates["gender"] = "м"
+    elif "я девушка" in text_lower or "я женщина" in text_lower:
+        updates["gender"] = "ж"
+
+    # Если есть что обновить
+    if updates:
+        update_user(user_id, updates)
+        await update.message.reply_text("Понял, записал! Спасибо за уточнение.")
+        return
+
+    # Примитивная обработка вопросов: "Какой у меня вес", "Сколько мне лет", и т.п.
+    response_map = {
+        "цель": "goal",
+        "опыт": "experience",
+        "еда": "food_prefs",
+        "инвентарь": "equipment",
+        "здоровье": "health_limits",
+        "метрики": "metrics",
+        "имя": "name",
+        "возраст": "age",
+        "лет": "age",
+        "пол": "gender",
+        "вес": "current_weight"
+    }
+
+    for keyword, key in response_map.items():
+        if keyword in text_lower:
+            value = user.get(key)
+            if value:
+                await update.message.reply_text(f"{key.capitalize()}: {value}")
+            else:
+                await update.message.reply_text("У меня пока нет этой информации. Можешь сказать, и я запомню!")
+            return
+
+    # Если ничего не подошло — общий ответ
+    await update.message.reply_text("Расскажи что-нибудь или спроси — я постараюсь помочь!")
 
 # --- Запуск бота ---
 if __name__ == '__main__':
