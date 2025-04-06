@@ -189,9 +189,9 @@ field_names = {
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
-
     user = get_user(user_id)
 
+    # Обработка корректировок
     if detect_correction(text):
         field = guess_corrected_field(text, user)
         if field:
@@ -199,43 +199,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_user(user_id, {field: new_value})
             friendly_name = field_names.get(field, field)
             await update.message.reply_text(f"Понял, записал {friendly_name} как {new_value}.")
-        
-            # Определяем правильный индекс и возвращаемся к нужному вопросу
-            question_index = get_question_index(field)
-            if question_index is not None:
-                update_user(user_id, {"question_index": question_index + 1})
-                if question_index + 1 < len(QUESTION_FLOW):
-                    await update.message.reply_text(QUESTION_FLOW[question_index + 1][1])
-            return
 
-    text_lower = text.lower()
+            # Вернемся к следующему незаполненному вопросу
+            for idx, (key, _) in enumerate(QUESTION_FLOW):
+                if not user.get(key):
+                    update_user(user_id, {"question_index": idx})
+                    await update.message.reply_text(QUESTION_FLOW[idx][1])
+                    return
+            await update.message.reply_text("Все данные заполнены! Хочешь, я помогу составить рацион или тренировку?")
+        return
 
     question_index = user.get("question_index", 0)
 
-    # Этап анкеты
+    # Обработка анкеты
     if question_index is not None and question_index < len(QUESTION_FLOW):
         key, _ = QUESTION_FLOW[question_index]
         cleaned_value = interpret_answer(key, text)
         update_user(user_id, {key: cleaned_value})
 
-        question_index += 1
-        if question_index < len(QUESTION_FLOW):
-            next_question = QUESTION_FLOW[question_index][1]
-            update_user(user_id, {"question_index": question_index})
-            await update.message.reply_text(next_question)
-        else:
-            update_user(user_id, {"question_index": None})
-            await update.message.reply_text("Спасибо! Я записал твою анкету 🎯")
-            await update.message.reply_text("Хочешь, я помогу составить рацион или тренировку?")
+        # Найдем следующий незаполненный вопрос
+        for idx in range(question_index + 1, len(QUESTION_FLOW)):
+            next_key, next_question = QUESTION_FLOW[idx]
+            if not user.get(next_key):
+                update_user(user_id, {"question_index": idx})
+                await update.message.reply_text(next_question)
+                return
+
+        # Анкета завершена
+        update_user(user_id, {"question_index": None})
+        await update.message.reply_text("Спасибо! Я записал твою анкету 🎯")
+        await update.message.reply_text("Хочешь, я помогу составить рацион или тренировку?")
         return
-    # Извлечение и сохранение фактов из произвольных фраз
-    extracted = extract_user_facts(text_lower)
+
+    # Пассивное извлечение фактов
+    extracted = extract_user_facts(text.lower())
     if extracted:
         update_user(user_id, extracted)
         await update.message.reply_text("Я запомнил это!")
 
-    # Примеры пользовательских запросов
-    if "сколько мне лет" in text_lower:
+    # Ответы на пользовательские вопросы
+    if "сколько мне лет" in text.lower():
         age = user.get("age") or extracted.get("age")
         if age:
             await update.message.reply_text(f"Ты писал(а), что тебе {age} лет.")
@@ -243,7 +246,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Я пока не знаю твой возраст.")
         return
 
-    if "вешу" in text_lower or "мой вес" in text_lower:
+    if "вешу" in text.lower() or "мой вес" in text.lower():
         weight = user.get("current_weight") or extracted.get("current_weight")
         if weight:
             await update.message.reply_text(f"Ты писал(а), что весишь {weight} кг.")
@@ -251,9 +254,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Я пока не знаю твой вес.")
         return
 
-    # Пример диалога после анкеты
-    await update.message.reply_text(
-        "Интересно! Хочешь узнать, сколько калорий тебе нужно или какие тренировки подойдут?")
+    await update.message.reply_text("Интересно! Хочешь узнать, сколько калорий тебе нужно или какие тренировки подойдут?")
 
 # --- Запуск бота ---
 if __name__ == '__main__':
