@@ -199,8 +199,7 @@ def process_answer(answer: str, user: dict, field: str) -> tuple[str, dict]:
 
     user["question_index"] = None
     user["pending_action"] = "ask_help"  # <--- Ключевой момент!
-    return ("Спасибо! Я записал твою анкету 🎯\nХочешь, я помогу составить рацион или тренировку?", user)
-
+    return ("Спасибо! Я записал твою анкету 🎯", user)
 # --- Обработка обычных сообщений ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -228,29 +227,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_user(user_id, extracted)
         await update.message.reply_text("Я запомнил это!")
 
-    # Обработка после анкеты
-    if user.get("pending_action") == "ask_help":
-        if any(word in text.lower() for word in yes_words):
-            update_user(user_id, {"pending_action": "choose_plan"})
-            await update.message.reply_text("Окей! Начнём с питания или тренировок?")
-            return
-        elif any(word in text.lower() for word in no_words):
-            update_user(user_id, {"pending_action": None})
-            await update.message.reply_text("Окей! Если передумаешь — просто напиши.")
-            return
-
-    if user.get("pending_action") == "choose_plan":
-        if "питан" in text or "рацион" in text:
-            update_user(user_id, {"pending_action": None})
-            await update.message.reply_text("Супер! Сейчас подберу тебе рацион...")
-            # generate_nutrition_plan(user)
-            return
-        elif "трениров" in text or "физ" in text or "спорт" in text:
-            update_user(user_id, {"pending_action": None})
-            await update.message.reply_text("Отлично! Сейчас подберу тренировку...")
-            # generate_workout_plan(user)
-            return
-
+    
     # Обработка прямых вопросов
     if "сколько мне лет" in text.lower():
         age = user.get("age") or extracted.get("age")
@@ -269,8 +246,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     
     # Ответ по умолчанию
-    await update.message.reply_text("Интересно! Хочешь узнать, сколько калорий тебе нужно или какие тренировки подойдут?")
-        
+    await update.message.reply_text("Чем могу помочь?")     
+
 # --- Запуск бота ---
 if __name__ == '__main__':
     app = Application.builder().token(TOKEN).build()
