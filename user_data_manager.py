@@ -19,19 +19,6 @@ def get_user(user_id):
     return user_storage.get(user_id, {})
 
 def update_user(user_id, updates: dict):
-    user_storage[user_id] = {**user_storage.get(user_id, {}), **updates}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-               )
+    if user_id not in user_storage:
+        user_storage[user_id] = {}
+    user_storage[user_id].update(updates)
