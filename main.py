@@ -153,6 +153,9 @@ def guess_corrected_field(text: str, user_data: dict):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
+
+    user = get_user(user_id)
+
     if detect_correction(text):
         field = guess_corrected_field(text, user)
         if field:
@@ -167,7 +170,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(QUESTION_FLOW[question_index][1])
             return
     text_lower = text.lower()
-    user = get_user(user_id)
 
     question_index = user.get("question_index", 0)
 
