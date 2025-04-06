@@ -88,6 +88,48 @@ def extract_user_facts(text: str) -> dict:
 
     return facts
 
+def interpret_answer(key: str, user_input: str) -> str:
+    input_lower = user_input.lower().strip()
+
+    if key == "goal":
+        # Примеры целей
+        goals = {
+            "похудеть": ["похудеть", "сбросить вес", "уменьшить жир", "похудание"],
+            "набрать мышечную массу": ["набрать массу", "набрать мышечную массу", "набрать вес", "набор массы", "нобрать мышичную массу"],
+            "поддерживать форму": ["поддерживать", "поддерживать форму", "оставаться в форме"]
+        }
+        for clean_goal, variations in goals.items():
+            for variant in variations:
+                if variant in input_lower:
+                    return clean_goal
+        return "другая цель"
+
+    if key == "activity":
+        levels = {
+            "низкий": ["не тренируюсь", "редко", "низкий", "почти не двигаюсь"],
+            "средний": ["иногда", "несколько раз", "средний", "тренируюсь 2-3 раза в неделю"],
+            "высокий": ["тренируюсь часто", "высокий", "каждый день", "тренируюсь регулярно"]
+        }
+        for level, phrases in levels.items():
+            for phrase in phrases:
+                if phrase in input_lower:
+                    return level
+        return "неизвестно"
+
+    if key in ["age", "current_weight", "desired_weight"]:
+        numbers = re.findall(r'\d{2,3}', input_lower)
+        if numbers:
+            return numbers[0]
+
+    if key == "gender":
+        if "жен" in input_lower:
+            return "женский"
+        if "муж" in input_lower:
+            return "мужской"
+        return "не указан"
+
+    return user_input.strip()
+
 # --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -100,7 +142,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Этап анкеты
     if question_index is not None and question_index < len(QUESTION_FLOW):
         key, _ = QUESTION_FLOW[question_index]
-        update_user(user_id, {key: text})
+        cleaned_value = interpret_answer(key, text)
+        update_user(user_id, {key: cleaned_value})
 
         question_index += 1
         if question_index < len(QUESTION_FLOW):
@@ -112,7 +155,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Спасибо! Я записал твою анкету 🎯")
             await update.message.reply_text("Хочешь, я помогу составить рацион или тренировку?")
         return
-
     # Извлечение и сохранение фактов из произвольных фраз
     extracted = extract_user_facts(text_lower)
     if extracted:

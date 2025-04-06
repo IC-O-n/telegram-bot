@@ -5,3 +5,4 @@ openai
 python-telegram-bot[webhooks]
 google-generativeai
 python-dotenv
+difflib
