@@ -116,6 +116,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     user_profiles[user_id]["target_metric"] = update.message.text
     name = user_profiles[user_id]["name"]
+    save_user_profile(user_id, user_profiles[user_id])
     await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
     return ConversationHandler.END
 
@@ -216,6 +217,31 @@ if __name__ == "__main__":
 import sqlite3
 from aiogram.types import Message
 
+def save_user_profile(user_id: int, profile: dict):
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+
+    cursor.execute('''
+    INSERT OR REPLACE INTO user_profiles
+    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        user_id,
+        profile.get("name"),
+        profile.get("gender"),
+        profile.get("age"),
+        profile.get("weight"),
+        profile.get("goal"),
+        profile.get("activity"),
+        profile.get("diet"),
+        profile.get("health"),
+        profile.get("equipment"),
+        profile.get("target_metric"),
+    ))
+
+    conn.commit()
+    conn.close()
+
 # Создаем/подключаемся к базе данных
 conn = sqlite3.connect("users.db")
 cursor = conn.cursor()
@@ -251,6 +277,17 @@ def update_user_field(user_id, field, value):
 def get_user_data(user_id):
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     return cursor.fetchone()
+
+def get_user_profile(user_id: int) -> dict:
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        keys = ["user_id", "name", "gender", "age", "weight", "goal", "activity", "diet", "health", "equipment", "target_metric"]
+        return dict(zip(keys, row))
+    return {}
 
 # Пример хендлера, где бот запоминает пользователя при старте
 @dp.message_handler(commands=['start'])
