@@ -256,12 +256,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Я пока не знаю твой вес.")
         return
 
-    # Анализ намерений (если выше ничего не сработало)
-    intent = analyze_intent(text, user)
-    if intent:
-        await update.message.reply_text(intent)
-        return
-
+    
     # Ответ по умолчанию
     await update.message.reply_text("Интересно! Хочешь узнать, сколько калорий тебе нужно или какие тренировки подойдут?")
         
