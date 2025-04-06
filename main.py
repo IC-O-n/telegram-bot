@@ -131,22 +131,38 @@ def interpret_answer(key: str, user_input: str) -> str:
 
     return user_input.strip()
 
-def detect_correction(text: str):
-    corrections = ["ой", "вернее", "на самом деле", "не", "точнее", "ошибся", "имел в виду"]
-    return any(phrase in text.lower() for phrase in corrections)
+def detect_correction(text: str) -> bool:
+    text_lower = text.lower()
+    correction_keywords = ["ой", "вернее", "не", "извини", "на самом деле", "хотел сказать", "я имел в виду"]
+    return any(keyword in text_lower for keyword in correction_keywords)
 
-def guess_corrected_field(text: str, user_data: dict):
-    text = text.lower()
-    if "зовут" in text or "я" in text and len(text.split()) == 2:
+def guess_corrected_field(text: str, user: dict) -> str:
+    text_lower = text.lower()
+
+    if "зовут" in text_lower or (text_lower.startswith("я ") and not any(char.isdigit() for char in text)):
         return "name"
-    if any(word in text for word in ["лет", "возраст", "мне", "года", "году"]):
+
+    if "лет" in text_lower or ("мне" in text_lower and any(char.isdigit() for char in text)):
         return "age"
-    if "вешу" in text or "вес" in text:
+
+    if "вешу" in text_lower or "вес" in text_lower or "кг" in text_lower:
         return "current_weight"
-    if "цель" in text or "хочу" in text:
-        return "goal"
-    if "м" in text or "ж" in text or "пол" in text:
+
+    if "пол" in text_lower or text_lower in ["м", "ж", "муж", "жен", "мужчина", "женщина"]:
         return "gender"
+
+    if "цель" in text_lower or any(x in text_lower for x in ["похудеть", "масса", "накачаться", "зож", "сушиться"]):
+        return "goal"
+
+    if "активн" in text_lower or "уровень" in text_lower or "опыт" in text_lower or "начинающ" in text_lower or "трен" in text_lower:
+        return "activity_level"
+
+    if "предпочт" in text_lower or "еда" in text_lower or "питание" in text_lower or any(x in text_lower for x in ["веган", "мясо", "без мяса", "не ем"]):
+        return "food_preference"
+
+    if "аллерг" in text_lower or "не переношу" in text_lower or "не могу" in text_lower:
+        return "allergies"
+
     return None
 
 # --- Определения выше ---
@@ -183,14 +199,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_user(user_id, {field: new_value})
             friendly_name = field_names.get(field, field)
             await update.message.reply_text(f"Понял, записал {friendly_name} как {new_value}.")
-
-            # Возвращаемся к нужному вопросу
+        
+            # Определяем правильный индекс и возвращаемся к нужному вопросу
             question_index = get_question_index(field)
             if question_index is not None:
                 update_user(user_id, {"question_index": question_index + 1})
                 if question_index + 1 < len(QUESTION_FLOW):
                     await update.message.reply_text(QUESTION_FLOW[question_index + 1][1])
             return
+
     text_lower = text.lower()
 
     question_index = user.get("question_index", 0)
