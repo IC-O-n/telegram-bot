@@ -49,6 +49,32 @@ async def download_and_encode(file: File) -> dict:
 
 # === Анкета ===
 
+def save_user_profile(user_id: int, profile: dict):
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+
+    cursor.execute('''
+    INSERT OR REPLACE INTO user_profiles
+    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        user_id,
+        profile.get("name"),
+        profile.get("gender"),
+        profile.get("age"),
+        profile.get("weight"),
+        profile.get("goal"),
+        profile.get("activity"),
+        profile.get("diet"),
+        profile.get("health"),
+        profile.get("equipment"),
+        profile.get("target_metric"),
+    ))
+
+    conn.commit()
+    conn.close()
+
+
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
     return ASK_NAME
@@ -217,30 +243,6 @@ if __name__ == "__main__":
 import sqlite3
 from aiogram.types import Message
 
-def save_user_profile(user_id: int, profile: dict):
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-
-    cursor.execute('''
-    INSERT OR REPLACE INTO user_profiles
-    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        user_id,
-        profile.get("name"),
-        profile.get("gender"),
-        profile.get("age"),
-        profile.get("weight"),
-        profile.get("goal"),
-        profile.get("activity"),
-        profile.get("diet"),
-        profile.get("health"),
-        profile.get("equipment"),
-        profile.get("target_metric"),
-    ))
-
-    conn.commit()
-    conn.close()
 
 # Создаем/подключаемся к базе данных
 conn = sqlite3.connect("users.db")
