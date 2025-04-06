@@ -200,6 +200,19 @@ def process_answer(answer: str, user: dict, field: str) -> tuple[str, dict]:
     user["question_index"] = None
     return ("Спасибо! Я записал твою анкету 🎯\nХочешь, я помогу составить рацион или тренировку?", user)
 
+def analyze_intent(text: str, user: dict) -> str | None:
+    text = text.lower()
+
+    if "рацион" in text or "что есть" in text or "питание" in text:
+        return "Хочешь, я помогу составить рацион на день?"
+
+    if "тренировк" in text or "спорт" in text or "фитнес" in text:
+        return "Хочешь, я подскажу тренировку по твоим параметрам?"
+
+    if "заново" in text or "анкет" in text:
+        return "Хочешь пройти анкету сначала?"
+
+    return None
 
 # --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -261,7 +274,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Я пока не знаю твой вес.")
         return
 
-    await update.message.reply_text("Интересно! Хочешь узнать, сколько калорий тебе нужно или какие тренировки подойдут?")
+    intent_response = analyze_intent(text, user)
+    if intent_response:
+        await update.message.reply_text(intent_response)
+    else:
+        await update.message.reply_text("Я тебя понял! Хочешь, я помогу с рационом или тренировками?")
 
 # --- Запуск бота ---
 if __name__ == '__main__':
