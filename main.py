@@ -3,9 +3,10 @@ import base64
 import aiohttp
 import telegram
 from telegram import Update, File
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ApplicationBuilder
 import google.generativeai as genai
 from user_data_manager import get_user, update_user
+
 
 # --- Конфигурация ---
 TOKEN = os.getenv("TOKEN")
