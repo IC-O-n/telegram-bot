@@ -43,7 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_question = QUESTION_FLOW[0][1]
     
     await update.message.reply_text(
-        "NutriBot:\nПривет! Я твой персональный фитнес-ассистент NutriBot. "
+        "Привет! Я твой персональный фитнес-ассистент NutriBot. "
         "Давай начнем с короткой анкеты 🙌"
     )
     await update.message.reply_text(first_question)
@@ -131,10 +131,41 @@ def interpret_answer(key: str, user_input: str) -> str:
 
     return user_input.strip()
 
+def detect_correction(text: str):
+    corrections = ["ой", "вернее", "на самом деле", "не", "точнее", "ошибся", "имел в виду"]
+    return any(phrase in text.lower() for phrase in corrections)
+
+def guess_corrected_field(text: str, user_data: dict):
+    text = text.lower()
+    if "зовут" in text or "я" in text and len(text.split()) == 2:
+        return "name"
+    if any(word in text for word in ["лет", "возраст", "мне", "года", "году"]):
+        return "age"
+    if "вешу" in text or "вес" in text:
+        return "current_weight"
+    if "цель" in text or "хочу" in text:
+        return "goal"
+    if "м" in text or "ж" in text or "пол" in text:
+        return "gender"
+    return None
+
 # --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
+    if detect_correction(text):
+        field = guess_corrected_field(text, user)
+        if field:
+            new_value = interpret_answer(field, text)
+            update_user(user_id, {field: new_value})
+            await update.message.reply_text(f"Понял, обновил {field}: {new_value}")
+
+            # Продолжим анкету с нужного места
+            question_index = get_question_index(field)
+            if question_index < len(QUESTION_FLOW):
+                update_user(user_id, {"question_index": question_index})
+                await update.message.reply_text(QUESTION_FLOW[question_index][1])
+            return
     text_lower = text.lower()
     user = get_user(user_id)
 
