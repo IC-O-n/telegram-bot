@@ -3,11 +3,10 @@ import base64
 import aiohttp
 import telegram
 from telegram import Update, File
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import google.generativeai as genai
-from user_data_manager import get_user, update_user
 
-# --- Конфигурация ---
+# Конфигурация
 TOKEN = os.getenv("TOKEN")
 GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -15,46 +14,21 @@ if not TOKEN or not GOOGLE_API_KEY:
     raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
 
 genai.configure(api_key=GOOGLE_API_KEY)
+
+# Создание модели
 model = genai.GenerativeModel("gemini-2.0-flash")
 
-# --- Хранилище состояний и истории ---
-user_states = {}
+# Хранение истории сообщений
 user_histories = {}
 
-QUESTION_FLOW = [
-    ("name", "Как тебя зовут?"),
-    ("goal", "Какая у тебя цель? (похудеть, набрать массу, просто ЗОЖ и т.п.)"),
-    ("experience", "Какой у тебя уровень активности и тренировочного опыта?"),
-    ("food_prefs", "Есть ли предпочтения в еде? (веганство, без глютена и т.п.)"),
-    ("health_limits", "Есть ли ограничения по здоровью?"),
-    ("equipment", "Есть ли у тебя дома тренажёры или инвентарь?"),
-    ("metrics", "Какая у тебя цель по весу или другим метрикам?")
-]
-
-# --- Команда /start ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    update_user(user_id, {"question_index": 0})
-    first_question = QUESTION_FLOW[0][1]
-    await update.message.reply_text(first_question)
-
-# --- Сброс истории ---
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_histories.pop(user_id, None)
-    await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
-
-# --- Заглушка генерации изображения ---
-async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⚙️ Генерация изображения пока недоступна в API Gemini. Ожидаем активации от Google!")
-
-# --- Загрузка и кодирование файла ---
+# Загрузка и кодирование файла
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
     async with aiohttp.ClientSession() as session:
         async with session.get(telegram_file.file_path) as resp:
             data = await resp.read()
-    mime_type = file.mime_type if hasattr(file, 'mime_type') else "image/jpeg"
+    mime_type = file.mime_type if hasattr(file, 'mime_type') else "image/jpeg"  # Используем image/jpeg как дефолт
+
     return {
         "inline_data": {
             "mime_type": mime_type,
@@ -62,37 +36,92 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
-# --- Обработка обычных сообщений ---
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Команда /start
+async def start(update: Update, context: CallbackContext) -> None:
+    await update.message.reply_text("Привет! Я NutriBot 🤖\nОтправь мне фото, текст или документ — и я помогу!\n\nЯ помню контекст и умею анализировать изображения.")
+
+# Основная логика
+async def handle_message(update: Update, context: CallbackContext) -> None:
+    message = update.message
+    user_id = message.from_user.id
+    user_text = message.caption or message.text or ""
+    contents = []
+
+    # Собираем все файлы (фото и документы)
+    media_files = message.photo or []
+    if message.document:
+        media_files.append(message.document)
+
+    # Кодируем все файлы
+    for file in media_files:
+        try:
+            part = await download_and_encode(file)
+            contents.append(part)
+        except Exception as e:
+            await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
+            return
+
+    # Добавляем текст, если есть
+    if user_text:
+        contents.insert(0, {"text": user_text})
+
+    if not contents:
+        await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
+        return
+
+    # Загружаем историю (если есть)
+    history = user_histories.get(user_id, [])
+
+    try:
+        # Добавляем новое сообщение в историю
+        history.append({"role": "user", "parts": contents})
+        response = model.generate_content(history)
+
+        # Ответ и фильтрация
+        reply = response.text.strip()
+
+        # Объединяем описание всех изображений в одно сообщение
+        if "bounding box detections" in reply and "`json" in reply:
+            reply = reply.split("bounding box detections")[0].strip()
+
+        # Если на фото несколько объектов, это нужно объединить в одно сообщение
+        if "На этом фото" in reply:
+            reply = reply.replace("На этом фото", "\n\nНа этом фото")
+
+        # Сохраняем ответ в историю
+        history.append({"role": "model", "parts": [reply]})
+        user_histories[user_id] = history[-10:]  # ограничиваем историю (последние 10)
+
+        await message.reply_text(f"{reply}")
+
+    except Exception as e:
+        await message.reply_text(f"Произошла ошибка: {str(e)}")
+
+# Команда для сброса истории
+async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
-    text = update.message.text.strip()
-    user = get_user(user_id)
+    user_histories.pop(user_id, None)
+    await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
 
-    question_index = user.get("question_index", 0)
+# Команда для будущей генерации изображений (заглушка)
+async def generate_image(update: Update, context: CallbackContext) -> None:
+    prompt = " ".join(context.args)
+    if not prompt:
+        await update.message.reply_text("Напиши, что ты хочешь сгенерировать! Например:\n/generate_image футуристический бургер")
+        return
 
-    if isinstance(question_index, int) and question_index < len(QUESTION_FLOW):
-        key, _ = QUESTION_FLOW[question_index]
-        update_user(user_id, {key: text})
-
-        question_index += 1
-        if question_index < len(QUESTION_FLOW):
-            next_question = QUESTION_FLOW[question_index][1]
-            update_user(user_id, {"question_index": question_index})
-            await update.message.reply_text(next_question)
-        else:
-            update_user(user_id, {"question_index": None})
-            await update.message.reply_text("Спасибо! Я записал твою анкету 🎯 Готов помогать тебе достигать цели!")
-    else:
-        await update.message.reply_text("Ты уже прошёл анкету 🎉 Если хочешь начать заново — напиши /start")
-
-# --- Запуск бота ---
-if __name__ == '__main__':
+    await update.message.reply_text("⚙️ Генерация изображения пока недоступна в API Gemini. Ожидаем активации от Google!")
+    # Запуск бота
+def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("generate_image", generate_image))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и анкетирования.")
+    print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и контекста.")
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
