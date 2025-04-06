@@ -215,6 +215,7 @@ def analyze_intent(text: str, user: dict) -> str | None:
     return None
 
 # --- Обработка обычных сообщений ---
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
@@ -236,20 +237,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(QUESTION_FLOW[idx][1])
                     return
 
-            update_user(user_id, {"question_index": None})
+            update_user(user_id, {"question_index": None, "pending_action": "ask_help"})
             await update.message.reply_text("Все данные заполнены! Хочешь, я помогу составить рацион или тренировку?")
         else:
             await update.message.reply_text("Понял, ты хочешь что-то исправить. Можешь уточнить, что именно: имя, возраст, вес, рост?")
         return
 
-    # Текущий шаг в анкете
+    # Продолжение анкеты
     question_index = user.get("question_index", 0)
     if question_index is not None and question_index < len(QUESTION_FLOW):
         key, _ = QUESTION_FLOW[question_index]
         message, updated_user = process_answer(text, user, key)
         update_user(user_id, updated_user)
         await update.message.reply_text(message)
+
+        # Переход к следующему вопросу
+        for idx in range(question_index + 1, len(QUESTION_FLOW)):
+            next_key, next_question = QUESTION_FLOW[idx]
+            if not user.get(next_key):
+                update_user(user_id, {"question_index": idx})
+                await update.message.reply_text(next_question)
+                return
+
+        # Анкета завершена
+        update_user(user_id, {"question_index": None, "pending_action": "ask_help"})
+        await update.message.reply_text("Спасибо! Я записал твою анкету 🎯")
+        await update.message.reply_text("Хочешь, я помогу составить рацион или тренировку?")
         return
+
+    # Обработка после анкеты
+    if user.get("pending_action") == "ask_help":
+        if text.lower() in ["да", "хочу", "ага", "давай"]:
+            update_user(user_id, {"pending_action": "choose_plan"})
+            await update.message.reply_text("Окей! Начнём с питания или тренировок?")
+            return
+        elif text.lower() in ["нет", "не", "потом"]:
+            update_user(user_id, {"pending_action": None})
+            await update.message.reply_text("Окей! Если передумаешь — просто напиши.")
+            return
+
+    if user.get("pending_action") == "choose_plan":
+        if "питан" in text or "рацион" in text:
+            update_user(user_id, {"pending_action": None})
+            await update.message.reply_text("Супер! Сейчас подберу тебе рацион...")
+            # Тут можно вставить generate_nutrition_plan(user)
+            return
+        elif "трениров" in text or "физ" in text:
+            update_user(user_id, {"pending_action": None})
+            await update.message.reply_text("Отлично! Сейчас подберу тренировку...")
+            # Тут можно вставить generate_workout_plan(user)
+            return
 
     # Пассивное извлечение фактов
     extracted = extract_user_facts(text.lower())
@@ -265,7 +302,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("Я пока не знаю твой возраст.")
         return
-
     if "вешу" in text.lower() or "мой вес" in text.lower():
         weight = user.get("current_weight") or extracted.get("current_weight")
         if weight:
@@ -274,11 +310,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Я пока не знаю твой вес.")
         return
 
-    intent_response = analyze_intent(text, user)
-    if intent_response:
-        await update.message.reply_text(intent_response)
-    else:
-        await update.message.reply_text("Я тебя понял! Хочешь, я помогу с рационом или тренировками?")
+    # Ответ по умолчанию
+    await update.message.reply_text("Интересно! Хочешь узнать, сколько калорий тебе нужно или какие тренировки подойдут?")
 
 # --- Запуск бота ---
 if __name__ == '__main__':
