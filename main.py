@@ -3,10 +3,9 @@ import base64
 import aiohttp
 import telegram
 from telegram import Update, File
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ApplicationBuilder
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import google.generativeai as genai
 from user_data_manager import get_user, update_user
-
 
 # --- Конфигурация ---
 TOKEN = os.getenv("TOKEN")
@@ -19,9 +18,8 @@ genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
 
 # --- Хранилище состояний и истории ---
-user_states = {}       # Для анкеты
-user_histories = {}    # Для общения с ИИ
-
+user_states = {}
+user_histories = {}
 
 QUESTION_FLOW = [
     ("name", "Как тебя зовут?"),
@@ -33,7 +31,6 @@ QUESTION_FLOW = [
     ("metrics", "Какая у тебя цель по весу или другим метрикам?")
 ]
 
-
 # --- Команда /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -41,13 +38,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_question = QUESTION_FLOW[0][1]
     await update.message.reply_text(first_question)
 
-# --- Сброс истории (/reset) ---
+# --- Сброс истории ---
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_histories.pop(user_id, None)
     await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
 
-# --- Генерация изображения (заглушка) ---
+# --- Заглушка генерации изображения ---
 async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⚙️ Генерация изображения пока недоступна в API Gemini. Ожидаем активации от Google!")
 
@@ -65,7 +62,7 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
-# --- Обработка всех сообщений ---
+# --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
@@ -86,24 +83,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_user(user_id, {"question_index": None})
             await update.message.reply_text("Спасибо! Я записал твою анкету 🎯 Готов помогать тебе достигать цели!")
 
-# --- Основной запуск ---
-def main():
+# --- Запуск бота ---
+if __name__ == '__main__':
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("generate_image", generate_image))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и анкетирования.")
-    app.run_polling()
-
-if __name__ == '__main__':
-    import os
-    from dotenv import load_dotenv
-    load_dotenv()
-
-    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
