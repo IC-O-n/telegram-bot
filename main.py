@@ -71,18 +71,36 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
+def extract_user_facts(text: str) -> dict:
+    facts = {}
+
+    weight_match = re.search(r'вешу\s*(\d{2,3})', text)
+    if weight_match:
+        facts["current_weight"] = weight_match.group(1)
+
+    age_match = re.search(r'мне\s*(\d{1,2})\s*лет', text)
+    if age_match:
+        facts["age"] = age_match.group(1)
+
+    goal_match = re.search(r'цель.*?(похудеть|набрать|поддерживать)', text)
+    if goal_match:
+        facts["goal"] = goal_match.group(1)
+
+    return facts
+
 # --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    text = update.message.text.strip().lower()
+    text = update.message.text.strip()
+    text_lower = text.lower()
     user = get_user(user_id)
 
     question_index = user.get("question_index", 0)
 
-    # Если анкета не завершена — продолжаем её
+    # Этап анкеты
     if question_index is not None and question_index < len(QUESTION_FLOW):
         key, _ = QUESTION_FLOW[question_index]
-        update_user(user_id, {key: update.message.text.strip()})
+        update_user(user_id, {key: text})
 
         question_index += 1
         if question_index < len(QUESTION_FLOW):
@@ -92,36 +110,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             update_user(user_id, {"question_index": None})
             await update.message.reply_text("Спасибо! Я записал твою анкету 🎯")
-            await update.message.reply_text("Хочешь, я подскажу план тренировок или рацион на день?")
+            await update.message.reply_text("Хочешь, я помогу составить рацион или тренировку?")
         return
 
-    # Естественные вопросы после анкеты
-    if "сколько мне лет" in text:
-        age = user.get("age")
+    # Извлечение и сохранение фактов из произвольных фраз
+    extracted = extract_user_facts(text_lower)
+    if extracted:
+        update_user(user_id, extracted)
+        await update.message.reply_text("Я запомнил это!")
+
+    # Примеры пользовательских запросов
+    if "сколько мне лет" in text_lower:
+        age = user.get("age") or extracted.get("age")
         if age:
             await update.message.reply_text(f"Ты писал(а), что тебе {age} лет.")
         else:
-            await update.message.reply_text("Я пока не знаю твой возраст. Хочешь, я задам тебе анкету заново? (/start)")
+            await update.message.reply_text("Я пока не знаю твой возраст.")
         return
 
-    if "какая у меня цель" in text:
-        goal = user.get("goal")
-        if goal:
-            await update.message.reply_text(f"Ты упоминал(а), что твоя цель — {goal}.")
-        else:
-            await update.message.reply_text("Я пока не знаю твою цель. Напиши /start, чтобы пройти анкету.")
-        return
-
-    if "вешу" in text or "мой вес" in text:
-        weight = user.get("current_weight")
+    if "вешу" in text_lower or "мой вес" in text_lower:
+        weight = user.get("current_weight") or extracted.get("current_weight")
         if weight:
-            await update.message.reply_text(f"Ты писал(а), что сейчас весишь {weight} кг.")
+            await update.message.reply_text(f"Ты писал(а), что весишь {weight} кг.")
         else:
-            await update.message.reply_text("Я пока не знаю твой текущий вес.")
+            await update.message.reply_text("Я пока не знаю твой вес.")
         return
 
-    # Дальнейший диалог — передаем в ИИ (позже можно подключить Gemini)
-    await update.message.reply_text("Я помню твою анкету! Спроси меня о чём-нибудь или напиши /reset, чтобы начать заново.")
+    # Пример диалога после анкеты
+    await update.message.reply_text(
+        "Интересно! Хочешь узнать, сколько калорий тебе нужно или какие тренировки подойдут?")
 
 # --- Запуск бота ---
 if __name__ == '__main__':
