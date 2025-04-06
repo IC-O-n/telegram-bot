@@ -277,3 +277,34 @@ async def what_do_i_love(message: Message):
         await message.answer(f"Ты говорил, что любишь {user_data[5]}")
     else:
         await message.answer("Я пока не знаю, что ты любишь 🙁")
+
+@dp.message_handler(lambda message: message.text.isdigit() and 5 < int(message.text) < 120)
+async def set_age(message: Message):
+    user_id = message.from_user.id
+    age = int(message.text)
+    update_user_field(user_id, "age", age)
+    await message.answer("Запомнил твой возраст!")
+
+
+@dp.message_handler(lambda message: message.text.lower() in ["м", "ж", "мужской", "женский"])
+async def set_gender(message: Message):
+    user_id = message.from_user.id
+    gender = message.text.lower()
+    update_user_field(user_id, "gender", gender)
+    await message.answer("Запомнил твой пол!")
+
+
+@dp.message_handler(commands=["анкета"])
+async def show_profile(message: Message):
+    user_data = get_user_data(message.from_user.id)
+    if user_data:
+        user_id, username, full_name, gender, age, food = user_data
+        await message.answer(
+            f"Вот что я о тебе знаю:\n"
+            f"Имя: {full_name}\n"
+            f"Пол: {gender or 'не указан'}\n"
+            f"Возраст: {age or 'не указан'}\n"
+            f"Любимая еда: {food or 'не указана'}"
+        )
+    else:
+        await message.answer("Я пока ничего о тебе не знаю🙁")
