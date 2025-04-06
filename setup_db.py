@@ -4,7 +4,7 @@ conn = sqlite3.connect("users.db")
 cursor = conn.cursor()
 
 cursor.execute('''
-CREATE TABLE IF NOT EXISTS user_profiles (
+CREATE TABLE IF NOT EXISTS profiles (
     user_id INTEGER PRIMARY KEY,
     name TEXT,
     gender TEXT,
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     weight REAL,
     goal TEXT,
     activity TEXT,
-    diet TEXT,
+    diet_pref TEXT,
     health TEXT,
     equipment TEXT,
     target_metric TEXT
