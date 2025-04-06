@@ -294,7 +294,7 @@ async def set_gender(message: Message):
     await message.answer("Запомнил твой пол!")
 
 
-@dp.message_handler(commands=["анкета"])
+@dp.message_handler(commands=["blank"])
 async def show_profile(message: Message):
     user_data = get_user_data(message.from_user.id)
     if user_data:
