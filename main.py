@@ -149,6 +149,26 @@ def guess_corrected_field(text: str, user_data: dict):
         return "gender"
     return None
 
+# --- Определения выше ---
+def get_question_index(field_name):
+    for idx, (key, _) in enumerate(QUESTION_FLOW):
+        if key == field_name:
+            return idx
+    return None
+
+field_names = {
+    "name": "имя",
+    "age": "возраст",
+    "gender": "пол",
+    "goal": "цель",
+    "current_weight": "вес",
+    "experience": "уровень активности",
+    "food_prefs": "пищевые предпочтения",
+    "health_limits": "ограничения по здоровью",
+    "equipment": "инвентарь",
+    "metrics": "метрики"
+}
+
 # --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -161,13 +181,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if field:
             new_value = interpret_answer(field, text)
             update_user(user_id, {field: new_value})
-            await update.message.reply_text(f"Понял, обновил {field}: {new_value}")
+            friendly_name = field_names.get(field, field)
+            await update.message.reply_text(f"Понял, записал {friendly_name} как {new_value}.")
 
-            # Продолжим анкету с нужного места
+            # Возвращаемся к нужному вопросу
             question_index = get_question_index(field)
-            if question_index < len(QUESTION_FLOW):
-                update_user(user_id, {"question_index": question_index})
-                await update.message.reply_text(QUESTION_FLOW[question_index][1])
+            if question_index is not None:
+                update_user(user_id, {"question_index": question_index + 1})
+                if question_index + 1 < len(QUESTION_FLOW):
+                    await update.message.reply_text(QUESTION_FLOW[question_index + 1][1])
             return
     text_lower = text.lower()
 
