@@ -207,9 +207,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_user(user_id)
     text = update.message.text
+    
     # Списки для распознавания "да"/"нет"
     yes_words = ["да", "хочу", "ага", "давай", "можно", "я хочу", "поехали", "вперёд"]
     no_words = ["нет", "не", "потом", "не хочу", "позже"]
+
+    # Обработка анкеты
+    if user.get("question_index") is not None:
+        question_key, _ = QUESTION_FLOW[user["question_index"]]
+        reply, updated_user = process_answer(text, user, question_key)
+        update_user(user_id, updated_user)
+        await update.message.reply_text(reply)
+        return
+
+
 
     # Пассивное извлечение фактов
     extracted = extract_user_facts(text.lower())
