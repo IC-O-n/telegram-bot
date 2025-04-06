@@ -198,25 +198,15 @@ def process_answer(answer: str, user: dict, field: str) -> tuple[str, dict]:
             return (QUESTION_FLOW[idx][1], user)
 
     user["question_index"] = None
+    user["pending_action"] = "ask_help"  # <--- ВОТ ЭТО НУЖНО ДОБАВИТЬ
     return ("Спасибо! Я записал твою анкету 🎯\nХочешь, я помогу составить рацион или тренировку?", user)
 
-def analyze_intent(text: str, user: dict) -> str | None:
-    text = text.lower()
-
-    if "рацион" in text or "что есть" in text or "питание" in text:
-        return "Хочешь, я помогу составить рацион на день?"
-
-    if "тренировк" in text or "спорт" in text or "фитнес" in text:
-        return "Хочешь, я подскажу тренировку по твоим параметрам?"
-
-    if "заново" in text or "анкет" in text:
-        return "Хочешь пройти анкету сначала?"
-
-    return None
 
 # --- Обработка обычных сообщений ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    yes_words = ["да", "хочу", "ага", "давай", "можно", "я хочу", "поехали", "вперёд"]
+    no_words = ["нет", "не", "потом", "не хочу", "позже"]
     user_id = update.message.from_user.id
     text = update.message.text.strip()
     user = get_user(user_id)
@@ -293,6 +283,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if extracted:
         update_user(user_id, extracted)
         await update.message.reply_text("Я запомнил это!")
+
+    # Обработка после анкеты
+    if user.get("pending_action") == "ask_help":
+        if any(word in text.lower() for word in yes_words):
+            update_user(user_id, {"pending_action": "choose_plan"})
+            await update.message.reply_text("Окей! Начнём с питания или тренировок?")
+            return
+        elif any(word in text.lower() for word in no_words):
+            update_user(user_id, {"pending_action": None})
+            await update.message.reply_text("Окей! Если передумаешь — просто напиши.")
+            return
+
+    if user.get("pending_action") == "choose_plan":
+        if "питан" in text or "рацион" in text:
+            update_user(user_id, {"pending_action": None})
+            await update.message.reply_text("Супер! Сейчас подберу тебе рацион...")
+            # generate_nutrition_plan(user) — здесь можно вызвать генератор
+            return
+        elif "трениров" in text or "физ" in text or "спорт" in text:
+            update_user(user_id, {"pending_action": None})
+            await update.message.reply_text("Отлично! Сейчас подберу тренировку...")
+            # generate_workout_plan(user) — и здесь
+            return
+
+
 
     # Ответы на конкретные вопросы
     if "сколько мне лет" in text.lower():
