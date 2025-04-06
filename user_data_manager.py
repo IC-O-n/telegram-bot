@@ -3,6 +3,8 @@ import os
 
 DATA_FILE = "users.json"
 
+user_storage = {}
+
 def load_users():
     if not os.path.exists(DATA_FILE):
         return {}
@@ -14,13 +16,22 @@ def save_users(users):
         json.dump(users, f, ensure_ascii=False, indent=4)
 
 def get_user(user_id):
-    users = load_users()
-    return users.get(str(user_id), {})
+    return user_storage.get(user_id, {})
 
-def update_user(user_id, key, value):
-    users = load_users()
-    uid = str(user_id)
-    if uid not in users:
-        users[uid] = {}
-    users[uid][key] = value
-    save_users(users)
+def update_user(user_id, updates: dict)
+    user_storage[user_id] = {**user_storage.get(user_id, {}), **updates}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+               )
