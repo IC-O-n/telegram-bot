@@ -198,85 +198,15 @@ def process_answer(answer: str, user: dict, field: str) -> tuple[str, dict]:
             return (QUESTION_FLOW[idx][1], user)
 
     user["question_index"] = None
-    user["pending_action"] = "ask_help"  # <--- ВОТ ЭТО НУЖНО ДОБАВИТЬ
+    user["pending_action"] = "ask_help"  # <--- Ключевой момент!
     return ("Спасибо! Я записал твою анкету 🎯\nХочешь, я помогу составить рацион или тренировку?", user)
-
 
 # --- Обработка обычных сообщений ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Списки для распознавания "да"/"нет"
     yes_words = ["да", "хочу", "ага", "давай", "можно", "я хочу", "поехали", "вперёд"]
     no_words = ["нет", "не", "потом", "не хочу", "позже"]
-    user_id = update.message.from_user.id
-    text = update.message.text.strip()
-    user = get_user(user_id)
-
-    # Обработка корректировок
-    if detect_correction(text):
-        field = guess_corrected_field(text, user)
-        if field:
-            new_value = interpret_answer(field, text)
-            update_user(user_id, {field: new_value})
-            friendly_name = field_names.get(field, field)
-            await update.message.reply_text(f"Понял, записал {friendly_name} как {new_value}.")
-
-            # Вернемся к следующему незаполненному вопросу
-            for idx, (key, _) in enumerate(QUESTION_FLOW):
-                if not user.get(key):
-                    update_user(user_id, {"question_index": idx})
-                    await update.message.reply_text(QUESTION_FLOW[idx][1])
-                    return
-
-            update_user(user_id, {"question_index": None, "pending_action": "ask_help"})
-            await update.message.reply_text("Все данные заполнены! Хочешь, я помогу составить рацион или тренировку?")
-        else:
-            await update.message.reply_text("Понял, ты хочешь что-то исправить. Можешь уточнить, что именно: имя, возраст, вес, рост?")
-        return
-
-    # Продолжение анкеты
-    question_index = user.get("question_index", 0)
-    if question_index is not None and question_index < len(QUESTION_FLOW):
-        key, _ = QUESTION_FLOW[question_index]
-        message, updated_user = process_answer(text, user, key)
-        update_user(user_id, updated_user)
-        await update.message.reply_text(message)
-
-        # Переход к следующему вопросу
-        for idx in range(question_index + 1, len(QUESTION_FLOW)):
-            next_key, next_question = QUESTION_FLOW[idx]
-            if not user.get(next_key):
-                update_user(user_id, {"question_index": idx})
-                await update.message.reply_text(next_question)
-                return
-
-        # Анкета завершена
-        update_user(user_id, {"question_index": None, "pending_action": "ask_help"})
-        await update.message.reply_text("Спасибо! Я записал твою анкету 🎯")
-        await update.message.reply_text("Хочешь, я помогу составить рацион или тренировку?")
-        return
-
-    # Обработка после анкеты
-    if user.get("pending_action") == "ask_help":
-        if text.lower() in ["да", "хочу", "ага", "давай"]:
-            update_user(user_id, {"pending_action": "choose_plan"})
-            await update.message.reply_text("Окей! Начнём с питания или тренировок?")
-            return
-        elif text.lower() in ["нет", "не", "потом"]:
-            update_user(user_id, {"pending_action": None})
-            await update.message.reply_text("Окей! Если передумаешь — просто напиши.")
-            return
-
-    if user.get("pending_action") == "choose_plan":
-        if "питан" in text or "рацион" in text:
-            update_user(user_id, {"pending_action": None})
-            await update.message.reply_text("Супер! Сейчас подберу тебе рацион...")
-            # Тут можно вставить generate_nutrition_plan(user)
-            return
-        elif "трениров" in text or "физ" in text:
-            update_user(user_id, {"pending_action": None})
-            await update.message.reply_text("Отлично! Сейчас подберу тренировку...")
-            # Тут можно вставить generate_workout_plan(user)
-            return
 
     # Пассивное извлечение фактов
     extracted = extract_user_facts(text.lower())
@@ -299,17 +229,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "питан" in text or "рацион" in text:
             update_user(user_id, {"pending_action": None})
             await update.message.reply_text("Супер! Сейчас подберу тебе рацион...")
-            # generate_nutrition_plan(user) — здесь можно вызвать генератор
+            # generate_nutrition_plan(user)
             return
         elif "трениров" in text or "физ" in text or "спорт" in text:
             update_user(user_id, {"pending_action": None})
             await update.message.reply_text("Отлично! Сейчас подберу тренировку...")
-            # generate_workout_plan(user) — и здесь
+            # generate_workout_plan(user)
             return
 
-
-
-    # Ответы на конкретные вопросы
+    # Обработка прямых вопросов
     if "сколько мне лет" in text.lower():
         age = user.get("age") or extracted.get("age")
         if age:
@@ -325,9 +253,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Я пока не знаю твой вес.")
         return
 
+    # Анализ намерений (если выше ничего не сработало)
+    intent = analyze_intent(text, user)
+    if intent:
+        await update.message.reply_text(intent)
+        return
+
     # Ответ по умолчанию
     await update.message.reply_text("Интересно! Хочешь узнать, сколько калорий тебе нужно или какие тренировки подойдут?")
-
+        
 # --- Запуск бота ---
 if __name__ == '__main__':
     app = Application.builder().token(TOKEN).build()
