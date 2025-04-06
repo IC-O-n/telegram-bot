@@ -91,6 +91,35 @@ async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
     return ASK_NAME
 
+# Показать профиль пользователя
+async def show_profile(update: Update, context: CallbackContext) -> None:
+    user_id = update.message.from_user.id
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.")
+        return
+
+    profile_text = (
+        f"Твой профиль:\n\n"
+        f"Имя: {row[1]}\n"
+        f"Пол: {row[2]}\n"
+        f"Возраст: {row[3]}\n"
+        f"Вес: {row[4]} кг\n"
+        f"Цель: {row[5]}\n"
+        f"Активность: {row[6]}\n"
+        f"Питание: {row[7]}\n"
+        f"Ограничения по здоровью: {row[8]}\n"
+        f"Инвентарь: {row[9]}\n"
+        f"Целевая метрика: {row[10]}"
+    )
+
+    await update.message.reply_text(profile_text)
+
 async def ask_gender(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     user_profiles[user_id] = {"name": update.message.text}
@@ -232,6 +261,9 @@ def main():
     app.add_handler(questionnaire_handler)
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("generate_image", generate_image))
+
+    app.add_handler(CommandHandler("profile", show_profile))
+
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
     print("🤖 NutriBot запущен.")
