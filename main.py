@@ -70,7 +70,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     question_index = user.get("question_index", 0)
 
-    if question_index < len(QUESTION_FLOW):
+    if isinstance(question_index, int) and question_index < len(QUESTION_FLOW):
         key, _ = QUESTION_FLOW[question_index]
         update_user(user_id, {key: text})
 
@@ -82,6 +82,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             update_user(user_id, {"question_index": None})
             await update.message.reply_text("Спасибо! Я записал твою анкету 🎯 Готов помогать тебе достигать цели!")
+    else:
+        await update.message.reply_text("Ты уже прошёл анкету 🎉 Если хочешь начать заново — напиши /start")
 
 # --- Запуск бота ---
 if __name__ == '__main__':
