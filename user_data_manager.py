@@ -18,7 +18,7 @@ def save_users(users):
 def get_user(user_id):
     return user_storage.get(user_id, {})
 
-def update_user(user_id, updates: dict)
+def update_user(user_id, updates: dict):
     user_storage[user_id] = {**user_storage.get(user_id, {}), **updates}
 
 
