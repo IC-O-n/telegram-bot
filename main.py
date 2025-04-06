@@ -207,5 +207,73 @@ def main():
     print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и контекста + анкетой.")
     app.run_polling()
 
+
+
 if __name__ == "__main__":
     main()
+
+
+import sqlite3
+from aiogram.types import Message
+
+# Создаем/подключаемся к базе данных
+conn = sqlite3.connect("users.db")
+cursor = conn.cursor()
+
+# Создаем таблицу, если она не существует
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    full_name TEXT,
+    gender TEXT,
+    age INTEGER,
+    food_preferences TEXT
+)
+''')
+conn.commit()
+
+# Функция для добавления/обновления пользователя
+def save_user(user_id, username, full_name):
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if user is None:
+        cursor.execute("INSERT INTO users (user_id, username, full_name) VALUES (?, ?, ?)",
+                       (user_id, username, full_name))
+        conn.commit()
+
+# Функция для обновления определенного поля
+def update_user_field(user_id, field, value):
+    cursor.execute(f"UPDATE users SET {field} = ? WHERE user_id = ?", (value, user_id))
+    conn.commit()
+
+# Функция для получения данных пользователя
+def get_user_data(user_id):
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    return cursor.fetchone()
+
+# Пример хендлера, где бот запоминает пользователя при старте
+@dp.message_handler(commands=['start'])
+async def start_handler(message: Message):
+    user_id = message.from_user.id
+    username = message.from_user.username or "none"
+    full_name = message.from_user.full_name
+    save_user(user_id, username, full_name)
+    await message.answer(f"Привет, {full_name}! Я запомню тебя :)")
+
+# Пример: добавление/изменение предпочтений в еде
+@dp.message_handler(lambda message: message.text.startswith("Мое любимое блюдо:"))
+async def set_food_preference(message: Message):
+    user_id = message.from_user.id
+    food = message.text.replace("Мое любимое блюдо:", "").strip()
+    update_user_field(user_id, "food_preferences", food)
+    await message.answer(f"Запомнил, ты любишь {food}")
+
+# Пример: бот вспоминает, что пользователь любит
+@dp.message_handler(commands=["что_люблю"])
+async def what_do_i_love(message: Message):
+    user_data = get_user_data(message.from_user.id)
+    if user_data and user_data[5]:  # food_preferences
+        await message.answer(f"Ты говорил, что любишь {user_data[5]}")
+    else:
+        await message.answer("Я пока не знаю, что ты любишь 🙁")
