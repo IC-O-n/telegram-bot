@@ -132,9 +132,8 @@ def interpret_answer(key: str, user_input: str) -> str:
     return user_input.strip()
 
 def detect_correction(text: str) -> bool:
-    text_lower = text.lower()
-    correction_keywords = ["ой", "вернее", "не", "извини", "на самом деле", "хотел сказать", "я имел в виду"]
-    return any(keyword in text_lower for keyword in correction_keywords)
+    correction_phrases = ["ой", "на самом деле", "вернее", "точнее", "неправильно", "исправлюсь"]
+    return any(phrase in text.lower() for phrase in correction_phrases)
 
 def guess_corrected_field(text: str, user: dict) -> str:
     text_lower = text.lower()
@@ -185,6 +184,23 @@ field_names = {
     "metrics": "метрики"
 }
 
+def process_answer(answer: str, user: dict, field: str) -> tuple[str, dict]:
+    parsed_value = interpret_answer(field, answer)
+    if parsed_value is None:
+        return (f"Не удалось распознать значение для {field}. Попробуй ещё раз.", user)
+
+    user[field] = parsed_value
+
+    # Поиск следующего незаполненного вопроса
+    for idx, (next_key, _) in enumerate(QUESTION_FLOW):
+        if not user.get(next_key):
+            user["question_index"] = idx
+            return (QUESTION_FLOW[idx][1], user)
+
+    user["question_index"] = None
+    return ("Спасибо! Я записал твою анкету 🎯\nХочешь, я помогу составить рацион или тренировку?", user)
+
+
 # --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -206,29 +222,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     update_user(user_id, {"question_index": idx})
                     await update.message.reply_text(QUESTION_FLOW[idx][1])
                     return
+
+            update_user(user_id, {"question_index": None})
             await update.message.reply_text("Все данные заполнены! Хочешь, я помогу составить рацион или тренировку?")
+        else:
+            await update.message.reply_text("Понял, ты хочешь что-то исправить. Можешь уточнить, что именно: имя, возраст, вес, рост?")
         return
 
+    # Текущий шаг в анкете
     question_index = user.get("question_index", 0)
-
-    # Обработка анкеты
     if question_index is not None and question_index < len(QUESTION_FLOW):
         key, _ = QUESTION_FLOW[question_index]
-        cleaned_value = interpret_answer(key, text)
-        update_user(user_id, {key: cleaned_value})
-
-        # Найдем следующий незаполненный вопрос
-        for idx in range(question_index + 1, len(QUESTION_FLOW)):
-            next_key, next_question = QUESTION_FLOW[idx]
-            if not user.get(next_key):
-                update_user(user_id, {"question_index": idx})
-                await update.message.reply_text(next_question)
-                return
-
-        # Анкета завершена
-        update_user(user_id, {"question_index": None})
-        await update.message.reply_text("Спасибо! Я записал твою анкету 🎯")
-        await update.message.reply_text("Хочешь, я помогу составить рацион или тренировку?")
+        message, updated_user = process_answer(text, user, key)
+        update_user(user_id, updated_user)
+        await update.message.reply_text(message)
         return
 
     # Пассивное извлечение фактов
@@ -237,7 +244,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_user(user_id, extracted)
         await update.message.reply_text("Я запомнил это!")
 
-    # Ответы на пользовательские вопросы
+    # Ответы на конкретные вопросы
     if "сколько мне лет" in text.lower():
         age = user.get("age") or extracted.get("age")
         if age:
