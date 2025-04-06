@@ -204,6 +204,8 @@ def process_answer(answer: str, user: dict, field: str) -> tuple[str, dict]:
 # --- Обработка обычных сообщений ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_user(user_id)
     text = update.message.text
     # Списки для распознавания "да"/"нет"
     yes_words = ["да", "хочу", "ага", "давай", "можно", "я хочу", "поехали", "вперёд"]
