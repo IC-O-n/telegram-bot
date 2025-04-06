@@ -65,14 +65,24 @@ async def download_and_encode(file: File) -> dict:
 # --- Обработка обычных сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    text = update.message.text.strip()
+    text = update.message.text.strip().lower()
     user = get_user(user_id)
 
     question_index = user.get("question_index", 0)
 
-    if question_index < len(QUESTION_FLOW):
+    # Режим общения после анкеты
+    if question_index is None:
+        if "цель" in text:
+            goal = user.get("goal", "Я пока не знаю твою цель.")
+            await update.message.reply_text(f"Ты указал(а), что твоя цель — {goal}.")
+            return
+        await update.message.reply_text("Я помню твою анкету! Спроси меня о чём-нибудь или напиши /reset, чтобы начать заново.")
+        return
+
+    # Режим анкеты
+    if isinstance(question_index, int) and question_index < len(QUESTION_FLOW):
         key, _ = QUESTION_FLOW[question_index]
-        update_user(user_id, {key: text})
+        update_user(user_id, {key: update.message.text})
 
         question_index += 1
         if question_index < len(QUESTION_FLOW):
