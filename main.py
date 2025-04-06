@@ -21,18 +21,24 @@ model = genai.GenerativeModel("gemini-2.0-flash")
 user_states = {}       # Для анкеты
 user_histories = {}    # Для общения с ИИ
 
+
+QUESTION_FLOW = [
+    ("name", "Как тебя зовут?"),
+    ("goal", "Какая у тебя цель? (похудеть, набрать массу, просто ЗОЖ и т.п.)"),
+    ("experience", "Какой у тебя уровень активности и тренировочного опыта?"),
+    ("food_prefs", "Есть ли предпочтения в еде? (веганство, без глютена и т.п.)"),
+    ("health_limits", "Есть ли ограничения по здоровью?"),
+    ("equipment", "Есть ли у тебя дома тренажёры или инвентарь?"),
+    ("metrics", "Какая у тебя цель по весу или другим метрикам?")
+]
+
+
 # --- Команда /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_data = get_user(user_id)
-
-    if user_data.get("goal"):
-        await update.message.reply_text(f"Привет снова, {user_data.get('name', 'друг')}! Готов продолжить?")
-        return
-
-    await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌")
-    user_states[user_id] = {"step": "name"}
-    await update.message.reply_text("Как тебя зовут?")
+    user_id = update.message.from_user.id
+    update_user(user_id, {"question_index": 0})
+    first_question = QUESTION_FLOW[0][1]
+    await update.message.reply_text(first_question)
 
 # --- Сброс истории (/reset) ---
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,72 +66,24 @@ async def download_and_encode(file: File) -> dict:
 
 # --- Обработка всех сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
+    user_id = update.message.from_user.id
+    text = update.message.text.strip()
+    user = get_user(user_id)
 
-    message = update.message
-    user_id = message.from_user.id
-    user_text = message.text or message.caption or ""
+    question_index = user.get("question_index", 0)
 
-    # === Анкетная логика ===
-    if user_id in user_states:
-        state = user_states[user_id]
-        step = state.get("step")
+    if question_index < len(QUESTION_FLOW):
+        key, _ = QUESTION_FLOW[question_index]
+        update_user(user_id, {key: text})
 
-        if step == "name":
-            user_states[user_id]["name"] = user_text
-            user_states[user_id]["step"] = "goal"
-            await message.reply_text(f"Приятно познакомиться, {user_text}! 💪 Какая у тебя цель?")
-            return
-
-        elif step == "goal":
-            name = user_states[user_id]["name"]
-            goal = user_text
-            update_user(user_id, {"name": name, "goal": goal})
-            user_states.pop(user_id, None)
-            await message.reply_text(f"Отлично, {name}! Я помогу тебе достичь цели: {goal}")
-            return
-
-    # === Логика общения с ИИ ===
-    contents = []
-
-    media_files = message.photo or []
-    if message.document:
-        media_files.append(message.document)
-
-    for file in media_files:
-        try:
-            part = await download_and_encode(file)
-            contents.append(part)
-        except Exception as e:
-            await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
-            return
-
-    if user_text:
-        contents.insert(0, {"text": user_text})
-
-    if not contents:
-        await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
-        return
-
-    history = user_histories.get(user_id, [])
-    history.append({"role": "user", "parts": contents})
-
-    try:
-        response = model.generate_content(history)
-        reply = response.text.strip()
-        # Очистка/преобразование
-        if "bounding box detections" in reply and "`json" in reply:
-            reply = reply.split("bounding box detections")[0].strip()
-        if "На этом фото" in reply:
-            reply = reply.replace("На этом фото", "\n\nНа этом фото")
-
-        history.append({"role": "model", "parts": [reply]})
-        user_histories[user_id] = history[-10:]  # ограничение по длине истории
-
-        await message.reply_text(reply)
-    except Exception as e:
-        await message.reply_text(f"Произошла ошибка: {str(e)}")
+        question_index += 1
+        if question_index < len(QUESTION_FLOW):
+            next_question = QUESTION_FLOW[question_index][1]
+            update_user(user_id, {"question_index": question_index})
+            await update.message.reply_text(next_question)
+        else:
+            update_user(user_id, {"question_index": None})
+            await update.message.reply_text("Спасибо! Я записал твою анкету 🎯 Готов помогать тебе достигать цели!")
 
 # --- Основной запуск ---
 def main():
@@ -139,5 +97,12 @@ def main():
     print("🤖 NutriBot запущен с поддержкой текста, изображений, файлов и анкетирования.")
     app.run_polling()
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()

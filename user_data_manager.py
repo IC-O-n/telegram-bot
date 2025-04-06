@@ -1,24 +1,26 @@
 import json
 import os
 
-DATA_FILE = "users.json"
+DATA_FILE = "user_data.json"
 
-user_storage = {}
-
-def load_users():
+def load_data():
     if not os.path.exists(DATA_FILE):
         return {}
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def save_users(users):
+def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, ensure_ascii=False, indent=4)
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 def get_user(user_id):
-    return user_storage.get(user_id, {})
+    data = load_data()
+    return data.get(str(user_id), {})
 
-def update_user(user_id, updates: dict):
-    if user_id not in user_storage:
-        user_storage[user_id] = {}
-    user_storage[user_id].update(updates)
+def update_user(user_id, new_data):
+    data = load_data()
+    user_id_str = str(user_id)
+    if user_id_str not in data:
+        data[user_id_str] = {}
+    data[user_id_str].update(new_data)
+    save_data(data)
