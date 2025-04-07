@@ -226,17 +226,44 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
+    # Получаем историю
     history = user_histories.get(user_id, [])
+
+    # 👉 Добавляем профиль пользователя как системное сообщение
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        profile_context = (
+            f"Имя: {row[1]}, Пол: {row[2]}, Возраст: {row[3]}, Вес: {row[4]} кг, "
+            f"Цель: {row[5]}, Активность: {row[6]}, Диета: {row[7]}, "
+            f"Ограничения по здоровью: {row[8]}, Инвентарь: {row[9]}, "
+            f"Целевая метрика: {row[10]}"
+        )
+        # Вставляем профиль в начало истории (если ещё не вставляли)
+        if not any(m['role'] == 'system' for m in history):
+            history.insert(0, {
+                "role": "system",
+                "parts": [{"text": f"Это профиль пользователя: {profile_context}"}]
+            })
+
+    # Добавляем сообщение пользователя
+    history.append({"role": "user", "parts": contents})
+
     try:
-        history.append({"role": "user", "parts": contents})
         response = model.generate_content(history)
         reply = response.text.strip()
-
-        history.append({"role": "model", "parts": [reply]})
-        user_histories[user_id] = history[-10:]
-        await message.reply_text(f"{reply}")
+        # Сохраняем ответ
+        history.append({"role": "model", "parts": [{"text": reply}]})
+        user_histories[user_id] = history
+        await message.reply_text(reply)
     except Exception as e:
-        await message.reply_text(f"Произошла ошибка: {str(e)}")
+        await message.reply_text(f"Ошибка при генерации ответа: {str(e)}")
+
+
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
