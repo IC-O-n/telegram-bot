@@ -1,5 +1,4 @@
 import os
-import re
 import base64
 import aiohttp
 import sqlite3
@@ -192,9 +191,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
     contents = []
+
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
+
     for file in media_files:
         try:
             part = await download_and_encode(file)
@@ -202,14 +203,13 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         except Exception as e:
             await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
             return
-    if user_text:
-        contents.append({"text": user_text})
 
+    if user_text:
+        contents.insert(0, {"text": user_text})
     if not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
-    # Загружаем профиль пользователя
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -218,51 +218,22 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     if row:
         profile_prompt = (
-            f"Имя: {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]}, цель: {row[5]}, "
-            f"активность: {row[6]}, диета: {row[7]}, здоровье: {row[8]}, инвентарь: {row[9]}, цель: {row[10]}. "
-            f"Доп. заметки: {row[11]}"
+            f"Это пользователь по имени {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]} кг, цель: {row[5]}, "
+            f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}."
         )
-        contents.insert(0, {"text": f"Контекст пользователя: {profile_prompt}"})
-    
-    # Краткая история
-    user_histories[user_id] = [{"text": user_text}]
+        contents.insert(0, {"text": profile_prompt})
+
+    history = user_histories.get(user_id, [])
+    history.extend(contents)
+    user_histories[user_id] = history[-20:]
 
     try:
-        response = model.generate_content(contents)
-        answer = response.text.strip()
-        await message.reply_text(answer)
+        response = model.generate_content(history)
+        await message.reply_text(response.text)
     except Exception as e:
-        await message.reply_text(f"Ошибка генерации ответа: {str(e)}")
-        return
+        await message.reply_text(f"Ошибка при генерации ответа: {e}")
 
-    # Автоматическое запоминание важного
-    # Примитивный анализ ключевых фактов
-    new_note = ""
-    lower_text = user_text.lower()
-
-    if "люблю" in lower_text or "нравится" in lower_text:
-        new_note = re.findall(r"(?:люблю|нравится)[^\n.]+", lower_text)
-    elif "вешу" in lower_text or "вес" in lower_text:
-        match = re.search(r"(вешу|вес)[^\d]*(\d{2,3})", lower_text)
-        if match:
-            conn = sqlite3.connect("users.db")
-            cursor = conn.cursor()
-            cursor.execute("UPDATE user_profiles SET weight = ? WHERE user_id = ?", (match.group(2), user_id))
-            conn.commit()
-            conn.close()
-            await message.reply_text(f"Обновлён вес: {match.group(2)} кг")
-
-    if new_note:
-        conn = sqlite3.connect("users.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT notes FROM user_profiles WHERE user_id = ?", (user_id,))
-        current_notes = cursor.fetchone()[0] or ""
-        combined_notes = f"{current_notes} | {' '.join(new_note)}"
-        cursor.execute("UPDATE user_profiles SET notes = ? WHERE user_id = ?", (combined_notes.strip(), user_id))
-        conn.commit()
-        conn.close()
-
-async def main():
+def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
@@ -286,16 +257,10 @@ async def main():
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("profile", show_profile))
     app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(CommandHandler("image", generate_image))
+    app.add_handler(CommandHandler("generate_image", generate_image))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    await app.run_polling()
+    app.run_polling()
 
-import asyncio 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
-    
-
-
-
+    main()
