@@ -117,7 +117,7 @@ async def ask_weight(update: Update, context: CallbackContext) -> int:
 async def ask_goal(update: Update, context: CallbackContext) -> int:
     try:
         weight = float(update.message.text.replace(",", "."))
-        except ValueError:
+    except ValueError:
         await update.message.reply_text("Пожалуйста, укажи вес числом.")
         return ASK_WEIGHT
     user_profiles[update.message.from_user.id]["weight"] = weight
@@ -206,7 +206,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     if user_text:
         contents.insert(0, {"text": user_text})
-        if not contents:
+    if not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
