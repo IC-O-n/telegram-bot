@@ -206,6 +206,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     if user_text:
         contents.insert(0, {"text": user_text})
+
     if not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
@@ -216,19 +217,18 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     row = cursor.fetchone()
     conn.close()
 
+    profile_prompt = ""
     if row:
         profile_prompt = (
             f"Это пользователь по имени {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]} кг, цель: {row[5]}, "
-            f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}."
+            f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}.\n"
         )
-        contents.insert(0, {"text": profile_prompt})
 
-    history = user_histories.get(user_id, [])
-    history.extend(contents)
-    user_histories[user_id] = history[-20:]
+    # Только текущий запрос + профиль
+    current_input = [{"text": profile_prompt + (user_text or "")}] + contents[1:]
 
     try:
-        response = model.generate_content(history)
+        response = model.generate_content(current_input)
         await message.reply_text(response.text)
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}")
