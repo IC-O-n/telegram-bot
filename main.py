@@ -23,7 +23,6 @@ model = genai.GenerativeModel("gemini-2.0-flash")
 user_histories = {}
 user_profiles = {}
 
-# Состояния анкеты
 (
     ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_GOAL,
     ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, ASK_TARGET
@@ -86,39 +85,9 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
-# === Анкета ===
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
     return ASK_NAME
-
-# Показать профиль пользователя
-async def show_profile(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.")
-        return
-
-    profile_text = (
-        f"Твой профиль:\n\n"
-        f"Имя: {row[1]}\n"
-        f"Пол: {row[2]}\n"
-        f"Возраст: {row[3]}\n"
-        f"Вес: {row[4]} кг\n"
-        f"Цель: {row[5]}\n"
-        f"Активность: {row[6]}\n"
-        f"Питание: {row[7]}\n"
-        f"Ограничения по здоровью: {row[8]}\n"
-        f"Инвентарь: {row[9]}\n"
-        f"Целевая метрика: {row[10]}"
-    )
-
-    await update.message.reply_text(profile_text)
 
 async def ask_gender(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -148,7 +117,7 @@ async def ask_weight(update: Update, context: CallbackContext) -> int:
 async def ask_goal(update: Update, context: CallbackContext) -> int:
     try:
         weight = float(update.message.text.replace(",", "."))
-    except ValueError:
+        except ValueError:
         await update.message.reply_text("Пожалуйста, укажи вес числом.")
         return ASK_WEIGHT
     user_profiles[update.message.from_user.id]["weight"] = weight
@@ -188,6 +157,26 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
     return ConversationHandler.END
 
+async def show_profile(update: Update, context: CallbackContext) -> None:
+    user_id = update.message.from_user.id
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.")
+        return
+
+    profile_text = (
+        f"Твой профиль:\n\n"
+        f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
+        f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
+        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}"
+    )
+    await update.message.reply_text(profile_text)
+
 async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     user_histories.pop(user_id, None)
@@ -195,11 +184,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
 
 async def generate_image(update: Update, context: CallbackContext) -> None:
-    prompt = " ".join(context.args)
-    if not prompt:
-        await update.message.reply_text("Напиши, что ты хочешь сгенерировать! Например:\n/generate_image футуристический бургер")
-        return
-    await update.message.reply_text("⚙️ Генерация изображения пока недоступна в API Gemini. Ожидаем активации от Google!")
+    await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
@@ -221,15 +206,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     if user_text:
         contents.insert(0, {"text": user_text})
-
-    if not contents:
+        if not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
-    # Получаем историю
-    history = user_histories.get(user_id, [])
-
-    # 👉 Добавляем профиль пользователя как системное сообщение
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -237,38 +217,27 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     conn.close()
 
     if row:
-        profile_context = (
-            f"Имя: {row[1]}, Пол: {row[2]}, Возраст: {row[3]}, Вес: {row[4]} кг, "
-            f"Цель: {row[5]}, Активность: {row[6]}, Диета: {row[7]}, "
-            f"Ограничения по здоровью: {row[8]}, Инвентарь: {row[9]}, "
-            f"Целевая метрика: {row[10]}"
+        profile_prompt = (
+            f"Это пользователь по имени {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]} кг, цель: {row[5]}, "
+            f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}."
         )
-        # Вставляем профиль в начало истории (если ещё не вставляли)
-        if not any(m['role'] == 'system' for m in history):
-            history.insert(0, {
-                "role": "system",
-                "parts": [{"text": f"Это профиль пользователя: {profile_context}"}]
-            })
+        contents.insert(0, {"text": profile_prompt})
 
-    # Добавляем сообщение пользователя
-    history.append({"role": "user", "parts": contents})
+    history = user_histories.get(user_id, [])
+    history.extend(contents)
+    user_histories[user_id] = history[-20:]
 
     try:
         response = model.generate_content(history)
-        reply = response.text.strip()
-        # Сохраняем ответ
-        history.append({"role": "model", "parts": [{"text": reply}]})
-        user_histories[user_id] = history
-        await message.reply_text(reply)
+        await message.reply_text(response.text)
     except Exception as e:
-        await message.reply_text(f"Ошибка при генерации ответа: {str(e)}")
-
+        await message.reply_text(f"Ошибка при генерации ответа: {e}")
 
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
-    questionnaire_handler = ConversationHandler(
+    conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
@@ -285,15 +254,12 @@ def main():
         fallbacks=[],
     )
 
-    app.add_handler(questionnaire_handler)
+    app.add_handler(conv_handler)
+    app.add_handler(CommandHandler("profile", show_profile))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("generate_image", generate_image))
-
-    app.add_handler(CommandHandler("profile", show_profile))
-
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    print("🤖 NutriBot запущен.")
     app.run_polling()
 
 if __name__ == "__main__":
