@@ -291,9 +291,11 @@ async def main():
 
     await app.run_polling()
 
+import asyncio 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+    
 
 
 
