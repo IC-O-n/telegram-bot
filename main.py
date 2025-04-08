@@ -196,9 +196,12 @@ async def generate_image(update: Update, context: CallbackContext) -> None:
     prompt = update.message.text
     response = model.generate_content(prompt)
     if hasattr(response, '_result'):
+    # Предположим, что response._result содержит изображение в байтовом формате
         image = response._result
-    else: # обработка ошибки, если атрибута нет
-        image = None  # генерируем изображение из текста
+        await update.message.reply_photo(photo=image)
+    else:
+        # обработка ошибки, если _result не существует
+        await update.message.reply_text("Ошибка при получении изображения.")
     await update.message.reply_photo(photo=image)
 
 def add_preferences_column():
