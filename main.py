@@ -194,7 +194,7 @@ async def generate_image(update: Update, context: CallbackContext) -> None:
         return
 
     prompt = update.message.text
-    response = model.generate_text(prompt)
+    response = model.generate_content(prompt)
     image = response.result  # генерируем изображение из текста
     await update.message.reply_photo(photo=image)
 
