@@ -198,7 +198,18 @@ async def generate_image(update: Update, context: CallbackContext) -> None:
     image = response.result  # генерируем изображение из текста
     await update.message.reply_photo(photo=image)
 
+def add_preferences_column():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+    ALTER TABLE user_profiles
+    ADD COLUMN preferences TEXT
+    ''')
+    conn.commit()
+    conn.close()
+
 def main():
+    add_preferences_column()
     application = Application.builder().token(TOKEN).build()
     init_db()
     conv_handler = ConversationHandler(
