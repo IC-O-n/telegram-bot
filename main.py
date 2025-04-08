@@ -43,8 +43,7 @@ def init_db():
         diet TEXT,
         health TEXT,
         equipment TEXT,
-        target_metric TEXT,
-        preferences TEXT
+        target_metric TEXT
     )
     ''')
     conn.commit()
@@ -53,11 +52,10 @@ def init_db():
 def save_user_profile(user_id: int, profile: dict):
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
-    preferences = profile.get("preferences", "")
     cursor.execute('''
     INSERT OR REPLACE INTO user_profiles
-    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric, preferences)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
         profile.get("name"),
@@ -70,7 +68,6 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("health"),
         profile.get("equipment"),
         profile.get("target_metric"),
-        preferences
     ))
     conn.commit()
     conn.close()
@@ -80,7 +77,7 @@ async def download_and_encode(file: File) -> dict:
     async with aiohttp.ClientSession() as session:
         async with session.get(telegram_file.file_path) as resp:
             data = await resp.read()
-    mime_type = getattr(file, 'mime_type', "image/jpeg")
+    mime_type = file.mime_type if hasattr(file, 'mime_type') else "image/jpeg"
     return {
         "inline_data": {
             "mime_type": mime_type,
@@ -176,8 +173,7 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         f"Твой профиль:\n\n"
         f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
         f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
-        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}\n"
-        f"Предпочтения: {row[11]}"
+        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}"
     )
     await update.message.reply_text(profile_text)
 
@@ -188,55 +184,83 @@ async def reset(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
 
 async def generate_image(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    if user_id not in user_profiles:
-        await update.message.reply_text("Пройди анкету сначала с /start.")
+    await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
+
+async def handle_message(update: Update, context: CallbackContext) -> None:
+    message = update.message
+    user_id = message.from_user.id
+    user_text = message.caption or message.text or ""
+    contents = []
+
+    media_files = message.photo or []
+    if message.document:
+        media_files.append(message.document)
+
+    for file in media_files:
+        try:
+            part = await download_and_encode(file)
+            contents.append(part)
+        except Exception as e:
+            await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
+            return
+
+    if user_text:
+        contents.insert(0, {"text": user_text})
+    if not contents:
+        await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
-    prompt = update.message.text
-    response = model.generate_content(prompt)
-    if hasattr(response, '_result'):
-    # Предположим, что response._result содержит изображение в байтовом формате
-        image = response._result
-        await update.message.reply_photo(photo=image)
-    else:
-        # обработка ошибки, если _result не существует
-        await update.message.reply_text("Ошибка при получении изображения.")
-    await update.message.reply_photo(photo=image)
-
-def add_preferences_column():
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
-    cursor.execute('''
-    ALTER TABLE user_profiles
-    ADD COLUMN preferences TEXT
-    ''')
-    conn.commit()
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
     conn.close()
 
+    if row:
+        profile_prompt = (
+            f"Это пользователь по имени {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]} кг, цель: {row[5]}, "
+            f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}."
+        )
+        contents.insert(0, {"text": profile_prompt})
+
+    history = user_histories.get(user_id, [])
+    history.extend(contents)
+    user_histories[user_id] = history[-20:]
+
+    try:
+        response = model.generate_content(history)
+        await message.reply_text(response.text)
+    except Exception as e:
+        await message.reply_text(f"Ошибка при генерации ответа: {e}")
+
 def main():
-    add_preferences_column()
-    application = Application.builder().token(TOKEN).build()
     init_db()
+    app = Application.builder().token(TOKEN).build()
+
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_NAME: [MessageHandler(filters.TEXT, ask_gender)],
-            ASK_GENDER: [MessageHandler(filters.TEXT, ask_age)],
-            ASK_AGE: [MessageHandler(filters.TEXT, ask_weight)],
-            ASK_WEIGHT: [MessageHandler(filters.TEXT, ask_goal)],
-            ASK_GOAL: [MessageHandler(filters.TEXT, ask_activity)],
-            ASK_ACTIVITY: [MessageHandler(filters.TEXT, ask_diet_pref)],
-            ASK_DIET_PREF: [MessageHandler(filters.TEXT, ask_health)],
-            ASK_HEALTH: [MessageHandler(filters.TEXT, ask_equipment)],
-            ASK_EQUIPMENT: [MessageHandler(filters.TEXT, ask_target)],
-            ASK_TARGET: [MessageHandler(filters.TEXT, finish_questionnaire)],
+            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
+            ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
+            ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
+            ASK_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_goal)],
+            ASK_GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_activity)],
+            ASK_ACTIVITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_diet_pref)],
+            ASK_DIET_PREF: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_health)],
+            ASK_HEALTH: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_equipment)],
+            ASK_EQUIPMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_target)],
+            ASK_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish_questionnaire)],
         },
-        fallbacks=[CommandHandler("show_profile", show_profile), CommandHandler("reset", reset)],)
-    application.add_handler(conv_handler)
-    application.add_handler(MessageHandler(filters.TEXT, generate_image))
+        fallbacks=[],
+    )
 
-    application.run_polling()
+    app.add_handler(conv_handler)
+    app.add_handler(CommandHandler("profile", show_profile))
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("generate_image", generate_image))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-if __name__ == '__main__':
+    app.run_polling()
+
+if __name__ == "__main__":
     main()
