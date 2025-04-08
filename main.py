@@ -3,12 +3,19 @@ import base64
 import aiohttp
 import sqlite3
 import telegram
+import logging
+import asyncio
+from collections import deque
 from telegram import Update, File
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, CallbackContext, ConversationHandler
 )
 import google.generativeai as genai
+
+# Логирование
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(name)
 
 # Конфигурация
 TOKEN = os.getenv("TOKEN")
@@ -22,6 +29,7 @@ model = genai.GenerativeModel("gemini-2.0-flash")
 
 user_histories = {}
 user_profiles = {}
+MAX_HISTORY_LENGTH = 5
 
 (
     ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_GOAL,
@@ -72,12 +80,12 @@ def save_user_profile(user_id: int, profile: dict):
     conn.commit()
     conn.close()
 
-async def download_and_encode(file: File) -> dict:
+async def download_and_encode(file: File, context: CallbackContext) -> dict:
     telegram_file = await file.get_file()
     async with aiohttp.ClientSession() as session:
         async with session.get(telegram_file.file_path) as resp:
             data = await resp.read()
-    mime_type = file.mime_type if hasattr(file, 'mime_type') else "image/jpeg"
+    mime_type = "image/jpeg"
     return {
         "inline_data": {
             "mime_type": mime_type,
@@ -86,7 +94,7 @@ async def download_and_encode(file: File) -> dict:
     }
 
 async def start(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
+    await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Как тебя зовут?")
     return ASK_NAME
 
 async def ask_gender(update: Update, context: CallbackContext) -> int:
@@ -126,12 +134,12 @@ async def ask_goal(update: Update, context: CallbackContext) -> int:
 
 async def ask_activity(update: Update, context: CallbackContext) -> int:
     user_profiles[update.message.from_user.id]["goal"] = update.message.text
-    await update.message.reply_text("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)")
+    await update.message.reply_text("Какой у тебя уровень активности? (Новичок, Средний, Продвинутый)")
     return ASK_ACTIVITY
 
 async def ask_diet_pref(update: Update, context: CallbackContext) -> int:
     user_profiles[update.message.from_user.id]["activity"] = update.message.text
-    await update.message.reply_text("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)")
+    await update.message.reply_text("Есть ли у тебя предпочтения в еде? (веганство, аллергии и т.п.)")
     return ASK_DIET_PREF
 
 async def ask_health(update: Update, context: CallbackContext) -> int:
@@ -141,7 +149,7 @@ async def ask_health(update: Update, context: CallbackContext) -> int:
 
 async def ask_equipment(update: Update, context: CallbackContext) -> int:
     user_profiles[update.message.from_user.id]["health"] = update.message.text
-    await update.message.reply_text("Какой инвентарь/тренажёры у тебя есть?")
+    await update.message.reply_text("Какой у тебя есть инвентарь/тренажёры?")
     return ASK_EQUIPMENT
 
 async def ask_target(update: Update, context: CallbackContext) -> int:
@@ -152,9 +160,8 @@ async def ask_target(update: Update, context: CallbackContext) -> int:
 async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     user_profiles[user_id]["target_metric"] = update.message.text
-    name = user_profiles[user_id]["name"]
     save_user_profile(user_id, user_profiles[user_id])
-    await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
+    await update.message.reply_text("Анкета завершена 🎉 Теперь ты можешь присылать мне фото еды, текст и т.д. — я помогу с анализом!")
     return ConversationHandler.END
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
@@ -173,70 +180,29 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         f"Твой профиль:\n\n"
         f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
         f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
-        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}"
+        f"Ограничения: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}"
     )
     await update.message.reply_text(profile_text)
 
-async def reset(update: Update, context: CallbackContext) -> None:
+async def handle_text(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
-    user_histories.pop(user_id, None)
-    user_profiles.pop(user_id, None)
-    await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
+    text = update.message.text
+    history = user_histories.setdefault(user_id, deque(maxlen=MAX_HISTORY_LENGTH))
+    history.append({"role": "user", "parts": [text]})
+    response = model.generate_content(list(history))
+    history.append({"role": "model", "parts": [response.text]})
+    await update.message.reply_text(response.text)
 
-async def generate_image(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
-
-async def handle_message(update: Update, context: CallbackContext) -> None:
-    message = update.message
-    user_id = message.from_user.id
-    user_text = message.caption or message.text or ""
-    contents = []
-
-    media_files = message.photo or []
-    if message.document:
-        media_files.append(message.document)
-
-    for file in media_files:
-        try:
-            part = await download_and_encode(file)
-            contents.append(part)
-        except Exception as e:
-            await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
-            return
-
-    if user_text:
-        contents.insert(0, {"text": user_text})
-    if not contents:
-        await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
-        return
-
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if row:
-        profile_prompt = (
-            f"Это пользователь по имени {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]} кг, цель: {row[5]}, "
-            f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}."
-        )
-        contents.insert(0, {"text": profile_prompt})
-
-    history = user_histories.get(user_id, [])
-    history.extend(contents)
-    user_histories[user_id] = history[-20:]
-
-    try:
-        response = model.generate_content(history)
-        await message.reply_text(response.text)
-    except Exception as e:
-        await message.reply_text(f"Ошибка при генерации ответа: {e}")
+async def handle_photo(update: Update, context: CallbackContext):
+    file = await update.message.photo[-1].get_file()
+    image_data = await download_and_encode(file, context)
+    prompt = "Проанализируй это изображение с точки зрения питания или фитнеса."
+    response = model.generate_content([prompt, image_data])
+    await update.message.reply_text(response.text)
 
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
-
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -256,9 +222,8 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("profile", show_profile))
-    app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(CommandHandler("generate_image", generate_image))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     app.run_polling()
 
