@@ -217,11 +217,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     conn.close()
 
     if row:
-    profile_prompt = (
-        f"Это пользователь по имени {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]} кг, цель: {row[5]}, "
-        f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}."
-    )
-    contents.insert(0, {"text": profile_prompt})
+        profile_prompt = (
+            f"Это пользователь по имени {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]} кг, цель: {row[5]}, "
+            f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}."
+        )
+        contents.insert(0, {"text": profile_prompt})
 
     try:
         response = model.generate_content(contents)
