@@ -3,6 +3,7 @@ import base64
 import aiohttp
 import sqlite3
 import telegram
+from collections import deque
 from telegram import Update, File
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -224,6 +225,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         contents.insert(0, {"text": profile_prompt})
 
     try:
+        if user_id not in user_histories:
+            user_histories[user_id] = deque(maxlen=5)
+
+        user_histories[user_id].append(user_text)
+
+        # Добавим последние 5 сообщений в начало contents
+        history_messages = list(user_histories[user_id])
+        if history_messages:
+            history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
+            contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
+
         response = model.generate_content(contents)
         await message.reply_text(response.text)
     except Exception as e:
