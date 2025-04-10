@@ -1,5 +1,4 @@
 import os
-import re
 import base64
 import aiohttp
 import sqlite3
@@ -29,8 +28,6 @@ user_profiles = {}
     ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_GOAL,
     ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, ASK_TARGET
 ) = range(10)
-
-
 
 def init_db():
     conn = sqlite3.connect("users.db")
@@ -214,7 +211,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
-    # Вытаскиваем профиль из базы
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -228,78 +224,23 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         )
         contents.insert(0, {"text": profile_prompt})
 
-    # Добавляем историю сообщений
-    if user_id not in user_histories:
-        user_histories[user_id] = deque(maxlen=5)
-    user_histories[user_id].append(user_text)
-    history_messages = list(user_histories[user_id])
-    if history_messages:
-        history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
-        contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
-
     try:
-        GEMINI_SYSTEM_PROMPT = """
-Ты — умный ассистент. На вход ты получаешь сообщение от пользователя, которое может содержать обновление профиля (например, он сообщает, что его вес изменился или он стал веганом). 
+        if user_id not in user_histories:
+            user_histories[user_id] = deque(maxlen=5)
 
-В базе данных есть таблица user_profiles с колонками:
-- user_id INTEGER PRIMARY KEY
-- name TEXT
-- gender TEXT
-- age INTEGER
-- weight REAL
-- goal TEXT
-- activity TEXT
-- diet TEXT
-- health TEXT
-- equipment TEXT
-- target_metric TEXT
+        user_histories[user_id].append(user_text)
 
-Если в сообщении содержится информация, которую нужно обновить в базе данных, сгенерируй:
-- SQL-запрос, который вносит это изменение.
-- Человеческий ответ, который бот должен отправить пользователю.
+        # Добавим последние 5 сообщений в начало contents
+        history_messages = list(user_histories[user_id])
+        if history_messages:
+            history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
+            contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
 
-Пример:
-Пользователь: "Я набрал 3 кг"
-Ответ:
-SQL: UPDATE user_profiles SET weight = weight + 3 WHERE user_id = ?
-TEXT: Хорошо, я обновил твой вес — добавил 3 кг.
-
-Если изменений не требуется, просто ответь человеку без SQL.
-
-Ответ возвращай строго в формате:
-SQL: ...
-TEXT: ...
-"""
-
-        contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
         response = model.generate_content(contents)
-        response_text = response.text.strip()
-
-        # Ищем SQL и TEXT
-        sql_match = re.search(r"SQL:\s*(.+)", response_text)
-        text_match = re.search(r"TEXT:\s*(.+)", response_text)
-
-        if sql_match:
-            sql_query = sql_match.group(1)
-            conn = sqlite3.connect("users.db")
-            cursor = conn.cursor()
-            try:
-                cursor.execute(sql_query, (user_id,))
-                conn.commit()
-            except Exception as e:
-                await message.reply_text(f"Ошибка при обновлении профиля: {e}")
-                conn.close()
-                return
-            conn.close()
-
-        if text_match:
-            await message.reply_text(text_match.group(1))
-        else:
-            await message.reply_text(response_text)
-
+        await message.reply_text(response.text)
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}")
-        
+
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
@@ -331,3 +272,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
