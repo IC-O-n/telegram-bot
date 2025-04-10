@@ -299,7 +299,7 @@ TEXT: ...
 
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}")
-
+        
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
