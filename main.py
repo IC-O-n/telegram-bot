@@ -1,4 +1,5 @@
 import os
+import re
 import base64
 import aiohttp
 import sqlite3
@@ -28,6 +29,28 @@ user_profiles = {}
     ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_GOAL,
     ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, ASK_TARGET
 ) = range(10)
+
+GEMINI_SYSTEM_PROMPT = """
+Ты — умный ассистент. На вход ты получаешь сообщение от пользователя, которое может содержать обновление профиля (например, он сообщает, что его вес изменился или он стал веганом). 
+
+Если в сообщении содержится информация, которую нужно обновить в базе данных, сгенерируй:
+- SQL-запрос, который вносит это изменение.
+- Человеческий ответ, который бот должен отправить пользователю.
+
+Пример:
+Пользователь: "Я набрал 3 кг"
+Ответ:
+SQL: UPDATE user_profiles SET weight = weight + 3 WHERE user_id = ?
+TEXT: Хорошо, я обновил твой вес — добавил 3 кг.
+
+Если изменений не требуется, просто ответь человеку без SQL.
+
+Ответ возвращай строго в формате:
+SQL: ...
+TEXT: ...
+"""
+
+
 
 def init_db():
     conn = sqlite3.connect("users.db")
@@ -193,6 +216,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_text = message.caption or message.text or ""
     contents = []
 
+    # Обработка медиа
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
@@ -211,6 +235,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
+    # Получение профиля
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -224,20 +249,41 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         )
         contents.insert(0, {"text": profile_prompt})
 
+    # История сообщений
+    if user_id not in user_histories:
+        user_histories[user_id] = deque(maxlen=5)
+    user_histories[user_id].append(user_text)
+    history_messages = list(user_histories[user_id])
+    if history_messages:
+        history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
+        contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
+
     try:
-        if user_id not in user_histories:
-            user_histories[user_id] = deque(maxlen=5)
-
-        user_histories[user_id].append(user_text)
-
-        # Добавим последние 5 сообщений в начало contents
-        history_messages = list(user_histories[user_id])
-        if history_messages:
-            history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
-            contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
-
         response = model.generate_content(contents)
-        await message.reply_text(response.text)
+        text = response.text
+
+        # Попытка распарсить SQL и текст
+        match = re.search(r"SQL:\s*(.*?)\nTEXT:\s*(.*)", text, re.DOTALL)
+        if match:
+            sql_query = match.group(1).strip()
+            reply_text = match.group(2).strip()
+
+            if sql_query.lower().startswith("update") or sql_query.lower().startswith("insert"):
+                try:
+                    conn = sqlite3.connect("users.db")
+                    cursor = conn.cursor()
+                    cursor.execute(sql_query, (user_id,))
+                    conn.commit()
+                    conn.close()
+                except Exception as db_error:
+                    await message.reply_text(f"Ошибка при выполнении SQL-запроса: {db_error}")
+                    return
+
+            await message.reply_text(reply_text)
+        else:
+            # Если нет SQL, просто шлём ответ как есть
+            await message.reply_text(text)
+
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}")
 
