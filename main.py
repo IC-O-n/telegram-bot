@@ -258,7 +258,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         TEXT: ...
         """
 
-        response = model.generate_content(contents, system_instruction=GEMINI_SYSTEM_PROMPT)
+        contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
+        response = model.generate_content(contents)
         response_text = response.text.strip()
 
         # Ищем SQL и TEXT
