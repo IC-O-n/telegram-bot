@@ -187,12 +187,39 @@ async def reset(update: Update, context: CallbackContext) -> None:
 async def generate_image(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
 
+
+def get_user_profile_as_text(user_id: int) -> str:
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return "Профиль пользователя не найден."
+
+    return (
+        f"Имя: {row[1]}\n"
+        f"Пол: {row[2]}\n"
+        f"Возраст: {row[3]}\n"
+        f"Вес: {row[4]} кг\n"
+        f"Цель: {row[5]}\n"
+        f"Активность: {row[6]}\n"
+        f"Питание: {row[7]}\n"
+        f"Здоровье: {row[8]}\n"
+        f"Инвентарь: {row[9]}\n"
+        f"Целевая метрика: {row[10]}"
+    )
+
+
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
     contents = []
 
+    # Обработка медиафайлов (фото и документы)
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
@@ -205,41 +232,40 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
             return
 
+    # Добавление текста пользователя (если есть)
     if user_text:
         contents.insert(0, {"text": user_text})
+
+    # Если ничего не было отправлено
     if not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
+    # Получение профиля пользователя
+    profile_text = get_user_profile_as_text(user_id)
+    if "не найден" not in profile_text:
+        contents.insert(0, {"text": f"Профиль пользователя:\n{profile_text}"})
 
-    if row:
-        profile_prompt = (
-            f"Это пользователь по имени {row[1]}, пол: {row[2]}, возраст: {row[3]}, вес: {row[4]} кг, цель: {row[5]}, "
-            f"уровень активности: {row[6]}, диета: {row[7]}, ограничения: {row[8]}, инвентарь: {row[9]}, целевая метрика: {row[10]}."
-        )
-        contents.insert(0, {"text": profile_prompt})
-
+    # Работа с историей сообщений
     try:
         if user_id not in user_histories:
             user_histories[user_id] = deque(maxlen=5)
 
-        user_histories[user_id].append(user_text)
+        if user_text:
+            user_histories[user_id].append(user_text)
 
-        # Добавим последние 5 сообщений в начало contents
-        history_messages = list(user_histories[user_id])
-        if history_messages:
-            history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
+        # Вставка истории сообщений в prompt
+        if user_histories[user_id]:
+            history_prompt = "\n".join(f"Пользователь: {msg}" for msg in user_histories[user_id])
             contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
 
+        # Генерация ответа через модель
         response = model.generate_content(contents)
         await message.reply_text(response.text)
+
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}")
+
 
 def main():
     init_db()
