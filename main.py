@@ -44,8 +44,8 @@ def init_db():
         activity TEXT,
         diet TEXT,
         health TEXT,
-        equipment TEXT[],
-        target_metric TEXT[]
+        equipment TEXT,
+        target_metric TEXT
     )
     ''')
     conn.commit()
@@ -272,8 +272,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - activity TEXT
 - diet TEXT
 - health TEXT
-- equipment TEXT[]
-- target_metric TEXT[]
+- equipment TEXT
+- target_metric TEXT
 
 Формат ответа:
 Если есть явное изменение данных — возвращай:
