@@ -188,7 +188,7 @@ async def generate_image(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
 
 
-def get_user_profile_as_text(user_id: int) -> str:
+def get_user_profile_text(user_id: int) -> str:
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -219,7 +219,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_text = message.caption or message.text or ""
     contents = []
 
-    # Обработка медиафайлов (фото и документы)
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
@@ -232,36 +231,86 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
             return
 
-    # Добавление текста пользователя (если есть)
     if user_text:
         contents.insert(0, {"text": user_text})
-
-    # Если ничего не было отправлено
     if not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
-    # Получение профиля пользователя
-    profile_text = get_user_profile_as_text(user_id)
-    if "не найден" not in profile_text:
-        contents.insert(0, {"text": f"Профиль пользователя:\n{profile_text}"})
+    # Профиль пользователя
+    profile_info = get_user_profile_text(user_id)
+    if profile_info and "не найден" not in profile_info:
+        contents.insert(0, {"text": f"Информация о пользователе:\n{profile_info}"})
 
-    # Работа с историей сообщений
+    # Добавление истории сообщений
+    if user_id not in user_histories:
+        user_histories[user_id] = deque(maxlen=5)
+    user_histories[user_id].append(user_text)
+    history_messages = list(user_histories[user_id])
+    if history_messages:
+        history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
+        contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
+
+    # Системный промпт
+    GEMINI_SYSTEM_PROMPT = """
+Ты — умный ассистент. На вход ты получаешь сообщение от пользователя, которое может содержать обновление профиля (например, он сообщает, что его вес изменился или он стал веганом). 
+
+В базе данных есть таблица user_profiles с колонками:
+- user_id INTEGER PRIMARY KEY
+- name TEXT
+- gender TEXT
+- age INTEGER
+- weight REAL
+- goal TEXT
+- activity TEXT
+- diet TEXT
+- health TEXT
+- equipment TEXT
+- target_metric TEXT
+
+Если в сообщении содержится информация, которую нужно обновить в базе данных, сгенерируй:
+- SQL-запрос, который вносит это изменение.
+- Человеческий ответ, который бот должен отправить пользователю.
+
+Пример:
+Пользователь: "Я набрал 3 кг"
+Ответ:
+SQL: UPDATE user_profiles SET weight = weight + 3 WHERE user_id = ?
+TEXT: Хорошо, я обновил твой вес — добавил 3 кг.
+
+Если изменений не требуется, просто ответь человеку без SQL.
+
+Ответ возвращай строго в формате:
+SQL: ...
+TEXT: ...
+"""
+    contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
+
     try:
-        if user_id not in user_histories:
-            user_histories[user_id] = deque(maxlen=5)
-
-        if user_text:
-            user_histories[user_id].append(user_text)
-
-        # Вставка истории сообщений в prompt
-        if user_histories[user_id]:
-            history_prompt = "\n".join(f"Пользователь: {msg}" for msg in user_histories[user_id])
-            contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
-
-        # Генерация ответа через модель
         response = model.generate_content(contents)
-        await message.reply_text(response.text)
+        response_text = response.text.strip()
+
+        # Обработка SQL и TEXT
+        sql_match = re.search(r"SQL:\s*(.+)", response_text)
+        text_match = re.search(r"TEXT:\s*(.+)", response_text)
+
+        if sql_match:
+            sql_query = sql_match.group(1)
+            conn = sqlite3.connect("users.db")
+            cursor = conn.cursor()
+            try:
+                cursor.execute(sql_query, (user_id,))
+                conn.commit()
+            except Exception as e:
+                await message.reply_text(f"Ошибка при обновлении профиля: {e}")
+                conn.close()
+                return
+            conn.close()
+
+        if text_match:
+            await message.reply_text(text_match.group(1))
+        else:
+            await message.reply_text(response_text)
 
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}")
