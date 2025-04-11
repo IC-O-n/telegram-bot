@@ -243,7 +243,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if profile_info and "не найден" not in profile_info:
         contents.insert(0, {"text": f"Информация о пользователе:\n{profile_info}"})
 
-    # Добавление истории сообщений
+    # История
     if user_id not in user_histories:
         user_histories[user_id] = deque(maxlen=5)
     user_histories[user_id].append(user_text)
@@ -291,31 +291,38 @@ TEXT: ...
         response = model.generate_content(contents)
         response_text = response.text.strip()
 
-        # Обработка SQL и TEXT
-        sql_match = re.search(r"SQL:\s*(.+)", response_text)
-        text_match = re.search(r"TEXT:\s*(.+)", response_text)
+        # Разделим SQL и TEXT
+        sql_match = re.search(r"SQL:\s*(.*?)\nTEXT:", response_text, re.DOTALL)
+        text_match = re.search(r"TEXT:\s*(.+)", response_text, re.DOTALL)
 
         if sql_match:
-            sql_query = sql_match.group(1)
-            conn = sqlite3.connect("users.db")
-            cursor = conn.cursor()
+            sql_query = sql_match.group(1).strip()
+
             try:
-                cursor.execute(sql_query, (user_id,))
+                conn = sqlite3.connect("users.db")
+                cursor = conn.cursor()
+
+                # Проверка: содержит ли SQL-запрос знак вопроса
+                if "?" in sql_query:
+                    cursor.execute(sql_query, (user_id,))
+                else:
+                    cursor.execute(sql_query)
+
                 conn.commit()
+                conn.close()
             except Exception as e:
                 await message.reply_text(f"Ошибка при обновлении профиля: {e}")
-                conn.close()
                 return
-            conn.close()
 
         if text_match:
-            await message.reply_text(text_match.group(1))
+            reply_text = text_match.group(1).strip()
+            await message.reply_text(reply_text)
         else:
+            # Если текстового ответа не найдено — просто верни всё как есть
             await message.reply_text(response_text)
 
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}")
-
 
 def main():
     init_db()
