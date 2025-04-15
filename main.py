@@ -219,6 +219,7 @@ def get_user_profile_text(user_id: int) -> str:
         f"Инвентарь: {row[9]}\n"
         f"Целевая метрика: {row[10]}\n"
         f"Заметки: {row[11] or '—'}"
+        )
 
 
 def add_user_note(user_id: int, note: str):
