@@ -45,15 +45,14 @@ def init_db():
         diet TEXT,
         health TEXT,
         equipment TEXT,
-        target_metric TEXT
+        target_metric TEXT,
+        notes TEXT
     )
+    CREATE TABLE user_insights (
+    user_id INTEGER,
+    insight TEXT
+    );
     ''')
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_insights (
-            user_id INTEGER,
-            insight TEXT
-        )
-    """)
     conn.commit()
     conn.close()
 
@@ -226,16 +225,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_text = message.caption or message.text or ""
     contents = []
 
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT insight FROM user_insights WHERE user_id = ?", (user_id,))
-    insight_rows = cursor.fetchall()
-    conn.close()
-
-    if insight_rows:
-        insights_text = "\n".join(f"- {row[0]}" for row in insight_rows)
-        contents.insert(0, {"text": f"Известные инсайты о пользователе:\n{insights_text}"})
-
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
@@ -288,6 +277,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - health TEXT
 - equipment TEXT
 - target_metric TEXT
+- notes TEXT
 
 Твоя задача:
 
@@ -316,8 +306,9 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 ⚠️ Всегда отправляй SQL только если действительно нужно сохранить информацию в базу данных. Никогда не дублируй или сохраняй мусор.
 
-
 ⚠️ Никогда не обновляй профиль без явного указания на это (например: "измени", "добавь", "мой вес теперь..." и т.п.)
+
+✅ Всегда перед генерацией ответа используй *все поля* из user_profiles (включая notes), чтобы понимать контекст, цели и привычки человека.
 
 Ответ всегда возвращай строго в формате:
 SQL: ...
@@ -342,16 +333,11 @@ TEXT: ...
                 conn = sqlite3.connect("users.db")
                 cursor = conn.cursor()
 
-                if sql_query.lower().startswith("insert into user_insights"):
-                    # Вставка инсайта вручную — с подстановкой user_id
-                    cursor.execute("INSERT INTO user_insights (user_id, insight) VALUES (?, ?)",
-                                    (user_id, re.search(r"VALUES\s*\(\s*[^,]+,\s*'(.*?)'\s*\)", sql_query).group(1)))
+                # Проверка: содержит ли SQL-запрос знак вопроса
+                if "?" in sql_query:
+                    cursor.execute(sql_query, (user_id,))
                 else:
-                    # Обычное выполнение
-                    if "?" in sql_query:
-                        cursor.execute(sql_query, (user_id,))
-                    else:
-                        cursor.execute(sql_query)
+                    cursor.execute(sql_query)
 
                 conn.commit()
                 conn.close()
