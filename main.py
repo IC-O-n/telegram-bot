@@ -45,13 +45,8 @@ def init_db():
         diet TEXT,
         health TEXT,
         equipment TEXT,
-        target_metric TEXT,
-        notes TEXT
-    )''')
-    cursor.execute('''CREATE TABLE user_insights (
-    user_id INTEGER,
-    insight TEXT
-    );
+        target_metric TEXT
+    )
     ''')
     conn.commit()
     conn.close()
@@ -61,8 +56,8 @@ def save_user_profile(user_id: int, profile: dict):
     cursor = conn.cursor()
     cursor.execute('''
     INSERT OR REPLACE INTO user_profiles
-    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)    
+    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
         profile.get("name"),
@@ -75,7 +70,6 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("health"),
         profile.get("equipment"),
         profile.get("target_metric"),
-        profile.get("notes", "")
     ))
     conn.commit()
     conn.close()
@@ -178,13 +172,11 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         return
 
     profile_text = (
-    f"Твой профиль:\n\n"
-    f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
-    f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
-    f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}\n\n"
-    f"📝 Заметки: {row[11] or '—'}"
+        f"Твой профиль:\n\n"
+        f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
+        f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
+        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}"
     )
-    
     await update.message.reply_text(profile_text)
 
 async def reset(update: Update, context: CallbackContext) -> None:
@@ -217,24 +209,9 @@ def get_user_profile_text(user_id: int) -> str:
         f"Питание: {row[7]}\n"
         f"Здоровье: {row[8]}\n"
         f"Инвентарь: {row[9]}\n"
-        f"Целевая метрика: {row[10]}\n"
-        f"Заметки: {row[11] or '—'}"
-        )
+        f"Целевая метрика: {row[10]}"
+    )
 
-
-def add_user_note(user_id: int, note: str):
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    # Получим текущие заметки
-    cursor.execute("SELECT notes FROM user_profiles WHERE user_id = ?", (user_id,))
-    current_notes = cursor.fetchone()
-    if current_notes and current_notes[0]:
-        updated_notes = current_notes[0] + f" • {note}"
-    else:
-        updated_notes = note
-    cursor.execute("UPDATE user_profiles SET notes = ? WHERE user_id = ?", (updated_notes, user_id))
-    conn.commit()
-    conn.close()
 
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
@@ -295,7 +272,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - health TEXT
 - equipment TEXT
 - target_metric TEXT
-- notes TEXT
 
 Твоя задача:
 
@@ -310,16 +286,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 4. Ответ должен быть достаточно кратким, но не чрезмерно коротким. Старайся сделать его информативным и естественным для человека.
 
-5. Если в сообщении пользователя есть полезная информация о его предпочтениях (например, он любит определённую еду, не любит тип упражнений, рассказывает об утренних привычках и т.п.) — сохрани эти данные в таблице user_profiles в ячейке notes, даже если он явно не просит это сделать.
-
-  
-  
-Это нужно, чтобы в будущем учитывать личные предпочтения при советах.
-
-⚠️ Всегда отправляй SQL только если действительно нужно сохранить информацию в базу данных. Никогда не дублируй или сохраняй мусор.
-
 ⚠️ Никогда не обновляй профиль без явного указания на это (например: "измени", "добавь", "мой вес теперь..." и т.п.)
-
 
 Ответ всегда возвращай строго в формате:
 SQL: ...
