@@ -47,8 +47,8 @@ def init_db():
         equipment TEXT,
         target_metric TEXT,
         notes TEXT
-    )
-    CREATE TABLE user_insights (
+    )''')
+    cursor.execute('''CREATE TABLE user_insights (
     user_id INTEGER,
     insight TEXT
     );
