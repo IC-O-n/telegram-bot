@@ -62,6 +62,16 @@ def init_db():
     conn.commit()
     conn.close()
 
+def save_user_fact(user_id: int, fact_type: str, fact_value: str):
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT INTO user_facts (user_id, fact_type, fact_value)
+    VALUES (?, ?, ?)
+    ''', (user_id, fact_type, fact_value))
+    conn.commit()
+    conn.close()
+
 def save_user_profile(user_id: int, profile: dict):
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
@@ -90,17 +100,6 @@ def get_user_facts(user_id: int) -> list:
     conn.close()
     return facts
 
-def get_user_facts(user_id: int) -> list:
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    cursor.execute('''
-    SELECT fact_type, fact_value FROM user_facts 
-    WHERE user_id = ? 
-    ORDER BY timestamp DESC
-    ''', (user_id,))
-    facts = cursor.fetchall()
-    conn.close()
-    return facts
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -374,7 +373,11 @@ TEXT: ...
             fact_data = fact_match.group(1).strip().split("|")
             if len(fact_data) == 2:
                 fact_type, fact_value = fact_data
-                save_user_fact(user_id, fact_type.strip(), fact_value.strip())
+                try:
+                    save_user_fact(user_id, fact_type.strip(), fact_value.strip())
+                except NameError:
+                    await message.reply_text("Ошибка: функция сохранения фактов не доступна")
+                    return
         
         if text_match:
             reply_text = text_match.group(1).strip()
