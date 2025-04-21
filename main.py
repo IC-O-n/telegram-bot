@@ -245,7 +245,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # История
     if user_id not in user_histories:
-        user_histories[user_id] = deque(maxlen=5)
+        user_histories[user_id] = deque(maxlen=10)
     user_histories[user_id].append(user_text)
     history_messages = list(user_histories[user_id])
     if history_messages:
