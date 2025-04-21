@@ -290,10 +290,15 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if message.document:
         media_files.append(message.document)
     
+    media_description = ""
     for file in media_files:
         try:
             part = await download_and_encode(file)
             contents.append(part)
+            
+            # Получаем описание изображения отдельно
+            media_response = model.generate_content([part, {"text": "Что изображено на фото? Ответь только названием объекта, без дополнительных слов."}])
+            media_description = media_response.text.strip()
         except Exception as e:
             await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
             return
@@ -305,56 +310,47 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
     
+    # Добавляем описание медиа в историю
+    if media_description:
+        if user_id not in user_histories:
+            user_histories[user_id] = deque(maxlen=5)
+        user_histories[user_id].append(f"На фото: {media_description}")
+    
     # Профиль пользователя
     profile_info = get_user_profile_text(user_id)
     if profile_info and "не найден" not in profile_info:
         contents.insert(0, {"text": f"Информация о пользователе:\n{profile_info}"})
     
     # История сообщений
-    if user_id not in user_histories:
-        user_histories[user_id] = deque(maxlen=5)
+    if user_id in user_histories:
+        history_messages = list(user_histories[user_id])
+        if history_messages:
+            history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
+            contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
     
-    user_histories[user_id].append(user_text)
-    history_messages = list(user_histories[user_id])
-    
-    if history_messages:
-        history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
-        contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
-    
-    # Обновленный системный промпт с четкими инструкциями
-    GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных. Ты получаешь от пользователя сообщения. Они могут быть:
-1. Просто вопросами (например, о питании, тренировках, фото и т.д.)
-2. Обновлениями данных (например, "я набрал 3 кг" или "мне теперь 20 лет")
-3. Сообщениями после изображения (например, "добавь это в мой инвентарь")
+    # Улучшенный системный промпт
+    GEMINI_SYSTEM_PROMPT = """Ты — фитнес-ассистент, работающий с базой данных. Твои задачи:
 
-В базе данных есть:
-1. Основная таблица user_profiles с колонками:
-   - user_id INTEGER PRIMARY KEY
-   - equipment TEXT (список инвентаря, разделенный запятыми)
-
-2. Таблица user_additional_data для дополнительных сведений
-
-Твоя задача:
-1. Если пользователь просит добавить что-то в инвентарь (например: "добавь это в мой спортивный инвентарь"):
-   - Для основного инвентаря (equipment в user_profiles):
+1. При запросе "добавь это в мой спортивный инвентарь":
+   - Если было фото: используй последнее описание из истории ("На фото: ...")
+   - Сгенерируй:
      SQL: UPDATE user_profiles SET equipment = CASE WHEN equipment IS NULL OR equipment = '' THEN ? ELSE equipment || ', ' || ? END WHERE user_id = ?
-     PARAMS: ['новый предмет', 'новый предмет', user_id]
-   - Для дополнительной информации:
-     ADDITIONAL: equipment:новый предмет
-   TEXT: Ответ пользователю
+     PARAMS: ["название предмета", "название предмета", user_id]
+     ADDITIONAL: equipment:название предмета
+     TEXT: Конкретный ответ (например: "Добавил горный велосипед в ваш спортивный инвентарь")
 
-2. Для других обновлений профиля используй:
+2. Для других обновлений:
    SQL: соответствующий запрос
    TEXT: ответ
 
-3. Для простых вопросов:
+3. Для вопросов:
    TEXT: ответ
 
-Формат ответа всегда должен быть:
-SQL: запрос (если нужно)
-PARAMS: параметры для запроса (если нужно)
-ADDITIONAL: тип:значение (если нужно)
-TEXT: ответ пользователю
+Формат ответа строго:
+SQL: ...
+PARAMS: ...
+ADDITIONAL: ...
+TEXT: ...
 """
     
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
@@ -362,38 +358,23 @@ TEXT: ответ пользователю
     try:
         response = model.generate_content(contents)
         response_text = response.text.strip()
+        print("Ответ Gemini:", response_text)  # Отладочная информация
         
-        # Отладочный вывод
-        print("Ответ от Gemini:", response_text)
-        
-        # Обработка SQL запросов
-        sql_match = re.search(r"SQL:\s*(.*?)\n(?:PARAMS|ADDITIONAL|TEXT):", response_text, re.DOTALL)
+        # Обработка SQL
+        sql_match = re.search(r"SQL:\s*(.*?)\nPARAMS:", response_text, re.DOTALL)
         params_match = re.search(r"PARAMS:\s*(.*?)\n(?:ADDITIONAL|TEXT):", response_text, re.DOTALL)
         
-        if sql_match:
+        if sql_match and params_match:
             sql_query = sql_match.group(1).strip()
-            params = []
-            
-            if params_match:
-                try:
-                    params = eval(params_match.group(1).strip())
-                except:
-                    params = []
-            
             try:
+                params = eval(params_match.group(1).strip())
                 conn = sqlite3.connect("users.db")
                 cursor = conn.cursor()
-                
-                if params:
-                    cursor.execute(sql_query, params)
-                else:
-                    cursor.execute(sql_query, (user_id,))
-                
+                cursor.execute(sql_query, params)
                 conn.commit()
                 conn.close()
             except Exception as e:
-                print(f"Ошибка при выполнении SQL: {e}")
-                await message.reply_text(f"Ошибка при обновлении профиля: {e}")
+                print(f"SQL error: {e}")
         
         # Обработка дополнительных данных
         additional_match = re.search(r"ADDITIONAL:\s*(.*?)\nTEXT:", response_text, re.DOTALL)
@@ -403,18 +384,18 @@ TEXT: ответ пользователю
                 data_type, data_value = additional_data.split(":", 1)
                 save_additional_user_data(user_id, data_type.strip(), data_value.strip())
             except Exception as e:
-                print(f"Ошибка при сохранении дополнительных данных: {e}")
+                print(f"Additional data error: {e}")
         
-        # Извлечение текстового ответа
+        # Отправка ответа
         text_match = re.search(r"TEXT:\s*(.+)", response_text, re.DOTALL)
         if text_match:
             reply_text = text_match.group(1).strip()
             await message.reply_text(reply_text)
         else:
-            await message.reply_text(response_text)
+            await message.reply_text("Готово! Могу чем-то еще помочь?")
     
     except Exception as e:
-        await message.reply_text(f"Ошибка при генерации ответа: {e}")
+        await message.reply_text(f"Произошла ошибка: {str(e)}")
 
 def main():
     init_db()
