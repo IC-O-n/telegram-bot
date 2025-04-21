@@ -278,6 +278,18 @@ def get_user_profile_text(user_id: int) -> str:
     
     return profile_text
 
+# Добавляем новую функцию для сохранения пищевых предпочтений
+def save_food_preference(user_id: int, preference: str):
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT INTO user_additional_data (user_id, data_type, data_value)
+    VALUES (?, 'food_preference', ?)
+    ''', (user_id, preference))
+    conn.commit()
+    conn.close()
+
+# Обновляем обработчик сообщений
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
@@ -295,9 +307,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         try:
             part = await download_and_encode(file)
             contents.append(part)
-            
-            # Получаем описание изображения отдельно
-            media_response = model.generate_content([part, {"text": "Что изображено на фото? Ответь только названием объекта, без дополнительных слов."}])
+            media_response = model.generate_content([part, {"text": "Что изображено на фото? Ответь только названием объекта."}])
             media_description = media_response.text.strip()
         except Exception as e:
             await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
@@ -309,6 +319,20 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
+    
+    # Анализ сообщения на пищевые предпочтения
+    food_keywords = ['люблю', 'обожаю', 'предпочитаю', 'ем', 'кушаю', 'нравится']
+    if any(keyword in user_text.lower() for keyword in food_keywords):
+        try:
+            # Запрашиваем у Gemini извлечение пищевого предпочтения
+            food_response = model.generate_content([
+                {"text": f"Извлеки пищевое предпочтение из текста: '{user_text}'. Ответь только самим предпочтением без пояснений."}
+            ])
+            food_preference = food_response.text.strip()
+            if food_preference:
+                save_food_preference(user_id, food_preference)
+        except Exception as e:
+            print(f"Ошибка при сохранении пищевого предпочтения: {e}")
     
     # Добавляем описание медиа в историю
     if media_description:
