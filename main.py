@@ -321,54 +321,40 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
         contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
     
-    # Обновленный системный промпт
+    # Обновленный системный промпт с четкими инструкциями
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных. Ты получаешь от пользователя сообщения. Они могут быть:
 1. Просто вопросами (например, о питании, тренировках, фото и т.д.)
 2. Обновлениями данных (например, "я набрал 3 кг" или "мне теперь 20 лет")
-3. Сообщениями после изображения (например, "добавь это в инвентарь")
-4. Упоминанием предпочтений (например, "люблю омлет с морковью" или "не люблю многоповторные подходы")
+3. Сообщениями после изображения (например, "добавь это в мой инвентарь")
 
 В базе данных есть:
 1. Основная таблица user_profiles с колонками:
    - user_id INTEGER PRIMARY KEY
-   - name TEXT
-   - gender TEXT
-   - age INTEGER
-   - weight REAL
-   - goal TEXT
-   - activity TEXT
-   - diet TEXT
-   - health TEXT
-   - equipment TEXT
-   - target_metric TEXT
+   - equipment TEXT (список инвентаря, разделенный запятыми)
 
-2. Таблица user_additional_data с колонками:
-   - id INTEGER PRIMARY KEY AUTOINCREMENT
-   - user_id INTEGER
-   - data_type TEXT (например: "food_preferences", "workout_preferences", "other_info")
-   - data_value TEXT
-   - timestamp DATETIME
+2. Таблица user_additional_data для дополнительных сведений
 
 Твоя задача:
-1. Если в сообщении есть чёткое изменение данных профиля — сгенерируй:
-   SQL: <SQL-запрос для user_profiles>
-   TEXT: <ответ человеку>
+1. Если пользователь просит добавить что-то в инвентарь (например: "добавь это в мой спортивный инвентарь"):
+   - Для основного инвентаря (equipment в user_profiles):
+     SQL: UPDATE user_profiles SET equipment = CASE WHEN equipment IS NULL OR equipment = '' THEN ? ELSE equipment || ', ' || ? END WHERE user_id = ?
+     PARAMS: ['новый предмет', 'новый предмет', user_id]
+   - Для дополнительной информации:
+     ADDITIONAL: equipment:новый предмет
+   TEXT: Ответ пользователю
 
-2. Если в сообщении есть информация о предпочтениях или привычках (например: "люблю омлет по утрам", "не люблю многоповторные подходы"), но нет явного указания сохранить — сгенерируй:
-   ADDITIONAL: <тип данных>:<значение>
-   TEXT: <ответ человеку>
+2. Для других обновлений профиля используй:
+   SQL: соответствующий запрос
+   TEXT: ответ
 
-3. Если это просто вопрос — дай полезный ответ в блоке:
-   TEXT: ...
+3. Для простых вопросов:
+   TEXT: ответ
 
-4. При ответах учитывай все известные данные о пользователе (как из основного профиля, так и дополнительные).
-
-Формат ответа:
-SQL: ...
-ADDITIONAL: ...
-TEXT: ...
-или
-TEXT: ...
+Формат ответа всегда должен быть:
+SQL: запрос (если нужно)
+PARAMS: параметры для запроса (если нужно)
+ADDITIONAL: тип:значение (если нужно)
+TEXT: ответ пользователю
 """
     
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
@@ -377,20 +363,36 @@ TEXT: ...
         response = model.generate_content(contents)
         response_text = response.text.strip()
         
+        # Отладочный вывод
+        print("Ответ от Gemini:", response_text)
+        
         # Обработка SQL запросов
-        sql_match = re.search(r"SQL:\s*(.*?)\n(?:ADDITIONAL|TEXT):", response_text, re.DOTALL)
+        sql_match = re.search(r"SQL:\s*(.*?)\n(?:PARAMS|ADDITIONAL|TEXT):", response_text, re.DOTALL)
+        params_match = re.search(r"PARAMS:\s*(.*?)\n(?:ADDITIONAL|TEXT):", response_text, re.DOTALL)
+        
         if sql_match:
             sql_query = sql_match.group(1).strip()
+            params = []
+            
+            if params_match:
+                try:
+                    params = eval(params_match.group(1).strip())
+                except:
+                    params = []
+            
             try:
                 conn = sqlite3.connect("users.db")
                 cursor = conn.cursor()
-                if "?" in sql_query:
-                    cursor.execute(sql_query, (user_id,))
+                
+                if params:
+                    cursor.execute(sql_query, params)
                 else:
-                    cursor.execute(sql_query)
+                    cursor.execute(sql_query, (user_id,))
+                
                 conn.commit()
                 conn.close()
             except Exception as e:
+                print(f"Ошибка при выполнении SQL: {e}")
                 await message.reply_text(f"Ошибка при обновлении профиля: {e}")
         
         # Обработка дополнительных данных
