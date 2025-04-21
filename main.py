@@ -56,6 +56,7 @@ def init_db():
         fact_value TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES user_profiles(user_id)
+        )
     ''')
     
     conn.commit()
@@ -77,15 +78,17 @@ def save_user_profile(user_id: int, profile: dict):
     conn.commit()
     conn.close()
 
-def save_user_fact(user_id: int, fact_type: str, fact_value: str):
+def get_user_facts(user_id: int) -> list:
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     cursor.execute('''
-    INSERT INTO user_facts (user_id, fact_type, fact_value)
-    VALUES (?, ?, ?)
-    ''', (user_id, fact_type, fact_value))
-    conn.commit()
+    SELECT fact_type, fact_value FROM user_facts 
+    WHERE user_id = ? 
+    ORDER BY timestamp DESC
+    ''', (user_id,))
+    facts = cursor.fetchall()
     conn.close()
+    return facts
 
 def get_user_facts(user_id: int) -> list:
     conn = sqlite3.connect("users.db")
