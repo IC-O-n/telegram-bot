@@ -45,7 +45,8 @@ def init_db():
         diet TEXT,
         health TEXT,
         equipment TEXT,
-        target_metric TEXT
+        target_metric TEXT,
+        custom_facts TEXT
     )
     ''')
     conn.commit()
@@ -54,10 +55,25 @@ def init_db():
 def save_user_profile(user_id: int, profile: dict):
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
+    
+    # Получаем текущие custom_facts
+    cursor.execute("SELECT custom_facts FROM user_profiles WHERE user_id = ?", (user_id,))
+    existing_facts = cursor.fetchone()
+    current_facts = existing_facts[0] if existing_facts and existing_facts[0] else ""
+    
+    # Объединяем с новыми фактами, если они есть
+    new_facts = profile.get("custom_facts", "")
+    if new_facts and current_facts:
+        combined_facts = f"{current_facts}\n{new_facts}"
+    elif new_facts:
+        combined_facts = new_facts
+    else:
+        combined_facts = current_facts
+    
     cursor.execute('''
     INSERT OR REPLACE INTO user_profiles
-    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric, custom_facts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
         profile.get("name"),
@@ -70,6 +86,7 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("health"),
         profile.get("equipment"),
         profile.get("target_metric"),
+        combined_facts
     ))
     conn.commit()
     conn.close()
@@ -87,77 +104,144 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
+async def validate_response(prompt: str, user_response: str, current_state: int) -> tuple:
+    """Валидация ответа пользователя с помощью Gemini"""
+    validation_prompts = {
+        ASK_NAME: "Пользователь должен ввести своё имя. Это строка, которая выглядит как человеческое имя. Ответь только 'VALID' если это имя, или 'INVALID' если это не имя.",
+        ASK_GENDER: "Пользователь должен указать свой пол. Допустимые ответы: 'м' или 'ж'. Ответь только 'VALID' если ответ корректный, или 'INVALID' если нет.",
+        ASK_AGE: "Пользователь должен указать свой возраст числом от 10 до 120. Ответь только 'VALID' если это число в этом диапазоне, или 'INVALID' если нет.",
+        ASK_WEIGHT: "Пользователь должен указать свой вес в кг (число от 20 до 300). Ответь только 'VALID' если это число в этом диапазоне, или 'INVALID' если нет.",
+        ASK_GOAL: "Пользователь должен указать свою цель: 'Похудеть', 'Набрать массу', 'Рельеф' или 'Просто ЗОЖ'. Ответь только 'VALID' если ответ корректный, или 'INVALID' если нет.",
+        ASK_ACTIVITY: "Пользователь должен указать уровень активности: 'Новичок', 'Средний' или 'Продвинутый'. Ответь только 'VALID' если ответ корректный, или 'INVALID' если нет.",
+        ASK_DIET_PREF: "Пользователь должен указать свои предпочтения в еде. Любой текст считается валидным, если он не пустой. Ответь только 'VALID' если текст не пустой, или 'INVALID' если пустой.",
+        ASK_HEALTH: "Пользователь должен указать свои ограничения по здоровью. Любой текст считается валидным, если он не пустой. Ответь только 'VALID' если текст не пустой, или 'INVALID' если пустой.",
+        ASK_EQUIPMENT: "Пользователь должен указать свой инвентарь. Любой текст считается валидным, если он не пустой. Ответь только 'VALID' если текст не пустой, или 'INVALID' если пустой.",
+        ASK_TARGET: "Пользователь должен указать свою целевую метрику. Любой текст считается валидным, если он не пустой. Ответь только 'VALID' если текст не пустой, или 'INVALID' если пустой.",
+    }
+    
+    response = model.generate_content([
+        {"text": validation_prompts[current_state]},
+        {"text": f"Пользователь ответил: {user_response}"}
+    ])
+    
+    return "VALID" in response.text
+
+async def check_profile_update(message: str) -> tuple:
+    """Проверяет, хочет ли пользователь обновить профиль"""
+    response = model.generate_content([
+        {"text": """Проанализируй сообщение пользователя. Если он явно хочет обновить какие-то данные в своём профиле (например, имя, возраст, вес и т.д.), ответь в формате:
+FIELD: <поле для обновления>
+VALUE: <новое значение>
+Если это не обновление профиля, ответь 'NO'"""},
+        {"text": message}
+    ])
+    
+    if "FIELD:" in response.text and "VALUE:" in response.text:
+        field = response.text.split("FIELD:")[1].split("VALUE:")[0].strip()
+        value = response.text.split("VALUE:")[1].strip()
+        return (field, value)
+    return None
+
+async def check_custom_fact(message: str) -> str:
+    """Проверяет, содержит ли сообщение уникальный факт о пользователе"""
+    response = model.generate_content([
+        {"text": """Определи, содержит ли это сообщение уникальный факт о пользователе, который стоит сохранить (например, "у меня нет ноги", "я люблю смотреть фильмы по вечерам"). 
+Если содержит - верни этот факт. Если нет - верни 'NO'."""},
+        {"text": message}
+    ])
+    
+    return response.text if response.text != "NO" else None
+
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
     return ASK_NAME
 
-async def ask_gender(update: Update, context: CallbackContext) -> int:
+async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-    user_profiles[user_id] = {"name": update.message.text}
-    await update.message.reply_text("Укажи свой пол (м/ж):")
-    return ASK_GENDER
-
-async def ask_age(update: Update, context: CallbackContext) -> int:
-    gender = update.message.text.lower()
-    if gender not in ["м", "ж"]:
-        await update.message.reply_text("Пожалуйста, укажи только 'м' или 'ж'.")
-        return ASK_GENDER
-    user_profiles[update.message.from_user.id]["gender"] = gender
-    await update.message.reply_text("Сколько тебе лет?")
-    return ASK_AGE
-
-async def ask_weight(update: Update, context: CallbackContext) -> int:
-    try:
-        age = int(update.message.text)
-    except ValueError:
-        await update.message.reply_text("Пожалуйста, укажи возраст числом.")
-        return ASK_AGE
-    user_profiles[update.message.from_user.id]["age"] = age
-    await update.message.reply_text("Какой у тебя текущий вес (в кг)?")
-    return ASK_WEIGHT
-
-async def ask_goal(update: Update, context: CallbackContext) -> int:
-    try:
-        weight = float(update.message.text.replace(",", "."))
-    except ValueError:
-        await update.message.reply_text("Пожалуйста, укажи вес числом.")
-        return ASK_WEIGHT
-    user_profiles[update.message.from_user.id]["weight"] = weight
-    await update.message.reply_text("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)")
-    return ASK_GOAL
-
-async def ask_activity(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["goal"] = update.message.text
-    await update.message.reply_text("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)")
-    return ASK_ACTIVITY
-
-async def ask_diet_pref(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["activity"] = update.message.text
-    await update.message.reply_text("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)")
-    return ASK_DIET_PREF
-
-async def ask_health(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["diet"] = update.message.text
-    await update.message.reply_text("Есть ли у тебя ограничения по здоровью?")
-    return ASK_HEALTH
-
-async def ask_equipment(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["health"] = update.message.text
-    await update.message.reply_text("Какой инвентарь/тренажёры у тебя есть?")
-    return ASK_EQUIPMENT
-
-async def ask_target(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["equipment"] = update.message.text
-    await update.message.reply_text("Какая у тебя конкретная цель по весу или другим метрикам?")
-    return ASK_TARGET
-
-async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    user_profiles[user_id]["target_metric"] = update.message.text
-    name = user_profiles[user_id]["name"]
-    save_user_profile(user_id, user_profiles[user_id])
-    await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
-    return ConversationHandler.END
+    user_response = update.message.text
+    current_state = context.user_data.get("current_state", ASK_NAME)
+    
+    # Проверяем, не хочет ли пользователь обновить предыдущие данные
+    profile_update = await check_profile_update(user_response)
+    if profile_update:
+        field, value = profile_update
+        if user_id not in user_profiles:
+            user_profiles[user_id] = {}
+        user_profiles[user_id][field] = value
+        save_user_profile(user_id, {field: value})
+        await update.message.reply_text(f"Обновил {field} на '{value}'! Продолжим анкету.")
+        return current_state  # Остаемся на текущем вопросе
+    
+    # Проверяем на уникальные факты
+    custom_fact = await check_custom_fact(user_response)
+    if custom_fact:
+        save_user_profile(user_id, {"custom_facts": custom_fact})
+        await update.message.reply_text("Запомнил эту информацию о тебе! Продолжим анкету.")
+        return current_state  # Остаемся на текущем вопросе
+    
+    # Валидация ответа
+    is_valid = await validate_response(user_response, user_response, current_state)
+    
+    if not is_valid:
+        error_messages = {
+            ASK_NAME: "Это не похоже на имя. Пожалуйста, введи своё настоящее имя.",
+            ASK_GENDER: "Пожалуйста, укажи только 'м' или 'ж'.",
+            ASK_AGE: "Пожалуйста, укажи возраст числом от 10 до 120.",
+            ASK_WEIGHT: "Пожалуйста, укажи вес числом от 20 до 300 кг.",
+            ASK_GOAL: "Пожалуйста, выбери одну из целей: 'Похудеть', 'Набрать массу', 'Рельеф' или 'Просто ЗОЖ'.",
+            ASK_ACTIVITY: "Пожалуйста, выбери уровень: 'Новичок', 'Средний' или 'Продвинутый'.",
+            ASK_DIET_PREF: "Пожалуйста, укажи свои предпочтения в еде.",
+            ASK_HEALTH: "Пожалуйста, укажи свои ограничения по здоровью.",
+            ASK_EQUIPMENT: "Пожалуйста, укажи свой инвентарь.",
+            ASK_TARGET: "Пожалуйста, укажи свою целевую метрику.",
+        }
+        await update.message.reply_text(error_messages[current_state])
+        return current_state  # Остаемся на том же состоянии
+    
+    # Сохраняем ответ и переходим к следующему вопросу
+    if user_id not in user_profiles:
+        user_profiles[user_id] = {}
+    
+    field_names = {
+        ASK_NAME: "name",
+        ASK_GENDER: "gender",
+        ASK_AGE: "age",
+        ASK_WEIGHT: "weight",
+        ASK_GOAL: "goal",
+        ASK_ACTIVITY: "activity",
+        ASK_DIET_PREF: "diet",
+        ASK_HEALTH: "health",
+        ASK_EQUIPMENT: "equipment",
+        ASK_TARGET: "target_metric",
+    }
+    
+    field_name = field_names[current_state]
+    user_profiles[user_id][field_name] = user_response.lower() if current_state == ASK_GENDER else user_response
+    
+    next_questions = {
+        ASK_NAME: ("Укажи свой пол (м/ж):", ASK_GENDER),
+        ASK_GENDER: ("Сколько тебе лет?", ASK_AGE),
+        ASK_AGE: ("Какой у тебя текущий вес (в кг)?", ASK_WEIGHT),
+        ASK_WEIGHT: ("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)", ASK_GOAL),
+        ASK_GOAL: ("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)", ASK_ACTIVITY),
+        ASK_ACTIVITY: ("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)", ASK_DIET_PREF),
+        ASK_DIET_PREF: ("Есть ли у тебя ограничения по здоровью?", ASK_HEALTH),
+        ASK_HEALTH: ("Какой инвентарь/тренажёры у тебя есть?", ASK_EQUIPMENT),
+        ASK_EQUIPMENT: ("Какая у тебя конкретная цель по весу или другим метрикам?", ASK_TARGET),
+        ASK_TARGET: ("", None),  # Конец анкеты
+    }
+    
+    next_question, next_state = next_questions[current_state]
+    
+    if next_state is None:
+        # Завершение анкеты
+        save_user_profile(user_id, user_profiles[user_id])
+        name = user_profiles[user_id]["name"]
+        await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text(next_question)
+        return next_state
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
@@ -175,7 +259,8 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         f"Твой профиль:\n\n"
         f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
         f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
-        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}"
+        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}\n"
+        f"\nДополнительные факты:\n{row[11] if row[11] else 'Нет дополнительной информации'}"
     )
     await update.message.reply_text(profile_text)
 
@@ -186,8 +271,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
 
 async def generate_image(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
-
+    await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini �")
 
 def get_user_profile_text(user_id: int) -> str:
     conn = sqlite3.connect("users.db")
@@ -209,10 +293,9 @@ def get_user_profile_text(user_id: int) -> str:
         f"Питание: {row[7]}\n"
         f"Здоровье: {row[8]}\n"
         f"Инвентарь: {row[9]}\n"
-        f"Целевая метрика: {row[10]}"
+        f"Целевая метрика: {row[10]}\n"
+        f"Дополнительные факты: {row[11] if row[11] else 'Нет'}"
     )
-
-
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
@@ -253,15 +336,14 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
 
     # Системный промпт
-    GEMINI_SYSTEM_PROMPT = """
-    You are a smart assistant who helps the user and, if necessary, updates his profile in the database.
+    GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
 
-You receive messages from the user. They can be:
-- just questions (for example, about nutrition, workouts, photos, etc.)
-- data updates (for example, "I gained 3 kg" or "I'm 20 years old now")
-- messages after the image (for example, "add this to the inventory" or "here's my dinner")
+Ты получаешь от пользователя сообщения. Они могут быть:
+- просто вопросами (например, о питании, тренировках, фото и т.д.)
+- обновлениями данных (например, "я набрал 3 кг" или "мне теперь 20 лет")
+- сообщениями после изображения (например, "добавь это в инвентарь")
 
-The database has a user_profiles table with columns:
+В базе данных есть таблица user_profiles с колонками:
 - user_id INTEGER PRIMARY KEY
 - name TEXT
 - gender TEXT
@@ -273,66 +355,29 @@ The database has a user_profiles table with columns:
 - health TEXT
 - equipment TEXT
 - target_metric TEXT
+- custom_facts TEXT
 
-Your task:
+Твоя задача:
 
-1. If there is a clear change in profile data in the message (for example: weight, age, goals, equipment, etc.) — generate:
-    SQL: <SQL-request>
-    TEXT: <reply to a person in natural language>
+1. Если в сообщении есть чёткое изменение данных профиля (например: вес, возраст, цели, оборудование и т.п.) — сгенерируй:
+    SQL: <SQL-запрос>
+    TEXT: <ответ человеку на естественном языке>
 
-2. If it's just a question (for example: "what to eat after a workout?" or "what's in the photo?") — don't create SQL. Just give a useful, concise, but informative answer in the block.:
+2. Если это просто вопрос (например: "что поесть после тренировки?" или "что на фото?") — не создавай SQL. Просто дай полезный, краткий, но информативный ответ в блоке:
     TEXT: ...
 
-3. If the user sent an image and then says "add this to my inventory", use the description of the object from the last image (for example, "Stern mountain bike"), rather than the word "image".
+3. Если пользователь отправил изображение, а затем говорит "добавь это в мой инвентарь" — используй описание объекта с последнего изображения (например, "горный велосипед Stern"), а не слово "изображение".
 
-4. ⚠️ If the user sent an image of food and explicitly indicated that it was his food (for example, he wrote: "my breakfast", "what do you think about my lunch?", "evaluation of my dinner", "here's what I ate") — analyze the food in the photo and answer in the format:
+4. Если сообщение содержит уникальный факт о пользователе (например, "у меня нет ноги", "я люблю смотреть фильмы по вечерам"), добавь его в custom_facts.
 
-TEXT:
-🔍 Dish analysis:
-(Describe what exactly is in the photo, with approximate weights/ingredients)
+5. Ответ должен быть достаточно кратким, но не чрезмерно коротким. Старайся сделать его информативным и естественным для человека.
 
-🍽 Approximate CPFC:
-- Calories: ...
-- Proteins: ...
-- Fats: ...
-- Carbohydrates: …
+⚠️ Никогда не обновляй профиль без явного указания на это (например: "измени", "добавь", "мой вес теперь..." и т.п.)
 
-✅ Benefits and composition:
-(Describe the benefits of each food element: protein, fiber, trace elements, etc.)
-
-🧠 Bot's opinion:
-(Briefly evaluate the meal: is it useful, suitable for weight loss / weight gain / balance, what can be improved or added)
-
-💡 Advice (optional):
-(Add a little advice if there is anything to improve)
-
-5.If the user sends a message that:
-
-- contains only the "." symbol,
-- does not contain meaning,
-- consists of a random set of characters,
-- is a fragment of a phrase without context,
-- contains only interjections, slang, emotional shouts, etc.,
-
-then you should politely request clarification, for example:
-
-"Hello there! Can you clarify what you wanted to say?"
-"I don't think I quite understood. Could you reformulate?"
-"I want to help, but I need a little more context. 😊"
-"It looks like something went wrong, please clarify your request."
-
-The answer should be natural, friendly, and concise, as if you were a caring but professional nutritionist.
-
-⚠️ Never update your profile without explicitly indicating this (for example: "change", "add", "my weight is now...", etc.)
-
-⚠️ Reply to the user in the same language in which he addresses you.
-
-⚠️ The total length of the response **should never exceed 4096 characters** in order for the message to be sent correctly to Telegram. Shorten it if necessary, but keep it useful and structured.
-
-Always return the response strictly in the format:
+Ответ всегда возвращай строго в формате:
 SQL: ...
 TEXT: ...
-or
+или
 TEXT: ...
 """
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
@@ -381,16 +426,16 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
-            ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
-            ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
-            ASK_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_goal)],
-            ASK_GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_activity)],
-            ASK_ACTIVITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_diet_pref)],
-            ASK_DIET_PREF: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_health)],
-            ASK_HEALTH: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_equipment)],
-            ASK_EQUIPMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_target)],
-            ASK_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish_questionnaire)],
+            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_ACTIVITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_DIET_PREF: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_HEALTH: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_EQUIPMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
+            ASK_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_questionnaire)],
         },
         fallbacks=[],
     )
