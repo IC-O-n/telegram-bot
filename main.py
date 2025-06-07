@@ -51,6 +51,7 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+    migrate_db()
 
 def save_user_profile(user_id: int, profile: dict):
     conn = sqlite3.connect("users.db")
@@ -156,108 +157,140 @@ async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
     return ASK_NAME
 
+
+def migrate_db():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    
+    # Проверяем существование столбца custom_facts
+    cursor.execute("PRAGMA table_info(user_profiles)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    if "custom_facts" not in columns:
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN custom_facts TEXT")
+            conn.commit()
+            print("База данных успешно мигрирована: добавлен столбец custom_facts")
+        except Exception as e:
+            print(f"Ошибка при миграции базы данных: {e}")
+    
+    conn.close()
+
+
 async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     user_response = update.message.text
     current_state = context.user_data.get("current_state", ASK_NAME)
     
-    # Проверяем, не хочет ли пользователь обновить предыдущие данные
-    profile_update = await check_profile_update(user_response)
-    if profile_update:
-        field, value = profile_update
+    try:
+        # Проверяем, не хочет ли пользователь обновить предыдущие данные
+        profile_update = await check_profile_update(user_response)
+        if profile_update:
+            field, value = profile_update
+            if user_id not in user_profiles:
+                user_profiles[user_id] = {}
+            user_profiles[user_id][field] = value
+            save_user_profile(user_id, {field: value})
+            await update.message.reply_text(f"Обновил {field} на '{value}'! Продолжим анкету.")
+            return current_state
+
+        # Проверяем на уникальные факты
+        custom_fact = await check_custom_fact(user_response)
+        if custom_fact:
+            try:
+                save_user_profile(user_id, {"custom_facts": custom_fact})
+                await update.message.reply_text("Запомнил эту информацию о тебе! Продолжим анкету.")
+                return current_state
+            except Exception as e:
+                await update.message.reply_text("Произошла ошибка при сохранении данных. Попробуй еще раз.")
+                return current_state
+
+        # Валидация ответа
+        is_valid = await validate_response(user_response, user_response, current_state)
+        
+        if not is_valid:
+            error_messages = {
+                ASK_NAME: "Это не похоже на имя. Пожалуйста, введи своё настоящее имя.",
+                ASK_GENDER: "Пожалуйста, укажи только 'м' или 'ж'.",
+                ASK_AGE: "Пожалуйста, укажи возраст числом от 10 до 120.",
+                ASK_WEIGHT: "Пожалуйста, укажи вес числом от 20 до 300 кг.",
+                ASK_GOAL: "Пожалуйста, выбери одну из целей: 'Похудеть', 'Набрать массу', 'Рельеф' или 'Просто ЗОЖ'.",
+                ASK_ACTIVITY: "Пожалуйста, выбери уровень: 'Новичок', 'Средний' или 'Продвинутый'.",
+                ASK_DIET_PREF: "Пожалуйста, укажи свои предпочтения в еде.",
+                ASK_HEALTH: "Пожалуйста, укажи свои ограничения по здоровью.",
+                ASK_EQUIPMENT: "Пожалуйста, укажи свой инвентарь.",
+                ASK_TARGET: "Пожалуйста, укажи свою целевую метрику.",
+            }
+            await update.message.reply_text(error_messages[current_state])
+            
+            # Повторно задаем вопрос
+            question_messages = {
+                ASK_NAME: "Как тебя зовут?",
+                ASK_GENDER: "Укажи свой пол (м/ж):",
+                ASK_AGE: "Сколько тебе лет?",
+                ASK_WEIGHT: "Какой у тебя текущий вес (в кг)?",
+                ASK_GOAL: "Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)",
+                ASK_ACTIVITY: "Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)",
+                ASK_DIET_PREF: "Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)",
+                ASK_HEALTH: "Есть ли у тебя ограничения по здоровью?",
+                ASK_EQUIPMENT: "Какой инвентарь/тренажёры у тебя есть?",
+                ASK_TARGET: "Какая у тебя конкретная цель по весу или другим метрикам?",
+            }
+            await update.message.reply_text(question_messages[current_state])
+            return current_state
+
+        # Если ответ валиден, сохраняем и переходим к следующему вопросу
         if user_id not in user_profiles:
             user_profiles[user_id] = {}
-        user_profiles[user_id][field] = value
-        save_user_profile(user_id, {field: value})
-        await update.message.reply_text(f"Обновил {field} на '{value}'! Продолжим анкету.")
-        return current_state  # Остаемся на текущем вопросе
-    
-    # Проверяем на уникальные факты
-    custom_fact = await check_custom_fact(user_response)
-    if custom_fact:
-        save_user_profile(user_id, {"custom_facts": custom_fact})
-        await update.message.reply_text("Запомнил эту информацию о тебе! Продолжим анкету.")
-        return current_state  # Остаемся на текущем вопросе
-    
-    # Валидация ответа
-    is_valid = await validate_response(user_response, user_response, current_state)
-    
-    if not is_valid:
-        error_messages = {
-            ASK_NAME: "Это не похоже на имя. Пожалуйста, введи своё настоящее имя.",
-            ASK_GENDER: "Пожалуйста, укажи только 'м' или 'ж'.",
-            ASK_AGE: "Пожалуйста, укажи возраст числом от 10 до 120.",
-            ASK_WEIGHT: "Пожалуйста, укажи вес числом от 20 до 300 кг.",
-            ASK_GOAL: "Пожалуйста, выбери одну из целей: 'Похудеть', 'Набрать массу', 'Рельеф' или 'Просто ЗОЖ'.",
-            ASK_ACTIVITY: "Пожалуйста, выбери уровень: 'Новичок', 'Средний' или 'Продвинутый'.",
-            ASK_DIET_PREF: "Пожалуйста, укажи свои предпочтения в еде.",
-            ASK_HEALTH: "Пожалуйста, укажи свои ограничения по здоровью.",
-            ASK_EQUIPMENT: "Пожалуйста, укажи свой инвентарь.",
-            ASK_TARGET: "Пожалуйста, укажи свою целевую метрику.",
-        }
-        await update.message.reply_text(error_messages[current_state])
         
-        # Повторно задаем тот же вопрос
-        question_messages = {
-            ASK_NAME: "Как тебя зовут?",
-            ASK_GENDER: "Укажи свой пол (м/ж):",
-            ASK_AGE: "Сколько тебе лет?",
-            ASK_WEIGHT: "Какой у тебя текущий вес (в кг)?",
-            ASK_GOAL: "Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)",
-            ASK_ACTIVITY: "Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)",
-            ASK_DIET_PREF: "Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)",
-            ASK_HEALTH: "Есть ли у тебя ограничения по здоровью?",
-            ASK_EQUIPMENT: "Какой инвентарь/тренажёры у тебя есть?",
-            ASK_TARGET: "Какая у тебя конкретная цель по весу или другим метрикам?",
+        field_names = {
+            ASK_NAME: "name",
+            ASK_GENDER: "gender",
+            ASK_AGE: "age",
+            ASK_WEIGHT: "weight",
+            ASK_GOAL: "goal",
+            ASK_ACTIVITY: "activity",
+            ASK_DIET_PREF: "diet",
+            ASK_HEALTH: "health",
+            ASK_EQUIPMENT: "equipment",
+            ASK_TARGET: "target_metric",
         }
-        await update.message.reply_text(question_messages[current_state])
-        return current_state  # Остаемся на том же состоянии
-    
-    # Если ответ валиден, сохраняем и переходим к следующему вопросу
-    if user_id not in user_profiles:
-        user_profiles[user_id] = {}
-    
-    field_names = {
-        ASK_NAME: "name",
-        ASK_GENDER: "gender",
-        ASK_AGE: "age",
-        ASK_WEIGHT: "weight",
-        ASK_GOAL: "goal",
-        ASK_ACTIVITY: "activity",
-        ASK_DIET_PREF: "diet",
-        ASK_HEALTH: "health",
-        ASK_EQUIPMENT: "equipment",
-        ASK_TARGET: "target_metric",
-    }
-    
-    field_name = field_names[current_state]
-    user_profiles[user_id][field_name] = user_response.lower() if current_state == ASK_GENDER else user_response
-    
-    # Переход к следующему вопросу или завершение анкеты
-    next_questions = {
-        ASK_NAME: ("Укажи свой пол (м/ж):", ASK_GENDER), ASK_GENDER: ("Сколько тебе лет?", ASK_AGE),
-        ASK_AGE: ("Какой у тебя текущий вес (в кг)?", ASK_WEIGHT),
-        ASK_WEIGHT: ("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)", ASK_GOAL),
-        ASK_GOAL: ("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)", ASK_ACTIVITY),
-        ASK_ACTIVITY: ("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)", ASK_DIET_PREF),
-        ASK_DIET_PREF: ("Есть ли у тебя ограничения по здоровью?", ASK_HEALTH),
-        ASK_HEALTH: ("Какой инвентарь/тренажёры у тебя есть?", ASK_EQUIPMENT),
-        ASK_EQUIPMENT: ("Какая у тебя конкретная цель по весу или другим метрикам?", ASK_TARGET),
-        ASK_TARGET: ("", None),  # Конец анкеты
-    }
-    
-    next_question, next_state = next_questions[current_state]
-    
-    if next_state is None:
-        # Завершение анкеты
-        save_user_profile(user_id, user_profiles[user_id])
-        name = user_profiles[user_id]["name"]
-        await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
-        return ConversationHandler.END
-    else:
-        await update.message.reply_text(next_question)
-        context.user_data["current_state"] = next_state
-        return next_state
+
+        field_name = field_names[current_state]
+        user_profiles[user_id][field_name] = user_response.lower() if current_state == ASK_GENDER else user_response
+
+        # Переход к следующему вопросу или завершение анкеты
+        next_questions = {
+            ASK_NAME: ("Укажи свой пол (м/ж):", ASK_GENDER),
+            ASK_GENDER: ("Сколько тебе лет?", ASK_AGE),
+            ASK_AGE: ("Какой у тебя текущий вес (в кг)?", ASK_WEIGHT),
+            ASK_WEIGHT: ("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)", ASK_GOAL),
+            ASK_GOAL: ("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)", ASK_ACTIVITY),
+            ASK_ACTIVITY: ("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)", ASK_DIET_PREF),
+            ASK_DIET_PREF: ("Есть ли у тебя ограничения по здоровью?", ASK_HEALTH),
+            ASK_HEALTH: ("Какой инвентарь/тренажёры у тебя есть?", ASK_EQUIPMENT),
+            ASK_EQUIPMENT: ("Какая у тебя конкретная цель по весу или другим метрикам?", ASK_TARGET),
+            ASK_TARGET: ("", None),  # Конец анкеты
+        }
+
+        next_question, next_state = next_questions[current_state]
+
+        if next_state is None:
+            # Завершение анкеты
+            save_user_profile(user_id, user_profiles[user_id])
+            name = user_profiles[user_id]["name"]
+            await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
+            return ConversationHandler.END
+        else:
+            await update.message.reply_text(next_question)
+            context.user_data["current_state"] = next_state
+            return next_state
+
+    except Exception as e:
+        print(f"Ошибка в handle_questionnaire: {e}")
+        await update.message.reply_text("Произошла непредвиденная ошибка. Давай попробуем еще раз.")
+        return current_state
+
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
