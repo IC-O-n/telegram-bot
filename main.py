@@ -3,7 +3,6 @@ import re
 import base64
 import aiohttp
 import sqlite3
-import telegram
 from collections import deque
 from telegram import Update, File
 from telegram.ext import (
@@ -12,12 +11,12 @@ from telegram.ext import (
 )
 import google.generativeai as genai
 
-# Конфигурация
+# Configuration
 TOKEN = os.getenv("TOKEN")
 GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not TOKEN or not GOOGLE_API_KEY:
-    raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
+    raise ValueError("Telegram token or Google Gemini API key is missing.")
 
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
@@ -48,6 +47,14 @@ def init_db():
         target_metric TEXT
     )
     ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_traits (
+        user_id INTEGER,
+        trait_key TEXT,
+        trait_value TEXT,
+        PRIMARY KEY (user_id, trait_key)
+    )
+    ''')
     conn.commit()
     conn.close()
 
@@ -73,6 +80,35 @@ def save_user_profile(user_id: int, profile: dict):
     ))
     conn.commit()
     conn.close()
+
+def save_user_trait(user_id: int, trait_key: str, trait_value: str):
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT OR REPLACE INTO user_traits (user_id, trait_key, trait_value)
+    VALUES (?, ?, ?)
+    ''', (user_id, trait_key, trait_value))
+    conn.commit()
+    conn.close()
+
+def delete_user_trait(user_id: int, trait_key: str):
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+    DELETE FROM user_traits WHERE user_id = ? AND trait_key = ?
+    ''', (user_id, trait_key))
+    conn.commit()
+    conn.close()
+
+def get_user_traits(user_id: int) -> str:
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT trait_key, trait_value FROM user_traits WHERE user_id = ?", (user_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows:
+        return "No additional traits found."
+    return "\n".join(f"{row[0]}: {row[1]}" for row in rows)
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -165,6 +201,8 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
+    cursor.execute("SELECT trait_key, trait_value FROM user_traits WHERE user_id = ?", (user_id,))
+    traits = cursor.fetchall()
     conn.close()
 
     if not row:
@@ -175,19 +213,26 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         f"Твой профиль:\n\n"
         f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
         f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
-        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}"
+        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}\n"
     )
+    if traits:
+        profile_text += "\nДополнительные черты:\n" + "\n".join(f"{row[0]}: {row[1]}" for row in traits)
     await update.message.reply_text(profile_text)
 
 async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     user_histories.pop(user_id, None)
     user_profiles.pop(user_id, None)
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM user_traits WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
     await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
 
 async def generate_image(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
-
 
 def get_user_profile_text(user_id: int) -> str:
     conn = sqlite3.connect("users.db")
@@ -197,22 +242,20 @@ def get_user_profile_text(user_id: int) -> str:
     conn.close()
 
     if not row:
-        return "Профиль пользователя не найден."
+        return "User profile not found."
 
     return (
-        f"Имя: {row[1]}\n"
-        f"Пол: {row[2]}\n"
-        f"Возраст: {row[3]}\n"
-        f"Вес: {row[4]} кг\n"
-        f"Цель: {row[5]}\n"
-        f"Активность: {row[6]}\n"
-        f"Питание: {row[7]}\n"
-        f"Здоровье: {row[8]}\n"
-        f"Инвентарь: {row[9]}\n"
-        f"Целевая метрика: {row[10]}"
+        f"Name: {row[1]}\n"
+        f"Gender: {row[2]}\n"
+        f"Age: {row[3]}\n"
+        f"Weight: {row[4]} kg\n"
+        f"Goal: {row[5]}\n"
+        f"Activity: {row[6]}\n"
+        f"Diet: {row[7]}\n"
+        f"Health: {row[8]}\n"
+        f"Equipment: {row[9]}\n"
+        f"Target Metric: {row[10]}"
     )
-
-
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
@@ -238,99 +281,70 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
         return
 
-    # Профиль пользователя
+    # User profile
     profile_info = get_user_profile_text(user_id)
-    if profile_info and "не найден" not in profile_info:
-        contents.insert(0, {"text": f"Информация о пользователе:\n{profile_info}"})
+    if profile_info and "not found" not in profile_info:
+        contents.insert(0, {"text": f"User profile:\n{profile_info}"})
 
-    # История
+    # User traits
+    traits_info = get_user_traits(user_id)
+    if traits_info and "No additional traits" not in traits_info:
+        contents.insert(0, {"text": f"User traits:\n{traits_info}"})
+
+    # History
     if user_id not in user_histories:
         user_histories[user_id] = deque(maxlen=5)
     user_histories[user_id].append(user_text)
     history_messages = list(user_histories[user_id])
     if history_messages:
-        history_prompt = "\n".join(f"Пользователь: {msg}" for msg in history_messages)
-        contents.insert(0, {"text": f"История последних сообщений:\n{history_prompt}"})
+        history_prompt = "\n".join(f"User: {msg}" for msg in history_messages)
+        contents.insert(0, {"text": f"History of recent messages:\n{history_prompt}"})
 
-    # Системный промпт
-    GEMINI_SYSTEM_PROMPT = """
-    Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
+    # System prompt
+    GEMINI_SYSTEM_PROMPT = """You are a smart assistant that helps the user and updates their profile or traits in the database when necessary. Respond in the same language as the user's input.
 
-Ты получаешь от пользователя сообщения. Они могут быть:
-- просто вопросами (например, о питании, тренировках, фото и т.д.)
-- обновлениями данных (например, "я набрал 3 кг" или "мне теперь 20 лет")
-- сообщениями после изображения (например, "добавь это в инвентарь" или "вот мой ужин")
+You receive messages from the user. They can be:
+- Simple questions (e.g., about nutrition, workouts, photos, etc.)
+- Updates to profile or traits (e.g., "I gained 3 kg" or "My hobby is skiing")
+- Messages following an image (e.g., "Add this to my inventory")
 
-В базе данных есть таблица user_profiles с колонками:
-- user_id INTEGER PRIMARY KEY
-- name TEXT
-- gender TEXT
-- age INTEGER
-- weight REAL
-- goal TEXT
-- activity TEXT
-- diet TEXT
-- health TEXT
-- equipment TEXT
-- target_metric TEXT
+The database has two tables:
+1. user_profiles with columns:
+   - user_id INTEGER PRIMARY KEY
+   - name TEXT
+   - gender TEXT
+   - age INTEGER
+   - weight REAL
+   - goal TEXT
+   - activity TEXT
+   - diet TEXT
+   - health TEXT
+   - equipment TEXT
+   - target_metric TEXT
+2. user_traits with columns:
+   - user_id INTEGER
+   - trait_key TEXT
+   - trait_value TEXT
+   - PRIMARY KEY (user_id, trait_key)
 
-Твоя задача:
-
-1. Если в сообщении есть чёткое изменение данных профиля (например: вес, возраст, цели, оборудование и т.п.) — сгенерируй:
-    SQL: <SQL-запрос>
-    TEXT: <ответ человеку на естественном языке>
-
-2. Если это просто вопрос (например: "что поесть после тренировки?" или "что на фото?") — не создавай SQL. Просто дай полезный, краткий, но информативный ответ в блоке:
+Your tasks:
+1. If the message clearly indicates a change to the user profile (e.g., weight, age, goal, equipment) or traits (e.g., "I hate eating oatmeal for breakfast" or "My hobby is skiing"), generate:
+    SQL: <SQL query to update user_profiles or user_traits>
+    TEXT: <Response to the user in natural language>
+2. If it's a simple question (e.g., "What to eat after a workout?" or "What's in the photo?"), do not generate SQL. Provide a helpful, concise, but informative response in:
     TEXT: ...
+3. If the user sent an image and then says "Add this to my inventory," use the description of the object from the last image (e.g., "Stern mountain bike") instead of the word "image."
+4. If the message implies removing a trait (e.g., "I no longer like skiing"), generate an SQL query to delete the corresponding trait from user_traits.
+5. Include all current user traits from the user_traits table in the prompt for context.
+6. The response should be concise but informative and natural for the user.
 
-3. Если пользователь отправил изображение, а затем говорит "добавь это в мой инвентарь" — используй описание объекта с последнего изображения (например, "горный велосипед Stern"), а не слово "изображение".
+⚠️ Never update the profile or traits without explicit indication (e.g., "change," "add," "my weight is now..." etc.).
+⚠️ Always include all user traits in the prompt to ensure context-aware responses.
 
-4. ⚠️ Если пользователь отправил изображение еды и явно указал, что это его еда (например, написал: "мой завтрак", "что скажешь про мой обед?", "оценка моего ужина", "вот, что я съел") — проанализируй еду на фото и ответь в формате:
-
-TEXT:
-🔍 Анализ блюда:
-(Опиши, что именно на фото, с примерными весами/ингредиентами)
-
-🍽 Примерный КБЖУ:
-- Калории: …
-- Белки: …
-- Жиры: …
-- Углеводы: …
-
-✅ Польза и состав:
-(Опиши пользу каждого элемента еды: белок, клетчатка, микроэлементы и т.п.)
-
-🧠 Мнение бота:
-(Кратко оцени приём пищи: полезно ли, подходит ли для похудения/набора/баланса, что можно улучшить или добавить)
-
-💡 Совет (опционально):
-(Добавь маленький совет, если есть что улучшить)
-
-5.Если пользователь отправляет сообщение, которое:
-
-- содержит только символ ".",
-- не содержит смысла,
-- состоит из случайного набора символов,
-- является фрагментом фразы без контекста,
-- содержит только междометия, сленг, эмоциональные выкрики и т.д.,
-
-то ты должен вежливо запросить уточнение, например:
-
-"Привет! Можешь уточнить, что ты хотел сказать?"
-"Кажется, я не совсем понял. Не мог бы ты переформулировать?"
-"Хочу помочь, но мне нужно чуть больше контекста 😊"
-"Похоже, что-то пошло не так — уточни, пожалуйста, твой запрос."
-
-Ответ должен быть естественным, дружелюбным и кратким, как будто ты — заботливый, но профессиональный диетолог.
-
-⚠️ Никогда не обновляй профиль без явного указания на это (например: "измени", "добавь", "мой вес теперь..." и т.п.)
-
-⚠️ Общая длина ответа **никогда не должна превышать 4096 символов**, чтобы сообщение корректно отправилось в Telegram. Если нужно — сокращай, но сохраняй полезность и структуру.
-
-Ответ всегда возвращай строго в формате:
+Return the response strictly in the format:
 SQL: ...
 TEXT: ...
-или
+or
 TEXT: ...
 """
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
@@ -339,7 +353,7 @@ TEXT: ...
         response = model.generate_content(contents)
         response_text = response.text.strip()
 
-        # Разделим SQL и TEXT
+        # Split SQL and TEXT
         sql_match = re.search(r"SQL:\s*(.*?)\nTEXT:", response_text, re.DOTALL)
         text_match = re.search(r"TEXT:\s*(.+)", response_text, re.DOTALL)
 
@@ -350,7 +364,7 @@ TEXT: ...
                 conn = sqlite3.connect("users.db")
                 cursor = conn.cursor()
 
-                # Проверка: содержит ли SQL-запрос знак вопроса
+                # Check if SQL query contains a placeholder
                 if "?" in sql_query:
                     cursor.execute(sql_query, (user_id,))
                 else:
@@ -366,7 +380,7 @@ TEXT: ...
             reply_text = text_match.group(1).strip()
             await message.reply_text(reply_text)
         else:
-            # Если текстового ответа не найдено — просто верни всё как есть
+            # If no TEXT section is found, return the raw response
             await message.reply_text(response_text)
 
     except Exception as e:
