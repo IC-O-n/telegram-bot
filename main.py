@@ -105,10 +105,15 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
-async def validate_response(prompt: str, user_response: str, current_state: int) -> tuple:
+async def validate_response(prompt: str, user_response: str, current_state: int) -> bool:
     """Валидация ответа пользователя с помощью Gemini"""
     validation_prompts = {
-        ASK_NAME: "Пользователь должен ввести своё имя. Это строка, которая выглядит как человеческое имя. Ответь только 'VALID' если это имя, или 'INVALID' если это не имя.",
+        ASK_NAME: """Определи, является ли текст именем человека. Имя должно:
+        - Состоять из букв (может содержать дефисы или пробелы для двойных имен)
+        - Быть длиной от 2 до 30 символов
+        - Не содержать явно посторонних слов (например, "кроссовки")
+        
+        Ответь только 'VALID' если это имя, или 'INVALID' если нет.""",
         ASK_GENDER: "Пользователь должен указать свой пол. Допустимые ответы: 'м' или 'ж'. Ответь только 'VALID' если ответ корректный, или 'INVALID' если нет.",
         ASK_AGE: "Пользователь должен указать свой возраст числом от 10 до 120. Ответь только 'VALID' если это число в этом диапазоне, или 'INVALID' если нет.",
         ASK_WEIGHT: "Пользователь должен указать свой вес в кг (число от 20 до 300). Ответь только 'VALID' если это число в этом диапазоне, или 'INVALID' если нет.",
@@ -120,12 +125,16 @@ async def validate_response(prompt: str, user_response: str, current_state: int)
         ASK_TARGET: "Пользователь должен указать свою целевую метрику. Любой текст считается валидным, если он не пустой. Ответь только 'VALID' если текст не пустой, или 'INVALID' если пустой.",
     }
     
-    response = model.generate_content([
-        {"text": validation_prompts[current_state]},
-        {"text": f"Пользователь ответил: {user_response}"}
-    ])
-    
-    return "VALID" in response.text
+    try:
+        response = model.generate_content([
+            {"text": validation_prompts[current_state]},
+            {"text": f"Пользователь ответил: {user_response}"}
+        ])
+        return "VALID" in response.text
+    except Exception as e:
+        print(f"Ошибка валидации: {e}")
+        return False
+
 
 async def check_profile_update(message: str) -> tuple:
     """Проверяет, хочет ли пользователь обновить профиль"""
@@ -145,18 +154,25 @@ VALUE: <новое значение>
 
 async def check_custom_fact(message: str) -> str:
     """Проверяет, содержит ли сообщение уникальный факт о пользователе"""
-    response = model.generate_content([
-        {"text": """Определи, содержит ли это сообщение уникальный факт о пользователе, который стоит сохранить (например, "у меня нет ноги", "я люблю смотреть фильмы по вечерам"). 
-Если содержит - верни этот факт. Если нет - верни 'NO'."""},
-        {"text": message}
-    ])
+    if not message or len(message) < 5:  # Минимальная длина для факта
+        return None
     
-    return response.text if response.text != "NO" else None
-
-async def start(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
-    return ASK_NAME
-
+    try:
+        response = model.generate_content([
+            {"text": """Определи, содержит ли текст уникальный личный факт о пользователе 
+            (например: "у меня аллергия на орехи", "я профессиональный спортсмен", 
+            "по вечерам люблю смотреть сериалы"). Не считай фактом:
+            - Ответы на вопросы анкеты
+            - Общие фразы без конкретики
+            - Односложные ответы
+            
+            Если есть уникальный факт - верни его, иначе 'NO'."""},
+            {"text": message}
+        ])
+        return response.text if response.text != "NO" else None
+    except Exception as e:
+        print(f"Ошибка проверки факта: {e}")
+        return None
 
 def migrate_db():
     conn = sqlite3.connect("users.db")
@@ -183,29 +199,7 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
     current_state = context.user_data.get("current_state", ASK_NAME)
     
     try:
-        # Проверяем, не хочет ли пользователь обновить предыдущие данные
-        profile_update = await check_profile_update(user_response)
-        if profile_update:
-            field, value = profile_update
-            if user_id not in user_profiles:
-                user_profiles[user_id] = {}
-            user_profiles[user_id][field] = value
-            save_user_profile(user_id, {field: value})
-            await update.message.reply_text(f"Обновил {field} на '{value}'! Продолжим анкету.")
-            return current_state
-
-        # Проверяем на уникальные факты
-        custom_fact = await check_custom_fact(user_response)
-        if custom_fact:
-            try:
-                save_user_profile(user_id, {"custom_facts": custom_fact})
-                await update.message.reply_text("Запомнил эту информацию о тебе! Продолжим анкету.")
-                return current_state
-            except Exception as e:
-                await update.message.reply_text("Произошла ошибка при сохранении данных. Попробуй еще раз.")
-                return current_state
-
-        # Валидация ответа
+        # Сначала проверяем валидность ответа для текущего вопроса
         is_valid = await validate_response(user_response, user_response, current_state)
         
         if not is_valid:
@@ -222,24 +216,27 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
                 ASK_TARGET: "Пожалуйста, укажи свою целевую метрику.",
             }
             await update.message.reply_text(error_messages[current_state])
-            
-            # Повторно задаем вопрос
-            question_messages = {
-                ASK_NAME: "Как тебя зовут?",
-                ASK_GENDER: "Укажи свой пол (м/ж):",
-                ASK_AGE: "Сколько тебе лет?",
-                ASK_WEIGHT: "Какой у тебя текущий вес (в кг)?",
-                ASK_GOAL: "Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)",
-                ASK_ACTIVITY: "Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)",
-                ASK_DIET_PREF: "Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)",
-                ASK_HEALTH: "Есть ли у тебя ограничения по здоровью?",
-                ASK_EQUIPMENT: "Какой инвентарь/тренажёры у тебя есть?",
-                ASK_TARGET: "Какая у тебя конкретная цель по весу или другим метрикам?",
-            }
-            await update.message.reply_text(question_messages[current_state])
+            return current_state  # Остаемся на том же состоянии
+
+        # Только если ответ валиден, проверяем на обновление профиля или custom facts
+        profile_update = await check_profile_update(user_response)
+        if profile_update:
+            field, value = profile_update
+            if user_id not in user_profiles:
+                user_profiles[user_id] = {}
+            user_profiles[user_id][field] = value
+            save_user_profile(user_id, {field: value})
+            await update.message.reply_text(f"Обновил {field} на '{value}'! Продолжим анкету.")
             return current_state
 
-        # Если ответ валиден, сохраняем и переходим к следующему вопросу
+        # Проверяем на уникальные факты только после валидации
+        custom_fact = await check_custom_fact(user_response)
+        if custom_fact:
+            save_user_profile(user_id, {"custom_facts": custom_fact})
+            await update.message.reply_text("Запомнил эту информацию о тебе! Продолжим анкету.")
+            return current_state
+
+        # Если ответ валиден и не является обновлением или фактом, сохраняем и идем дальше
         if user_id not in user_profiles:
             user_profiles[user_id] = {}
         
@@ -255,11 +252,11 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
             ASK_EQUIPMENT: "equipment",
             ASK_TARGET: "target_metric",
         }
-
+        
         field_name = field_names[current_state]
         user_profiles[user_id][field_name] = user_response.lower() if current_state == ASK_GENDER else user_response
-
-        # Переход к следующему вопросу или завершение анкеты
+        
+        # Переход к следующему вопросу
         next_questions = {
             ASK_NAME: ("Укажи свой пол (м/ж):", ASK_GENDER),
             ASK_GENDER: ("Сколько тебе лет?", ASK_AGE),
@@ -272,14 +269,13 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
             ASK_EQUIPMENT: ("Какая у тебя конкретная цель по весу или другим метрикам?", ASK_TARGET),
             ASK_TARGET: ("", None),  # Конец анкеты
         }
-
+        
         next_question, next_state = next_questions[current_state]
-
+        
         if next_state is None:
-            # Завершение анкеты
             save_user_profile(user_id, user_profiles[user_id])
             name = user_profiles[user_id]["name"]
-            await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
+            await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉")
             return ConversationHandler.END
         else:
             await update.message.reply_text(next_question)
@@ -287,8 +283,8 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
             return next_state
 
     except Exception as e:
-        print(f"Ошибка в handle_questionnaire: {e}")
-        await update.message.reply_text("Произошла непредвиденная ошибка. Давай попробуем еще раз.")
+        print(f"Ошибка: {e}")
+        await update.message.reply_text("Произошла ошибка. Давай попробуем еще раз.")
         return current_state
 
 
