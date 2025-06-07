@@ -196,9 +196,24 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
             ASK_TARGET: "Пожалуйста, укажи свою целевую метрику.",
         }
         await update.message.reply_text(error_messages[current_state])
+        
+        # Повторно задаем тот же вопрос
+        question_messages = {
+            ASK_NAME: "Как тебя зовут?",
+            ASK_GENDER: "Укажи свой пол (м/ж):",
+            ASK_AGE: "Сколько тебе лет?",
+            ASK_WEIGHT: "Какой у тебя текущий вес (в кг)?",
+            ASK_GOAL: "Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)",
+            ASK_ACTIVITY: "Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)",
+            ASK_DIET_PREF: "Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)",
+            ASK_HEALTH: "Есть ли у тебя ограничения по здоровью?",
+            ASK_EQUIPMENT: "Какой инвентарь/тренажёры у тебя есть?",
+            ASK_TARGET: "Какая у тебя конкретная цель по весу или другим метрикам?",
+        }
+        await update.message.reply_text(question_messages[current_state])
         return current_state  # Остаемся на том же состоянии
     
-    # Сохраняем ответ и переходим к следующему вопросу
+    # Если ответ валиден, сохраняем и переходим к следующему вопросу
     if user_id not in user_profiles:
         user_profiles[user_id] = {}
     
@@ -218,9 +233,9 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
     field_name = field_names[current_state]
     user_profiles[user_id][field_name] = user_response.lower() if current_state == ASK_GENDER else user_response
     
+    # Переход к следующему вопросу или завершение анкеты
     next_questions = {
-        ASK_NAME: ("Укажи свой пол (м/ж):", ASK_GENDER),
-        ASK_GENDER: ("Сколько тебе лет?", ASK_AGE),
+        ASK_NAME: ("Укажи свой пол (м/ж):", ASK_GENDER), ASK_GENDER: ("Сколько тебе лет?", ASK_AGE),
         ASK_AGE: ("Какой у тебя текущий вес (в кг)?", ASK_WEIGHT),
         ASK_WEIGHT: ("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)", ASK_GOAL),
         ASK_GOAL: ("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)", ASK_ACTIVITY),
@@ -241,6 +256,7 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
     else:
         await update.message.reply_text(next_question)
+        context.user_data["current_state"] = next_state
         return next_state
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
