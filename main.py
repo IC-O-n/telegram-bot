@@ -3,7 +3,6 @@ import re
 import base64
 import aiohttp
 import sqlite3
-import telegram
 from collections import deque
 from telegram import Update, File
 from telegram.ext import (
@@ -29,6 +28,23 @@ user_profiles = {}
     ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_GOAL,
     ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, ASK_TARGET
 ) = range(10)
+
+def migrate_db():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("PRAGMA table_info(user_profiles)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    if "custom_facts" not in columns:
+        try:
+            cursor.execute("ALTER TABLE user_profiles ADD COLUMN custom_facts TEXT")
+            conn.commit()
+            print("База данных успешно мигрирована: добавлен столбец custom_facts")
+        except Exception as e:
+            print(f"Ошибка при миграции базы данных: {e}")
+    
+    conn.close()
 
 def init_db():
     conn = sqlite3.connect("users.db")
@@ -57,12 +73,10 @@ def save_user_profile(user_id: int, profile: dict):
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     
-    # Получаем текущие custom_facts
     cursor.execute("SELECT custom_facts FROM user_profiles WHERE user_id = ?", (user_id,))
     existing_facts = cursor.fetchone()
     current_facts = existing_facts[0] if existing_facts and existing_facts[0] else ""
     
-    # Объединяем с новыми фактами, если они есть
     new_facts = profile.get("custom_facts", "")
     if new_facts and current_facts:
         combined_facts = f"{current_facts}\n{new_facts}"
@@ -105,7 +119,7 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
-async def validate_response(prompt: str, user_response: str, current_state: int) -> bool:
+async def validate_response(user_response: str, current_state: int) -> bool:
     """Валидация ответа пользователя с помощью Gemini"""
     validation_prompts = {
         ASK_NAME: """Определи, является ли текст именем человека. Имя должно:
@@ -135,21 +149,23 @@ async def validate_response(prompt: str, user_response: str, current_state: int)
         print(f"Ошибка валидации: {e}")
         return False
 
-
 async def check_profile_update(message: str) -> tuple:
     """Проверяет, хочет ли пользователь обновить профиль"""
-    response = model.generate_content([
-        {"text": """Проанализируй сообщение пользователя. Если он явно хочет обновить какие-то данные в своём профиле (например, имя, возраст, вес и т.д.), ответь в формате:
+    try:
+        response = model.generate_content([
+            {"text": """Проанализируй сообщение пользователя. Если он явно хочет обновить какие-то данные в своём профиле (например, имя, возраст, вес и т.д.), ответь в формате:
 FIELD: <поле для обновления>
 VALUE: <новое значение>
 Если это не обновление профиля, ответь 'NO'"""},
-        {"text": message}
-    ])
-    
-    if "FIELD:" in response.text and "VALUE:" in response.text:
-        field = response.text.split("FIELD:")[1].split("VALUE:")[0].strip()
-        value = response.text.split("VALUE:")[1].strip()
-        return (field, value)
+            {"text": message}
+        ])
+        
+        if "FIELD:" in response.text and "VALUE:" in response.text:
+            field = response.text.split("FIELD:")[1].split("VALUE:")[0].strip()
+            value = response.text.split("VALUE:")[1].strip()
+            return (field, value)
+    except Exception as e:
+        print(f"Ошибка проверки обновления профиля: {e}")
     return None
 
 async def check_custom_fact(message: str) -> str:
@@ -174,24 +190,10 @@ async def check_custom_fact(message: str) -> str:
         print(f"Ошибка проверки факта: {e}")
         return None
 
-def migrate_db():
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    
-    # Проверяем существование столбца custom_facts
-    cursor.execute("PRAGMA table_info(user_profiles)")
-    columns = [column[1] for column in cursor.fetchall()]
-    
-    if "custom_facts" not in columns:
-        try:
-            cursor.execute("ALTER TABLE user_profiles ADD COLUMN custom_facts TEXT")
-            conn.commit()
-            print("База данных успешно мигрирована: добавлен столбец custom_facts")
-        except Exception as e:
-            print(f"Ошибка при миграции базы данных: {e}")
-    
-    conn.close()
-
+async def start(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
+    context.user_data["current_state"] = ASK_NAME
+    return ASK_NAME
 
 async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -200,7 +202,7 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
     
     try:
         # Сначала проверяем валидность ответа для текущего вопроса
-        is_valid = await validate_response(user_response, user_response, current_state)
+        is_valid = await validate_response(user_response, current_state)
         
         if not is_valid:
             error_messages = {
@@ -216,7 +218,7 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
                 ASK_TARGET: "Пожалуйста, укажи свою целевую метрику.",
             }
             await update.message.reply_text(error_messages[current_state])
-            return current_state  # Остаемся на том же состоянии
+            return current_state
 
         # Только если ответ валиден, проверяем на обновление профиля или custom facts
         profile_update = await check_profile_update(user_response)
@@ -275,7 +277,7 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
         if next_state is None:
             save_user_profile(user_id, user_profiles[user_id])
             name = user_profiles[user_id]["name"]
-            await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉")
+            await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
             return ConversationHandler.END
         else:
             await update.message.reply_text(next_question)
@@ -283,10 +285,9 @@ async def handle_questionnaire(update: Update, context: CallbackContext) -> int:
             return next_state
 
     except Exception as e:
-        print(f"Ошибка: {e}")
-        await update.message.reply_text("Произошла ошибка. Давай попробуем еще раз.")
+        print(f"Ошибка в handle_questionnaire: {e}")
+        await update.message.reply_text("Произошла непредвиденная ошибка. Давай попробуем еще раз.")
         return current_state
-
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
@@ -316,7 +317,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
 
 async def generate_image(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini �")
+    await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
 
 def get_user_profile_text(user_id: int) -> str:
     conn = sqlite3.connect("users.db")
@@ -442,7 +443,6 @@ TEXT: ...
                 conn = sqlite3.connect("users.db")
                 cursor = conn.cursor()
 
-                # Проверка: содержит ли SQL-запрос знак вопроса
                 if "?" in sql_query:
                     cursor.execute(sql_query, (user_id,))
                 else:
@@ -458,7 +458,6 @@ TEXT: ...
             reply_text = text_match.group(1).strip()
             await message.reply_text(reply_text)
         else:
-            # Если текстового ответа не найдено — просто верни всё как есть
             await message.reply_text(response_text)
 
     except Exception as e:
