@@ -45,7 +45,8 @@ def init_db():
         diet TEXT,
         health TEXT,
         equipment TEXT,
-        target_metric TEXT
+        target_metric TEXT,
+        unique_facts TEXT  # Новое поле для уникальных фактов
     )
     ''')
     conn.commit()
@@ -56,8 +57,8 @@ def save_user_profile(user_id: int, profile: dict):
     cursor = conn.cursor()
     cursor.execute('''
     INSERT OR REPLACE INTO user_profiles
-    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (user_id, name, gender, age, weight, goal, activity, diet, health, equipment, target_metric, unique_facts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
         profile.get("name"),
@@ -70,9 +71,11 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("health"),
         profile.get("equipment"),
         profile.get("target_metric"),
+        profile.get("unique_facts"),  # Новое поле
     ))
     conn.commit()
     conn.close()
+
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -175,9 +178,11 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         f"Твой профиль:\n\n"
         f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
         f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
-        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}"
+        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}\n"
+        f"Уникальные факты: {row[11] if row[11] else 'Нет'}"  # Новое поле
     )
     await update.message.reply_text(profile_text)
+
 
 async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
@@ -221,7 +226,8 @@ def get_user_profile_text(user_id: int) -> str:
         f"Питание: {row[7]}\n"
         f"Здоровье: {row[8]}\n"
         f"Инвентарь: {row[9]}\n"
-        f"Целевая метрика: {row[10]}"
+        f"Целевая метрика: {row[10]}\n"
+        f"Уникальные факты: {row[11] if row[11] else 'Нет'}"  # Новое поле
     )
 
 
@@ -308,13 +314,16 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
    - Если факт относится к здоровью — добавь его в поле health
    - Если факт относится к питанию — добавь его в поле diet
    - Если факт относится к оборудованию/инвентарю — добавь его в поле equipment
-   - Если факт не подходит ни к одному из этих полей, но важен — добавь его в поле activity
+   - Если факт относится к активности/спорту — добавь его в поле activity
+   - Если факт не подходит ни к одной из этих категорий — добавь его в поле unique_facts
    Формат добавления: "Факт: [описание факта]."
 
    Примеры:
    - "Я люблю кофе по вечерам" → добавляется в diet: "Факт: Любит кофе по вечерам."
    - "У меня болит спина" → добавляется в health: "Факт: Боль в спине."
    - "Люблю плавать" → добавляется в activity: "Факт: Любит плавание."
+   - "Я работаю программистом" → добавляется в unique_facts: "Факт: Работает программистом."
+   - "У меня есть собака" → добавляется в unique_facts: "Факт: Есть собака."
 
 6. ⚠️ Если пользователь отправил изображение еды и явно указал, что это его еда — проанализируй еду на фото и ответь в формате:
 
