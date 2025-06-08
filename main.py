@@ -76,7 +76,6 @@ def save_user_profile(user_id: int, profile: dict):
     conn.commit()
     conn.close()
 
-
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
     async with aiohttp.ClientSession() as session:
@@ -178,11 +177,9 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         f"Твой профиль:\n\n"
         f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
         f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
-        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}\n"
-        f"Уникальные факты: {row[11] if row[11] else 'Нет'}"
+        f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}\nУникальные факты: {row[11]}"
     )
     await update.message.reply_text(profile_text)
-
 
 async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
@@ -227,7 +224,7 @@ def get_user_profile_text(user_id: int) -> str:
         f"Здоровье: {row[8]}\n"
         f"Инвентарь: {row[9]}\n"
         f"Целевая метрика: {row[10]}\n"
-        f"Уникальные факты: {row[11] if row[11] else 'Нет'}"
+        f"Уникальные факты: {row[11]}"
     )
 
 
@@ -295,10 +292,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - health TEXT
 - equipment TEXT
 - target_metric TEXT
+- unique_facts TEXT
 
 Твоя задача:
 
-1. Всегда сначала анализируй информацию из профиля пользователя (особенно поля diet, health, activity) и строго учитывай её в ответах.
+1. Всегда сначала анализируй информацию из профиля пользователя (особенно поля diet, health, activity, unique_facts) и строго учитывай её в ответах.
 
 2. Если в сообщении есть чёткое изменение данных профиля (например: вес, возраст, цели, оборудование и т.п.) — сгенерируй:
     SQL: <SQL-запрос>
@@ -451,3 +449,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
