@@ -95,28 +95,36 @@ async def download_and_encode(file: File) -> dict:
 
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
-        "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
+        "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения:\n"
         "🇷🇺 Русский - нажми /ru\n"
+        "🇬🇧 English - press /en\n\n"
+        "Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n"
+        "🇷🇺 Russian - press /ru\n"
         "🇬🇧 English - press /en"
     )
     return ASK_LANGUAGE
 
 async def ask_language(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-    language_choice = update.message.text.lower()
+    language_choice = update.message.text.lower().strip()
     
-    if language_choice in ["/ru", "ru", "русский", "рус", "russian"]:
-        user_profiles[user_id] = {"language": "Russian"}
-        await update.message.reply_text("Отлично! Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
-    elif language_choice in ["/en", "en", "english", "английский", "англ"]:
-        user_profiles[user_id] = {"language": "English"}
-        await update.message.reply_text("Great! Let's start with a short questionnaire 🙌\n\nWhat's your name?")
-    else:
+    if language_choice not in ["/ru", "/en"]:
         await update.message.reply_text(
-            "Пожалуйста, выбери язык: /ru или /en\n"
-            "Please choose language: /ru or /en"
+            "Пожалуйста, выберите язык командой:\n"
+            "/ru - для русского\n"
+            "/en - для английского\n\n"
+            "Please select language with command:\n"
+            "/ru - for Russian\n"
+            "/en - for English"
         )
         return ASK_LANGUAGE
+    
+    if language_choice == "/ru":
+        user_profiles[user_id] = {"language": "Russian"}
+        await update.message.reply_text("Отлично! Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
+    else:
+        user_profiles[user_id] = {"language": "English"}
+        await update.message.reply_text("Great! Let's start with a short questionnaire 🙌\n\nWhat's your name?")
     
     return ASK_NAME
 
