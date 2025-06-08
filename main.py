@@ -181,9 +181,21 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
 
 async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+    
+    # Очищаем временные данные
     user_histories.pop(user_id, None)
     user_profiles.pop(user_id, None)
-    await update.message.reply_text("Контекст сброшен! Начнем с чистого листа 🧼")
+    
+    # Удаляем пользователя из базы данных
+    try:
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        await update.message.reply_text("Все данные успешно сброшены! Начнем с чистого листа 🧼")
+    except Exception as e:
+        await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}")
 
 async def generate_image(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
