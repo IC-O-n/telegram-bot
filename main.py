@@ -46,7 +46,7 @@ def init_db():
         health TEXT,
         equipment TEXT,
         target_metric TEXT,
-        unique_facts TEXT  # Новое поле для уникальных фактов
+        unique_facts TEXT
     )
     ''')
     conn.commit()
@@ -71,7 +71,7 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("health"),
         profile.get("equipment"),
         profile.get("target_metric"),
-        profile.get("unique_facts"),  # Новое поле
+        profile.get("unique_facts"),
     ))
     conn.commit()
     conn.close()
@@ -179,7 +179,7 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\nВес: {row[4]} кг\n"
         f"Цель: {row[5]}\nАктивность: {row[6]}\nПитание: {row[7]}\n"
         f"Здоровье: {row[8]}\nИнвентарь: {row[9]}\nЦелевая метрика: {row[10]}\n"
-        f"Уникальные факты: {row[11] if row[11] else 'Нет'}"  # Новое поле
+        f"Уникальные факты: {row[11] if row[11] else 'Нет'}"
     )
     await update.message.reply_text(profile_text)
 
@@ -203,7 +203,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}")
 
 async def generate_image(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text("Генерация изображений пока недоступна. Ждём обновления API Gemini 🎨")
+    await update.message.reply_text("Генерация изображений пока недоступна.")
 
 
 def get_user_profile_text(user_id: int) -> str:
@@ -227,7 +227,7 @@ def get_user_profile_text(user_id: int) -> str:
         f"Здоровье: {row[8]}\n"
         f"Инвентарь: {row[9]}\n"
         f"Целевая метрика: {row[10]}\n"
-        f"Уникальные факты: {row[11] if row[11] else 'Нет'}"  # Новое поле
+        f"Уникальные факты: {row[11] if row[11] else 'Нет'}"
     )
 
 
