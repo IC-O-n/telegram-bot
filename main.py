@@ -26,9 +26,9 @@ user_histories = {}
 user_profiles = {}
 
 (
-    ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
+    ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
     ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, ASK_TARGET
-) = range(11)
+) = range(12)
 
 def init_db():
     conn = sqlite3.connect("users.db")
@@ -36,6 +36,7 @@ def init_db():
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS user_profiles (
         user_id INTEGER PRIMARY KEY,
+        language TEXT,
         name TEXT,
         gender TEXT,
         age INTEGER,
@@ -58,10 +59,11 @@ def save_user_profile(user_id: int, profile: dict):
     cursor = conn.cursor()
     cursor.execute('''
     INSERT OR REPLACE INTO user_profiles
-    (user_id, name, gender, age, weight, height, goal, activity, diet, health, equipment, target_metric, unique_facts)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (user_id, language, name, gender, age, weight, height, goal, activity, diet, health, equipment, target_metric, unique_facts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
+        profile.get("language"),
         profile.get("name"),
         profile.get("gender"),
         profile.get("age"),
@@ -92,89 +94,211 @@ async def download_and_encode(file: File) -> dict:
     }
 
 async def start(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Привет! Я твой персональный фитнес-ассистент NutriBot. Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
+    await update.message.reply_text(
+        "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
+        "🇷🇺 Русский - нажми /ru\n"
+        "🇬🇧 English - press /en"
+    )
+    return ASK_LANGUAGE
+
+async def ask_language(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language_choice = update.message.text.lower()
+    
+    if language_choice in ["/ru", "ru", "русский", "рус", "russian"]:
+        user_profiles[user_id] = {"language": "Russian"}
+        await update.message.reply_text("Отлично! Давай начнем с короткой анкеты 🙌\n\nКак тебя зовут?")
+    elif language_choice in ["/en", "en", "english", "английский", "англ"]:
+        user_profiles[user_id] = {"language": "English"}
+        await update.message.reply_text("Great! Let's start with a short questionnaire 🙌\n\nWhat's your name?")
+    else:
+        await update.message.reply_text(
+            "Пожалуйста, выбери язык: /ru или /en\n"
+            "Please choose language: /ru or /en"
+        )
+        return ASK_LANGUAGE
+    
     return ASK_NAME
 
 async def ask_gender(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-    user_profiles[user_id] = {"name": update.message.text}
-    await update.message.reply_text("Укажи свой пол (м/ж):")
+    user_profiles[user_id]["name"] = update.message.text
+    
+    if user_profiles[user_id]["language"] == "English":
+        await update.message.reply_text("What's your gender? (m/f)")
+    else:
+        await update.message.reply_text("Укажи свой пол (м/ж):")
+    
     return ASK_GENDER
 
 async def ask_age(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
     gender = update.message.text.lower()
-    if gender not in ["м", "ж"]:
-        await update.message.reply_text("Пожалуйста, укажи только 'м' или 'ж'.")
-        return ASK_GENDER
-    user_profiles[update.message.from_user.id]["gender"] = gender
-    await update.message.reply_text("Сколько тебе лет?")
+    language = user_profiles[user_id]["language"]
+    
+    if language == "English":
+        if gender not in ["m", "f"]:
+            await update.message.reply_text("Please specify only 'm' or 'f'.")
+            return ASK_GENDER
+    else:
+        if gender not in ["м", "ж"]:
+            await update.message.reply_text("Пожалуйста, укажи только 'м' или 'ж'.")
+            return ASK_GENDER
+    
+    user_profiles[user_id]["gender"] = gender
+    
+    if language == "English":
+        await update.message.reply_text("How old are you?")
+    else:
+        await update.message.reply_text("Сколько тебе лет?")
+    
     return ASK_AGE
 
 async def ask_weight(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id]["language"]
+    
     try:
         age = int(update.message.text)
     except ValueError:
-        await update.message.reply_text("Пожалуйста, укажи возраст числом.")
+        if language == "English":
+            await update.message.reply_text("Please enter your age as a number.")
+        else:
+            await update.message.reply_text("Пожалуйста, укажи возраст числом.")
         return ASK_AGE
-    user_profiles[update.message.from_user.id]["age"] = age
-    await update.message.reply_text("Какой у тебя текущий вес (в кг)?")
+    
+    user_profiles[user_id]["age"] = age
+    
+    if language == "English":
+        await update.message.reply_text("What's your current weight (in kg)?")
+    else:
+        await update.message.reply_text("Какой у тебя текущий вес (в кг)?")
+    
     return ASK_WEIGHT
 
 async def ask_height(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id]["language"]
+    
     try:
         weight = float(update.message.text.replace(",", "."))
     except ValueError:
-        await update.message.reply_text("Пожалуйста, укажи вес числом.")
+        if language == "English":
+            await update.message.reply_text("Please enter your weight as a number.")
+        else:
+            await update.message.reply_text("Пожалуйста, укажи вес числом.")
         return ASK_WEIGHT
-    user_profiles[update.message.from_user.id]["weight"] = weight
-    await update.message.reply_text("Какой у тебя рост (в см)?")
+    
+    user_profiles[user_id]["weight"] = weight
+    
+    if language == "English":
+        await update.message.reply_text("What's your height (in cm)?")
+    else:
+        await update.message.reply_text("Какой у тебя рост (в см)?")
+    
     return ASK_HEIGHT
 
 async def ask_goal(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id]["language"]
+    
     try:
         height = int(update.message.text)
-        if height < 100 or height > 250:  
-            await update.message.reply_text("Пожалуйста, укажи реальный рост (от 100 до 250 см).")
+        if height < 100 or height > 250:
+            if language == "English":
+                await update.message.reply_text("Please enter a realistic height (100-250 cm).")
+            else:
+                await update.message.reply_text("Пожалуйста, укажи реальный рост (от 100 до 250 см).")
             return ASK_HEIGHT
     except ValueError:
-        await update.message.reply_text("Пожалуйста, укажи рост целым числом в сантиметрах.")
+        if language == "English":
+            await update.message.reply_text("Please enter your height as a whole number in centimeters.")
+        else:
+            await update.message.reply_text("Пожалуйста, укажи рост целым числом в сантиметрах.")
         return ASK_HEIGHT
     
-    user_profiles[update.message.from_user.id]["height"] = height
-    await update.message.reply_text("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)")
+    user_profiles[user_id]["height"] = height
+    
+    if language == "English":
+        await update.message.reply_text("What's your goal? (Lose weight, Gain mass, Get toned, Just healthy lifestyle)")
+    else:
+        await update.message.reply_text("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)")
+    
     return ASK_GOAL
 
 async def ask_activity(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["goal"] = update.message.text
-    await update.message.reply_text("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)")
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id]["language"]
+    user_profiles[user_id]["goal"] = update.message.text
+    
+    if language == "English":
+        await update.message.reply_text("What's your activity/experience level? (Beginner, Intermediate, Advanced)")
+    else:
+        await update.message.reply_text("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)")
+    
     return ASK_ACTIVITY
 
 async def ask_diet_pref(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["activity"] = update.message.text
-    await update.message.reply_text("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)")
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id]["language"]
+    user_profiles[user_id]["activity"] = update.message.text
+    
+    if language == "English":
+        await update.message.reply_text("Do you have any dietary preferences? (Vegan, gluten-free, etc.)")
+    else:
+        await update.message.reply_text("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)")
+    
     return ASK_DIET_PREF
 
 async def ask_health(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["diet"] = update.message.text
-    await update.message.reply_text("Есть ли у тебя ограничения по здоровью?")
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id]["language"]
+    user_profiles[user_id]["diet"] = update.message.text
+    
+    if language == "English":
+        await update.message.reply_text("Do you have any health restrictions?")
+    else:
+        await update.message.reply_text("Есть ли у тебя ограничения по здоровью?")
+    
     return ASK_HEALTH
 
 async def ask_equipment(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["health"] = update.message.text
-    await update.message.reply_text("Какой инвентарь/тренажёры у тебя есть?")
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id]["language"]
+    user_profiles[user_id]["health"] = update.message.text
+    
+    if language == "English":
+        await update.message.reply_text("What equipment do you have available?")
+    else:
+        await update.message.reply_text("Какой инвентарь/тренажёры у тебя есть?")
+    
     return ASK_EQUIPMENT
 
 async def ask_target(update: Update, context: CallbackContext) -> int:
-    user_profiles[update.message.from_user.id]["equipment"] = update.message.text
-    await update.message.reply_text("Какая у тебя конкретная цель по весу или другим метрикам?")
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id]["language"]
+    user_profiles[user_id]["equipment"] = update.message.text
+    
+    if language == "English":
+        await update.message.reply_text("What's your specific weight or other metric goal?")
+    else:
+        await update.message.reply_text("Какая у тебя конкретная цель по весу или другим метрикам?")
+    
     return ASK_TARGET
 
 async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     user_profiles[user_id]["target_metric"] = update.message.text
     name = user_profiles[user_id]["name"]
+    language = user_profiles[user_id]["language"]
+    
     save_user_profile(user_id, user_profiles[user_id])
-    await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
+    
+    if language == "English":
+        await update.message.reply_text(f"Great, {name}! Questionnaire completed 🎉 You can send me photos, text or documents - I'll help you with analysis and recommendations!")
+    else:
+        await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
+    
     return ConversationHandler.END
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
@@ -186,17 +310,30 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
     conn.close()
 
     if not row:
-        await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.")
+        await update.message.reply_text("Profile not found. Complete the questionnaire with /start.")
         return
-
-    profile_text = (
-        f"Твой профиль:\n\n"
-        f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\n"
-        f"Вес: {row[4]} кг\nРост: {row[5]} см\n"
-        f"Цель: {row[6]}\nАктивность: {row[7]}\nПитание: {row[8]}\n"
-        f"Здоровье: {row[9]}\nИнвентарь: {row[10]}\nЦелевая метрика: {row[11]}\n"
-        f"Уникальные факты: {row[12]}"
-    )
+    
+    language = row[1] if row[1] else "Russian"
+    
+    if language == "English":
+        profile_text = (
+            f"Your profile:\n\n"
+            f"Language: {row[1]}\nName: {row[2]}\nGender: {row[3]}\nAge: {row[4]}\n"
+            f"Weight: {row[5]} kg\nHeight: {row[6]} cm\n"
+            f"Goal: {row[7]}\nActivity: {row[8]}\nDiet: {row[9]}\n"
+            f"Health: {row[10]}\nEquipment: {row[11]}\nTarget metric: {row[12]}\n"
+            f"Unique facts: {row[13]}"
+        )
+    else:
+        profile_text = (
+            f"Твой профиль:\n\n"
+            f"Язык: {row[1]}\nИмя: {row[2]}\nПол: {row[3]}\nВозраст: {row[4]}\n"
+            f"Вес: {row[5]} кг\nРост: {row[6]} см\n"
+            f"Цель: {row[7]}\nАктивность: {row[8]}\nПитание: {row[9]}\n"
+            f"Здоровье: {row[10]}\nИнвентарь: {row[11]}\nЦелевая метрика: {row[12]}\n"
+            f"Уникальные факты: {row[13]}"
+        )
+    
     await update.message.reply_text(profile_text)
 
 async def reset(update: Update, context: CallbackContext) -> None:
@@ -213,12 +350,12 @@ async def reset(update: Update, context: CallbackContext) -> None:
         cursor.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
         conn.commit()
         conn.close()
-        await update.message.reply_text("Все данные успешно сброшены! Начнем с чистого листа 🧼")
+        await update.message.reply_text("All data has been successfully reset! Let's start fresh 🧼")
     except Exception as e:
-        await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}")
+        await update.message.reply_text(f"An error occurred while resetting data: {e}")
 
 async def generate_image(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text("Генерация изображений пока недоступна.")
+    await update.message.reply_text("Image generation is currently unavailable.")
 
 
 def get_user_profile_text(user_id: int) -> str:
@@ -229,21 +366,22 @@ def get_user_profile_text(user_id: int) -> str:
     conn.close()
 
     if not row:
-        return "Профиль пользователя не найден."
+        return "User profile not found."
 
     return (
-        f"Имя: {row[1]}\n"
-        f"Пол: {row[2]}\n"
-        f"Возраст: {row[3]}\n"
-        f"Вес: {row[4]} кг\n"
-        f"Рост: {row[5]} см\n"
-        f"Цель: {row[6]}\n"
-        f"Активность: {row[7]}\n"
-        f"Питание: {row[8]}\n"
-        f"Здоровье: {row[9]}\n"
-        f"Инвентарь: {row[10]}\n"
-        f"Целевая метрика: {row[11]}\n"
-        f"Уникальные факты: {row[12]}"
+        f"Language: {row[1]}\n"
+        f"Name: {row[2]}\n"
+        f"Gender: {row[3]}\n"
+        f"Age: {row[4]}\n"
+        f"Weight: {row[5]} kg\n"
+        f"Height: {row[6]} cm\n"
+        f"Goal: {row[7]}\n"
+        f"Activity: {row[8]}\n"
+        f"Diet: {row[9]}\n"
+        f"Health: {row[10]}\n"
+        f"Equipment: {row[11]}\n"
+        f"Target metric: {row[12]}\n"
+        f"Unique facts: {row[13]}"
     )
 
 
@@ -262,45 +400,46 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             part = await download_and_encode(file)
             contents.append(part)
         except Exception as e:
-            await message.reply_text(f"Ошибка при загрузке файла: {str(e)}")
+            await message.reply_text(f"Error loading file: {str(e)}")
             return
 
     if user_text:
         contents.insert(0, {"text": user_text})
     if not contents:
-        await message.reply_text("Пожалуйста, отправь текст, изображение или документ.")
+        await message.reply_text("Please send text, image or document.")
         return
 
     # Профиль пользователя
     profile_info = get_user_profile_text(user_id)
-    if profile_info and "не найден" not in profile_info:
-        contents.insert(0, {"text": f"Информация о пользователе:\n{profile_info}"})
+    if profile_info and "not found" not in profile_info:
+        contents.insert(0, {"text": f"User information:\n{profile_info}"})
 
     # История - увеличиваем размер очереди до 10 сообщений
     if user_id not in user_histories:
         user_histories[user_id] = deque(maxlen=10)
-    user_histories[user_id].append(f"Пользователь: {user_text}")
+    user_histories[user_id].append(f"User: {user_text}")
     
     # Добавляем предыдущие ответы бота в историю
     if 'last_bot_reply' in context.user_data:
-        user_histories[user_id].append(f"Бот: {context.user_data['last_bot_reply']}")
+        user_histories[user_id].append(f"Bot: {context.user_data['last_bot_reply']}")
     
     history_messages = list(user_histories[user_id])
     if history_messages:
         history_prompt = "\n".join(history_messages)
-        contents.insert(0, {"text": f"Контекст текущего диалога (последние сообщения):\n{history_prompt}"})
+        contents.insert(0, {"text": f"Current dialog context (recent messages):\n{history_prompt}"})
 
     # Системный промпт (изменена только часть про анализ фото)
-    GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
+    GEMINI_SYSTEM_PROMPT = """You are a smart assistant that helps the user and updates their profile in the database when necessary.
 
-Ты получаешь от пользователя сообщения. Они могут быть:
-- просто вопросами (например, о питании, тренировках, фото и т.д.)
-- обновлениями данных (например, "я набрал 3 кг" или "мне теперь 20 лет")
-- сообщениями после изображения (например, "добавь это в инвентарь")
-- уникальными фактами о пользователе (например, "я люблю плавание", "у меня была травма колена", "я вегетарианец 5 лет", "люблю кофе по вечерам")
+You receive messages from the user. They can be:
+- just questions (e.g., about nutrition, workouts, photos, etc.)
+- data updates (e.g., "I gained 3 kg" or "I'm now 20 years old")
+- messages after images (e.g., "add this to equipment")
+- unique facts about the user (e.g., "I like swimming", "I had a knee injury", "I've been vegetarian for 5 years", "I like coffee in the evenings")
 
-В базе данных есть таблица user_profiles с колонками:
+The database has a user_profiles table with columns:
 - user_id INTEGER PRIMARY KEY
+- language TEXT
 - name TEXT
 - gender TEXT
 - age INTEGER
@@ -314,85 +453,85 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - target_metric TEXT
 - unique_facts TEXT
 
-Твоя задача:
+Your task:
 
-1. Всегда сначала анализируй информацию из профиля пользователя (особенно поля diet, health, activity, unique_facts) и строго учитывай её в ответах.
+1. Always first analyze the information from the user's profile (especially diet, health, activity, unique_facts fields) and strictly consider it in your responses.
 
-2. Если в сообщении есть чёткое изменение данных профиля (например: вес, возраст, цели, оборудование и т.п.) — сгенерируй:
-    SQL: <SQL-запрос>
-    TEXT: <ответ человеку на естественном языке>
+2. If the message contains a clear profile data change (e.g.: weight, age, goals, equipment, etc.) — generate:
+    SQL: <SQL query>
+    TEXT: <response to the person in natural language>
 
-3. Если это просто вопрос (например: "что поесть после тренировки?" или "что на фото?") — дай полезный, краткий, но информативный ответ, ОБЯЗАТЕЛЬНО учитывая известные факты о пользователе:
+3. If it's just a question (e.g.: "what to eat after workout?" or "what's in the photo?") — give a useful, concise but informative answer, MANDATORILY considering known facts about the user:
     TEXT: ...
 
-4. Если пользователь отправил изображение — анализируй ТОЛЬКО то, что действительно видно на фото, без домыслов. Если не уверен в деталях — уточни. 
-   Если пользователь поправляет тебя (например: "на фото было 2 яйца, а не 3") — СРАЗУ ЖЕ учти это в следующем ответе и извинись за ошибку.
+4. If the user sent an image — analyze ONLY what is really visible in the photo, without assumptions. If unsure about details — ask for clarification. 
+   If the user corrects you (e.g.: "there were 2 eggs in the photo, not 3") — IMMEDIATELY consider this in the next response and apologize for the mistake.
 
-5. Если в сообщении есть уникальные факты о пользователе (увлечения, особенности здоровья, предпочтения, травмы и т.п.), которые не вписываются в стандартные поля профиля, но важны для персонализации:
-   - Если факт относится к здоровью — добавь его в поле health
-   - Если факт относится к питанию — добавь его в поле diet
-   - Если факт относится к оборудованию/инвентарю — добавь его в поле equipment
-   - Если факт относится к активности/спорту — добавь его в поле activity
-   - Если факт не подходит ни к одной из этих категорий — добавь его в поле unique_facts
-   Формат добавления: "Факт: [описание факта]."
+5. If the message contains unique facts about the user (hobbies, health features, preferences, injuries, etc.) that don't fit into standard profile fields but are important for personalization:
+   - If the fact relates to health — add it to the health field
+   - If the fact relates to nutrition — add it to the diet field
+   - If the fact relates to equipment — add it to the equipment field
+   - If the fact relates to activity/sports — add it to the activity field
+   - If the fact doesn't fit any of these categories — add it to the unique_facts field
+   Format for adding: "Fact: [fact description]."
 
-   Примеры:
-   - "Я люблю кофе по вечерам" → добавляется в diet: "Факт: Любит кофе по вечерам."
-   - "У меня болит спина" → добавляется в health: "Факт: Боль в спине."
-   - "Люблю плавать" → добавляется в activity: "Факт: Любит плавание."
-   - "Я работаю программистом" → добавляется в unique_facts: "Факт: Работает программистом."
-   - "У меня есть собака" → добавляется в unique_facts: "Факт: Есть собака."
+   Examples:
+   - "I like coffee in the evenings" → added to diet: "Fact: Likes coffee in the evenings."
+   - "I have back pain" → added to health: "Fact: Back pain."
+   - "I like swimming" → added to activity: "Fact: Likes swimming."
+   - "I work as a programmer" → added to unique_facts: "Fact: Works as a programmer."
+   - "I have a dog" → added to unique_facts: "Fact: Has a dog."
 
-6. ⚠️ Если пользователь отправил изображение еды и явно указал, что это его еда — проанализируй еду на фото и ответь в формате:
+6. ⚠️ If the user sent a food photo and explicitly indicated it's their food — analyze the food in the photo and respond in the format:
 
 TEXT:
-🔍 Анализ блюда:
-(Опиши ТОЛЬКО то, что действительно видно на фото)
+🔍 Food analysis:
+(Describe ONLY what is really visible in the photo)
 
-🍽 Примерный КБЖУ:
-(На основе видимых ингредиентов)
+🍽 Approximate nutrition:
+(Based on visible ingredients)
 
-✅ Польза и состав:
-(Опиши пользу видимых элементов)
+✅ Benefits and composition:
+(Describe the benefits of visible elements)
 
-🧠 Мнение бота:
-(Учитывая известные предпочтения пользователя)
+🧠 Bot's opinion:
+(Considering known user preferences)
 
-💡 Совет:
-(Если есть что улучшить, учитывая профиль)
+💡 Advice:
+(If there's room for improvement, considering the profile)
 
-7. Если пользователь поправляет тебя в анализе фото (например: "там было 2 яйца, а не 3"):
-- Извинись за ошибку
-- Немедленно пересмотри свой анализ с учетом новой информации
-- Дай обновленный ответ, учитывая уточнение пользователя
+7. If the user corrects you in photo analysis (e.g.: "there were 2 eggs, not 3"):
+- Apologize for the mistake
+- Immediately revise your analysis with the new information
+- Give an updated response considering the user's clarification
 
-8. Если пользователь упоминает, что ты не учел его предпочтения:
-- Извинись
-- Объясни, почему именно этот вариант может быть полезен
-- Предложи адаптировать его под известные предпочтения
+8. If the user mentions you didn't consider their preferences:
+- Apologize
+- Explain why this option might be useful
+- Suggest adapting it to known preferences
 
-9. Если пользователь отправляет сообщение, которое:
-- содержит только символ ".",
-- не содержит смысла,
-- состоит из случайного набора символов,
-- является фрагментом фразы без контекста,
-- содержит только междометия, сленг, эмоциональные выкрики и т.д.,
-то вежливо запроси уточнение.
+9. If the user sends a message that:
+- contains only the symbol ".",
+- makes no sense,
+- consists of random characters,
+- is a phrase fragment without context,
+- contains only interjections, slang, emotional outbursts, etc.,
+then politely ask for clarification.
 
-10. Ответ должен быть естественным, дружелюбным и кратким, как будто ты — заботливый, но профессиональный диетолог.
+10. The response should be natural, friendly and concise, as if you are a caring but professional nutritionist.
 
-⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
+⚠️ Never invent details that aren't in the profile or photo. If unsure — ask or say you don't know.
 
-⚠️ Всегда строго учитывай известные факты о пользователе из его профиля И контекст текущего диалога.
+⚠️ Always strictly consider known facts about the user from their profile AND the current dialog context.
 
-⚠️ Отвечай пользователю на том же языке, на котором он к тебе обращается.
+⚠️ Respond to the user in the same language they use to address you.
 
-⚠️ Общая длина ответа никогда не должна превышать 4096 символов.
+⚠️ The total response length should never exceed 4096 characters.
 
-Ответ всегда возвращай строго в формате:
+Always return the response strictly in the format:
 SQL: ...
 TEXT: ...
-или
+or
 TEXT: ...
 """
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
@@ -424,7 +563,7 @@ TEXT: ...
                 conn.commit()
                 conn.close()
             except Exception as e:
-                await message.reply_text(f"Ошибка при обновлении профиля: {e}")
+                await message.reply_text(f"Error updating profile: {e}")
                 return
 
         if text_match:
@@ -435,7 +574,7 @@ TEXT: ...
             await message.reply_text(response_text)
 
     except Exception as e:
-        await message.reply_text(f"Ошибка при генерации ответа: {e}")
+        await message.reply_text(f"Error generating response: {e}")
 
 
 def main():
@@ -445,6 +584,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
+            ASK_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_language)],
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
             ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
             ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
