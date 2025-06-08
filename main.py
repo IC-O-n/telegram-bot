@@ -299,25 +299,49 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
     conn.close()
 
     if not row:
-        await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
+        language = user_profiles.get(user_id, {}).get("language", "ru")
+        if language == "ru":
+            await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.")
+        else:
+            await update.message.reply_text("Profile not found. Complete the questionnaire with /start.")
         return
 
-    profile_text = (
-        f"Твой профиль / Your profile:\n\n"
-        f"Язык / Language: {row[1]}\n"
-        f"Имя / Name: {row[2]}\n"
-        f"Пол / Gender: {row[3]}\n"
-        f"Возраст / Age: {row[4]}\n"
-        f"Вес / Weight: {row[5]} кг\n"
-        f"Рост / Height: {row[6]} см\n"
-        f"Цель / Goal: {row[7]}\n"
-        f"Активность / Activity: {row[8]}\n"
-        f"Питание / Diet: {row[9]}\n"
-        f"Здоровье / Health: {row[10]}\n"
-        f"Инвентарь / Equipment: {row[11]}\n"
-        f"Целевая метрика / Target metric: {row[12]}\n"
-        f"Уникальные факты / Unique facts: {row[13]}"
-    )
+    language = row[1]  # language is the second column in the database
+    
+    if language == "ru":
+        profile_text = (
+            f"Твой профиль:\n\n"
+            f"Язык: {row[1]}\n"
+            f"Имя: {row[2]}\n"
+            f"Пол: {row[3]}\n"
+            f"Возраст: {row[4]}\n"
+            f"Вес: {row[5]} кг\n"
+            f"Рост: {row[6]} см\n"
+            f"Цель: {row[7]}\n"
+            f"Активность: {row[8]}\n"
+            f"Питание: {row[9]}\n"
+            f"Здоровье: {row[10]}\n"
+            f"Инвентарь: {row[11]}\n"
+            f"Целевая метрика: {row[12]}\n"
+            f"Уникальные факты: {row[13]}"
+        )
+    else:
+        profile_text = (
+            f"Your profile:\n\n"
+            f"Language: {row[1]}\n"
+            f"Name: {row[2]}\n"
+            f"Gender: {row[3]}\n"
+            f"Age: {row[4]}\n"
+            f"Weight: {row[5]} kg\n"
+            f"Height: {row[6]} cm\n"
+            f"Goal: {row[7]}\n"
+            f"Activity: {row[8]}\n"
+            f"Diet: {row[9]}\n"
+            f"Health: {row[10]}\n"
+            f"Equipment: {row[11]}\n"
+            f"Target metric: {row[12]}\n"
+            f"Unique facts: {row[13]}"
+        )
     await update.message.reply_text(profile_text)
 
 async def reset(update: Update, context: CallbackContext) -> None:
@@ -352,21 +376,40 @@ def get_user_profile_text(user_id: int) -> str:
     if not row:
         return "Профиль пользователя не найден / User profile not found."
 
-    return (
-        f"Язык / Language: {row[1]}\n"
-        f"Имя / Name: {row[2]}\n"
-        f"Пол / Gender: {row[3]}\n"
-        f"Возраст / Age: {row[4]}\n"
-        f"Вес / Weight: {row[5]} кг\n"
-        f"Рост / Height: {row[6]} см\n"
-        f"Цель / Goal: {row[7]}\n"
-        f"Активность / Activity: {row[8]}\n"
-        f"Питание / Diet: {row[9]}\n"
-        f"Здоровье / Health: {row[10]}\n"
-        f"Инвентарь / Equipment: {row[11]}\n"
-        f"Целевая метрика / Target metric: {row[12]}\n"
-        f"Уникальные факты / Unique facts: {row[13]}"
-    )
+    language = row[1]  # language is the second column in the database
+    
+    if language == "ru":
+        return (
+            f"Язык: {row[1]}\n"
+            f"Имя: {row[2]}\n"
+            f"Пол: {row[3]}\n"
+            f"Возраст: {row[4]}\n"
+            f"Вес: {row[5]} кг\n"
+            f"Рост: {row[6]} см\n"
+            f"Цель: {row[7]}\n"
+            f"Активность: {row[8]}\n"
+            f"Питание: {row[9]}\n"
+            f"Здоровье: {row[10]}\n"
+            f"Инвентарь: {row[11]}\n"
+            f"Целевая метрика: {row[12]}\n"
+            f"Уникальные факты: {row[13]}"
+        )
+    else:
+        return (
+            f"Language: {row[1]}\n"
+            f"Name: {row[2]}\n"
+            f"Gender: {row[3]}\n"
+            f"Age: {row[4]}\n"
+            f"Weight: {row[5]} kg\n"
+            f"Height: {row[6]} cm\n"
+            f"Goal: {row[7]}\n"
+            f"Activity: {row[8]}\n"
+            f"Diet: {row[9]}\n"
+            f"Health: {row[10]}\n"
+            f"Equipment: {row[11]}\n"
+            f"Target metric: {row[12]}\n"
+            f"Unique facts: {row[13]}"
+        )
 
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
