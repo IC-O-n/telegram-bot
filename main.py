@@ -26,9 +26,9 @@ user_histories = {}
 user_profiles = {}
 
 (
-    ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,  # Добавили ASK_HEIGHT
+    ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
     ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, ASK_TARGET
-) = range(11)  # Увеличили диапазон до 11
+) = range(11)
 
 def init_db():
     conn = sqlite3.connect("users.db")
@@ -40,7 +40,7 @@ def init_db():
         gender TEXT,
         age INTEGER,
         weight REAL,
-        height INTEGER,  # Добавили поле для роста
+        height INTEGER,
         goal TEXT,
         activity TEXT,
         diet TEXT,
@@ -66,7 +66,7 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("gender"),
         profile.get("age"),
         profile.get("weight"),
-        profile.get("height"),  # Добавили рост
+        profile.get("height"),
         profile.get("goal"),
         profile.get("activity"),
         profile.get("diet"),
@@ -133,7 +133,7 @@ async def ask_height(update: Update, context: CallbackContext) -> int:
 async def ask_goal(update: Update, context: CallbackContext) -> int:
     try:
         height = int(update.message.text)
-        if height < 100 or height > 250:  # Проверка на разумные пределы роста
+        if height < 100 or height > 250:  
             await update.message.reply_text("Пожалуйста, укажи реальный рост (от 100 до 250 см).")
             return ASK_HEIGHT
     except ValueError:
@@ -192,7 +192,7 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
     profile_text = (
         f"Твой профиль:\n\n"
         f"Имя: {row[1]}\nПол: {row[2]}\nВозраст: {row[3]}\n"
-        f"Вес: {row[4]} кг\nРост: {row[5]} см\n"  # Добавили отображение роста
+        f"Вес: {row[4]} кг\nРост: {row[5]} см\n"
         f"Цель: {row[6]}\nАктивность: {row[7]}\nПитание: {row[8]}\n"
         f"Здоровье: {row[9]}\nИнвентарь: {row[10]}\nЦелевая метрика: {row[11]}\n"
         f"Уникальные факты: {row[12]}"
@@ -236,7 +236,7 @@ def get_user_profile_text(user_id: int) -> str:
         f"Пол: {row[2]}\n"
         f"Возраст: {row[3]}\n"
         f"Вес: {row[4]} кг\n"
-        f"Рост: {row[5]} см\n"  # Добавили отображение роста
+        f"Рост: {row[5]} см\n"
         f"Цель: {row[6]}\n"
         f"Активность: {row[7]}\n"
         f"Питание: {row[8]}\n"
@@ -305,7 +305,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - gender TEXT
 - age INTEGER
 - weight REAL
-- height INTEGER  # Добавили поле роста
+- height INTEGER
 - goal TEXT
 - activity TEXT
 - diet TEXT
@@ -448,7 +448,7 @@ def main():
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
             ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
             ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
-            ASK_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_height)],  # Добавили новый шаг
+            ASK_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_height)],
             ASK_HEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_goal)],
             ASK_GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_activity)],
             ASK_ACTIVITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_diet_pref)],
