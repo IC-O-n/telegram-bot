@@ -384,6 +384,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
         user_id=user_id,
         chat_id=update.effective_chat.id,
         name=str(user_id)  # Имя задачи для последующего удаления
+        )
     
     if language == "ru":
         await update.message.reply_text(
