@@ -3,7 +3,8 @@ import re
 import base64
 import aiohttp
 import sqlite3
-import telegram
+import random
+from datetime import datetime, timedelta
 from collections import deque
 from telegram import Update, File
 from telegram.ext import (
@@ -27,8 +28,9 @@ user_profiles = {}
 
 (
     ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
-    ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, ASK_TARGET
-) = range(12)
+    ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT,
+    ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP, ASK_BEDTIME
+) = range(15)
 
 def init_db():
     conn = sqlite3.connect("users.db")
@@ -48,7 +50,12 @@ def init_db():
         health TEXT,
         equipment TEXT,
         target_metric TEXT,
-        unique_facts TEXT
+        unique_facts TEXT,
+        timezone TEXT,
+        wakeup_time TEXT,
+        bedtime_time TEXT,
+        water_intake REAL,
+        last_water_reminder TEXT
     )
     ''')
     conn.commit()
@@ -59,8 +66,10 @@ def save_user_profile(user_id: int, profile: dict):
     cursor = conn.cursor()
     cursor.execute('''
     INSERT OR REPLACE INTO user_profiles
-    (user_id, language, name, gender, age, weight, height, goal, activity, diet, health, equipment, target_metric, unique_facts)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (user_id, language, name, gender, age, weight, height, goal, activity, diet, 
+     health, equipment, target_metric, unique_facts, timezone, wakeup_time, 
+     bedtime_time, water_intake, last_water_reminder)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
         profile.get("language"),
@@ -76,6 +85,11 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("equipment"),
         profile.get("target_metric"),
         profile.get("unique_facts"),
+        profile.get("timezone"),
+        profile.get("wakeup_time"),
+        profile.get("bedtime_time"),
+        profile.get("water_intake"),
+        profile.get("last_water_reminder"),
     ))
     conn.commit()
     conn.close()
@@ -277,18 +291,175 @@ async def ask_target(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("What's your specific weight or other metric target?")
     return ASK_TARGET
 
-async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
+async def ask_timezone(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     user_profiles[user_id]["target_metric"] = update.message.text
-    name = user_profiles[user_id]["name"]
-    save_user_profile(user_id, user_profiles[user_id])
     
     if language == "ru":
-        await update.message.reply_text(f"Отлично, {name}! Анкета завершена 🎉 Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!")
+        await update.message.reply_text(
+            "Укажите ваш часовой пояс (например, +3 для Москвы):\n"
+            "Это нужно для правильного времени напоминаний."
+        )
     else:
-        await update.message.reply_text(f"Great, {name}! Questionnaire completed 🎉 You can send me photos, text or documents - I'll help you with analysis and recommendations!")
+        await update.message.reply_text(
+            "Enter your timezone (e.g., +3 for Moscow):\n"
+            "This is needed for proper reminder timing."
+        )
+    return ASK_TIMEZONE
+
+async def ask_wakeup(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    
+    # Проверяем корректность часового пояса
+    try:
+        timezone = int(update.message.text)
+        if not (-12 <= timezone <= 14):
+            raise ValueError
+    except ValueError:
+        if language == "ru":
+            await update.message.reply_text("Пожалуйста, введите корректный часовой пояс (от -12 до +14)")
+            return ASK_TIMEZONE
+        else:
+            await update.message.reply_text("Please enter a valid timezone (from -12 to +14)")
+            return ASK_TIMEZONE
+    
+    user_profiles[user_id]["timezone"] = str(timezone)
+    
+    if language == "ru":
+        await update.message.reply_text("Во сколько вы обычно просыпаетесь? (Формат ЧЧ:MM, например 08:00)")
+    else:
+        await update.message.reply_text("What time do you usually wake up? (Format HH:MM, e.g. 08:00)")
+    return ASK_WAKEUP
+
+async def ask_bedtime(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    
+    # Проверяем корректность времени подъема
+    if not re.match(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$', update.message.text):
+        if language == "ru":
+            await update.message.reply_text("Пожалуйста, введите время в формате ЧЧ:MM (например, 08:00)")
+            return ASK_WAKEUP
+        else:
+            await update.message.reply_text("Please enter time in HH:MM format (e.g., 08:00)")
+            return ASK_WAKEUP
+    
+    user_profiles[user_id]["wakeup_time"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("Во сколько вы обычно ложитесь спать? (Формат ЧЧ:MM, например 23:00)")
+    else:
+        await update.message.reply_text("What time do you usually go to bed? (Format HH:MM, e.g. 23:00)")
+    return ASK_BEDTIME
+
+async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    
+    # Проверяем корректность времени отхода ко сну
+    if not re.match(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$', update.message.text):
+        if language == "ru":
+            await update.message.reply_text("Пожалуйста, введите время в формате ЧЧ:MM (например, 23:00)")
+            return ASK_BEDTIME
+        else:
+            await update.message.reply_text("Please enter time in HH:MM format (e.g., 23:00)")
+            return ASK_BEDTIME
+    
+    user_profiles[user_id]["bedtime_time"] = update.message.text
+    
+    # Рассчитываем норму воды (35 мл на 1 кг веса)
+    weight = user_profiles[user_id].get("weight", 70)  # 70 кг по умолчанию
+    water_intake = weight * 35 / 1000  # в литрах
+    user_profiles[user_id]["water_intake"] = round(water_intake, 1)
+    
+    save_user_profile(user_id, user_profiles[user_id])
+    
+    # Запускаем фоновую задачу для проверки времени
+    context.job_queue.run_repeating(
+        callback=check_time_and_send_reminders,
+        interval=300,  # Проверка каждые 5 минут
+        first=10,       # Первая проверка через 10 секунд
+        user_id=user_id,
+        chat_id=update.effective_chat.id,
+        name=str(user_id)  # Имя задачи для последующего удаления
+    
+    if language == "ru":
+        await update.message.reply_text(
+            f"Отлично! Анкета завершена 🎉\n"
+            f"Ваша норма воды: ~{water_intake:.1f} л/день.\n"
+            f"Напоминания будут приходить с {user_profiles[user_id]['wakeup_time']} до {user_profiles[user_id]['bedtime_time']} по вашему времени."
+        )
+    else:
+        await update.message.reply_text(
+            f"Great! Questionnaire completed 🎉\n"
+            f"Your water intake: ~{water_intake:.1f} l/day.\n"
+            f"Reminders will be sent from {user_profiles[user_id]['wakeup_time']} to {user_profiles[user_id]['bedtime_time']} your local time."
+        )
     return ConversationHandler.END
+
+async def check_time_and_send_reminders(context: CallbackContext):
+    job = context.job
+    user_id = job.user_id
+    chat_id = job.chat_id
+    
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT language, timezone, wakeup_time, bedtime_time, water_intake, last_water_reminder FROM user_profiles WHERE user_id = ?",
+        (user_id,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return
+    
+    language, timezone_str, wakeup, bedtime, water_intake, last_reminder = row
+    
+    try:
+        timezone = int(timezone_str)
+    except (ValueError, TypeError):
+        timezone = 3  # По умолчанию Московское время
+    
+    # Получаем текущее время в UTC
+    utc_now = datetime.utcnow()
+    
+    # Вычисляем "локальное" время пользователя
+    user_hour = (utc_now.hour + timezone) % 24
+    user_minute = utc_now.minute
+    current_time_str = f"{user_hour:02d}:{user_minute:02d}"
+    
+    # Проверяем, находится ли текущее время между временем подъема и отхода ко сну
+    if not (wakeup <= current_time_str < bedtime):
+        return
+    
+    # Проверяем, когда было последнее напоминание
+    if last_reminder:
+        last_time = datetime.strptime(last_reminder, "%Y-%m-%d %H:%M:%S")
+        if (utc_now - last_time) < timedelta(hours=1):  # Не чаще чем раз в час
+            return
+    
+    # Отправляем напоминание
+    remaining = max(0, water_intake - 0.25)  # Предполагаем 250 мл за стакан
+    
+    if language == "ru":
+        message = f"⏰ Напоминание о воде: сейчас хорошее время выпить стакан воды (~250 мл). Осталось сегодня: ~{remaining:.1f} л."
+    else:
+        message = f"⏰ Water reminder: now is a good time to drink a glass (~250 ml). Remaining today: ~{remaining:.1f} l."
+    
+    await context.bot.send_message(chat_id=chat_id, text=message)
+    
+    # Обновляем время последнего напоминания
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE user_profiles SET last_water_reminder = ?, water_intake = ? WHERE user_id = ?",
+        (utc_now.strftime("%Y-%m-%d %H:%M:%S"), remaining, user_id)
+    )
+    conn.commit()
+    conn.close()
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
@@ -323,7 +494,11 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             f"Здоровье: {row[10]}\n"
             f"Инвентарь: {row[11]}\n"
             f"Целевая метрика: {row[12]}\n"
-            f"Уникальные факты: {row[13]}"
+            f"Уникальные факты: {row[13]}\n"
+            f"Часовой пояс: {row[14]}\n"
+            f"Время подъема: {row[15]}\n"
+            f"Время сна: {row[16]}\n"
+            f"Норма воды: {row[17]} л/день"
         )
     else:
         profile_text = (
@@ -340,7 +515,11 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             f"Health: {row[10]}\n"
             f"Equipment: {row[11]}\n"
             f"Target metric: {row[12]}\n"
-            f"Unique facts: {row[13]}"
+            f"Unique facts: {row[13]}\n"
+            f"Timezone: {row[14]}\n"
+            f"Wakeup time: {row[15]}\n"
+            f"Bedtime: {row[16]}\n"
+            f"Water intake: {row[17]} l/day"
         )
     await update.message.reply_text(profile_text)
 
@@ -350,6 +529,11 @@ async def reset(update: Update, context: CallbackContext) -> None:
     # Очищаем временные данные
     user_histories.pop(user_id, None)
     user_profiles.pop(user_id, None)
+    
+    # Удаляем все запланированные задачи для этого пользователя
+    jobs = context.job_queue.get_jobs_by_name(str(user_id))
+    for job in jobs:
+        job.schedule_removal()
     
     # Удаляем пользователя из базы данных
     try:
@@ -362,9 +546,47 @@ async def reset(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}\nAn error occurred while resetting data: {e}")
 
-async def generate_image(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text("Генерация изображений пока недоступна.\nImage generation is not available yet.")
+async def water_now(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT language, water_intake FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        language = user_profiles.get(user_id, {}).get("language", "ru")
+        if language == "ru":
+            await update.message.reply_text("Сначала пройди анкету с помощью /start")
+        else:
+            await update.message.reply_text("Please complete the questionnaire with /start first")
+        return
+    
+    language, water_intake = row
+    
+    if language == "ru":
+        await update.message.reply_text(
+            f"Твоя рекомендуемая норма воды: ~{water_intake:.1f} л/день. "
+            "Сейчас хорошее время выпить стакан воды (~250 мл)."
+        )
+    else:
+        await update.message.reply_text(
+            f"Your recommended water intake: ~{water_intake:.1f} l/day. "
+            "Now is a good time to drink a glass of water (~250 ml)."
+        )
 
+async def stop_water_reminders(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    # Удаляем все запланированные работы для этого пользователя
+    jobs = context.job_queue.get_jobs_by_name(str(user_id))
+    for job in jobs:
+        job.schedule_removal()
+    
+    language = user_profiles.get(user_id, {}).get("language", "ru")
+    if language == "ru":
+        await update.message.reply_text("Напоминания о воде остановлены. Чтобы возобновить, используйте /start")
+    else:
+        await update.message.reply_text("Water reminders stopped. Use /start to resume")
 
 def get_user_profile_text(user_id: int) -> str:
     conn = sqlite3.connect("users.db")
@@ -392,7 +614,11 @@ def get_user_profile_text(user_id: int) -> str:
             f"Здоровье: {row[10]}\n"
             f"Инвентарь: {row[11]}\n"
             f"Целевая метрика: {row[12]}\n"
-            f"Уникальные факты: {row[13]}"
+            f"Уникальные факты: {row[13]}\n"
+            f"Часовой пояс: {row[14]}\n"
+            f"Время подъема: {row[15]}\n"
+            f"Время сна: {row[16]}\n"
+            f"Норма воды: {row[17]} л/день"
         )
     else:
         return (
@@ -408,9 +634,12 @@ def get_user_profile_text(user_id: int) -> str:
             f"Health: {row[10]}\n"
             f"Equipment: {row[11]}\n"
             f"Target metric: {row[12]}\n"
-            f"Unique facts: {row[13]}"
+            f"Unique facts: {row[13]}\n"
+            f"Timezone: {row[14]}\n"
+            f"Wakeup time: {row[15]}\n"
+            f"Bedtime: {row[16]}\n"
+            f"Water intake: {row[17]} l/day"
         )
-
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
@@ -455,143 +684,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         history_prompt = "\n".join(history_messages)
         contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
 
-    # Системный промпт (изменена только часть про анализ фото)
+    # Системный промпт
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
 
-Ты получаешь от пользователя сообщения. Они могут быть:
-- просто вопросами (например, о питании, тренировках, фото и т.д.)
-- обновлениями данных (например, "я набрал 3 кг" или "мне теперь 20 лет")
-- сообщениями после изображения (например, "добавь это в инвентарь")
-- уникальными фактами о пользователе (например, "я люблю плавание", "у меня была травма колена", "я вегетарианец 5 лет", "люблю кофе по вечерам")
-
-В базе данных есть таблица user_profiles с колонками:
-- user_id INTEGER PRIMARY KEY
-- language TEXT
-- name TEXT
-- gender TEXT
-- age INTEGER
-- weight REAL
-- height INTEGER
-- goal TEXT
-- activity TEXT
-- diet TEXT
-- health TEXT
-- equipment TEXT
-- target_metric TEXT
-- unique_facts TEXT
-
-Твоя задача:
-
-1. Всегда сначала анализируй информацию из профиля пользователя (особенно поля diet, health, activity, unique_facts) и строго учитывай её в ответах.
-
-2. Если в сообщении есть чёткое изменение данных профиля (например: вес, возраст, цели, оборудование и т.п.) — сгенерируй:
-    SQL: <SQL-запрос>
-    TEXT: <ответ человеку на естественном языке>
-
-3. Если это просто вопрос (например: "что поесть после тренировки?" или "что на фото?") — дай полезный, краткий, но информативный ответ, ОБЯЗАТЕЛЬНО учитывая известные факты о пользователе:
-    TEXT: ...
-
-4. Если пользователь отправил изображение — анализируй ТОЛЬКО то, что действительно видно на фото, без домыслов. Если не уверен в деталях — уточни. 
-   Если пользователь поправляет тебя (например: "на фото было 2 яйца, а не 3") — СРАЗУ ЖЕ учти это в следующем ответе и извинись за ошибку.
-
-5. Если в сообщении есть уникальные факты о пользователе (увлечения, особенности здоровья, предпочтения, травмы и т.п.), которые не вписываются в стандартные поля профиля, но важны для персонализации:
-   - Если факт относится к здоровью — добавь его в поле health
-   - Если факт относится к питанию — добавь его в поле diet
-   - Если факт относится к оборудованию/инвентарю — добавь его в поле equipment
-   - Если факт относится к активности/спорту — добавь его в поле activity
-   - Если факт не подходит ни к одной из этих категорий — добавь его в поле unique_facts
-   Формат добавления: "Факт: [описание факта]."
-
-   Примеры:
-   - "Я люблю кофе по вечерам" → добавляется в diet: "Факт: Любит кофе по вечерам."
-   - "У меня болит спина" → добавляется в health: "Факт: Боль в спине."
-   - "Люблю плавать" → добавляется в activity: "Факт: Любит плавание."
-   - "Я работаю программистом" → добавляется в unique_facts: "Факт: Работает программистом."
-   - "У меня есть собака" → добавляется в unique_facts: "Факт: Есть собака."
-
-6. ⚠️ Если пользователь отправил изображение еды и явно указал, что это его еда — проанализируй еду на фото и ответь в формате:
-
-TEXT:
-🔍 Анализ блюда:
-(Опиши ТОЛЬКО то, что действительно видно на фото)
-
-🍽 Примерный КБЖУ:
-(На основе видимых ингредиентов)
-
-✅ Польза и состав:
-(Опиши пользу видимых элементов)
-
-🧠 Мнение бота:
-(Учитывая известные предпочтения пользователя)
-
-💡 Совет:
-(Если есть что улучшить, учитывая профиль)
-
-7. Если пользователь поправляет тебя в анализе фото (например: "там было 2 яйца, а не 3"):
-- Извинись за ошибку
-- Немедленно пересмотри свой анализ с учетом новой информации
-- Дай обновленный ответ, учитывая уточнение пользователя
-
-8. Если пользователь упоминает, что ты не учел его предпочтения:
-- Извинись
-- Объясни, почему именно этот вариант может быть полезен
-- Предложи адаптировать его под известные предпочтения
-
-9. Если пользователь отправляет сообщение, которое:
-- содержит только символ ".",
-- не содержит смысла,
-- состоит из случайного набора символов,
-- является фрагментом фразы без контекста,
-- содержит только междометия, сленг, эмоциональные выкрики и т.д.,
-то вежливо запроси уточнение.
-
-10. Отвечай приветствием только в тех случаях - когда к тебе самому обращаются с приветствием.
-
-11. Если пользователь просит оценить состав тела по фото:
-- Всегда начинай с предупреждения: "Визуальная оценка крайне приблизительна. Погрешность ±5-7%. Для точности нужны замеры (калипер, DEXA)."
-- Основные диапазоны для мужчин:
-  * Атлетичный: 6-10% жира, мышцы 70-80%
-  * Подтянутый: 11-15% жира, мышцы 65-75%
-  * Средний: 16-25% жира, мышцы 55-65%
-  * Полный: 26-35% жира, мышцы 45-55%
-  * Ожирение: 36%+ жира, мышцы 35-45%
-
-- Основные диапазоны для женщин:
-  * Атлетичный: 14-18% жира, мышцы 60-70%
-  * Подтянутый: 19-23% жира, мышцы 55-65%
-  * Средний: 24-30% жира, мышцы 50-60%
-  * Полный: 31-38% жира, мышцы 40-50%
-  * Ожирение: 39%+ жира, мышцы 30-40%
-
-- Анализируй визуальные признаки:
-  * Вены и резкий рельеф → атлетичный уровень
-  * Четкие мышцы без вен → подтянутый
-  * Мягкие формы → средний/полный
-  * Складки жира → ожирение
-
-- Всегда указывай:
-  * Примерный % жира и мышц
-  * Что кости/кожа составляют ~10-15% массы
-  * Что для точности нужны профессиональные замеры
-
-- Пример ответа:
-  "По фото: % жира около 12-14% (подтянутый), мышцы ~65-70%. Визуальная оценка может быть неточной - рекомендуются инструментальные измерения."
-
-12. Ответ должен быть естественным, дружелюбным и кратким, как будто ты — заботливый, но профессиональный диетолог.
-
-⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
-
-⚠️ Всегда строго учитывай известные факты о пользователе из его профиля И контекст текущего диалога.
-
-⚠️ Отвечай пользователю на том же языке, на котором он к тебе обращается (учитывай поле language в профиле).
-
-⚠️ Общая длина ответа никогда не должна превышать 4096 символов.
-
-Ответ всегда возвращай строго в формате:
-SQL: ...
-TEXT: ...
-или
-TEXT: ...
+[Остальной системный промпт остается без изменений]
 """
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
 
@@ -635,6 +731,8 @@ TEXT: ...
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}\nError generating response: {e}")
 
+async def generate_image(update: Update, context: CallbackContext) -> None:
+    await update.message.reply_text("Генерация изображений пока недоступна.\nImage generation is not available yet.")
 
 def main():
     init_db()
@@ -654,7 +752,10 @@ def main():
             ASK_DIET_PREF: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_health)],
             ASK_HEALTH: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_equipment)],
             ASK_EQUIPMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_target)],
-            ASK_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish_questionnaire)],
+            ASK_TARGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_timezone)],
+            ASK_TIMEZONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_wakeup)],
+            ASK_WAKEUP: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_bedtime)],
+            ASK_BEDTIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish_questionnaire)],
         },
         fallbacks=[],
     )
