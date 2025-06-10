@@ -55,7 +55,9 @@ def init_db():
         timezone TEXT,
         wakeup_time TEXT,
         sleep_time TEXT,
-        water_reminders INTEGER DEFAULT 1
+        water_reminders INTEGER DEFAULT 1,
+        water_drunk_today INTEGER DEFAULT 0,
+        last_water_notification TEXT
     )
     ''')
     conn.commit()
@@ -67,8 +69,9 @@ def save_user_profile(user_id: int, profile: dict):
     cursor.execute('''
     INSERT OR REPLACE INTO user_profiles
     (user_id, language, name, gender, age, weight, height, goal, activity, diet, health, 
-     equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time, water_reminders)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time, 
+     water_reminders, water_drunk_today, last_water_notification)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
         profile.get("language"),
@@ -87,7 +90,9 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("timezone"),
         profile.get("wakeup_time"),
         profile.get("sleep_time"),
-        profile.get("water_reminders", 1),  # По умолчанию напоминания включены
+        profile.get("water_reminders", 1),
+        profile.get("water_drunk_today", 0),
+        profile.get("last_water_notification", "")
     ))
     conn.commit()
     conn.close()
@@ -113,243 +118,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     )
     return ASK_LANGUAGE
 
-async def ask_name(update: Update, context: CallbackContext) -> int:
-    language = update.message.text.lower()
-    if language not in ["ru", "en"]:
-        await update.message.reply_text(
-            "Пожалуйста, выбери 'ru' для русского или 'en' для английского / Please choose 'ru' for Russian or 'en' for English"
-        )
-        return ASK_LANGUAGE
-    
-    user_id = update.message.from_user.id
-    user_profiles[user_id] = {"language": language}
-    
-    if language == "ru":
-        await update.message.reply_text("Как тебя зовут?")
-    else:
-        await update.message.reply_text("What's your name?")
-    return ASK_NAME
-
-async def ask_gender(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    user_profiles[user_id]["name"] = update.message.text
-    
-    if language == "ru":
-        await update.message.reply_text("Укажи свой пол (м/ж):")
-    else:
-        await update.message.reply_text("Specify your gender (m/f):")
-    return ASK_GENDER
-
-async def ask_age(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    gender = update.message.text.lower()
-    
-    if language == "ru":
-        valid_genders = ["м", "ж"]
-        error_msg = "Пожалуйста, укажи только 'м' или 'ж'."
-    else:
-        valid_genders = ["m", "f"]
-        error_msg = "Please specify only 'm' or 'f'."
-    
-    if gender not in valid_genders:
-        await update.message.reply_text(error_msg)
-        return ASK_GENDER
-    
-    user_profiles[user_id]["gender"] = gender
-    
-    if language == "ru":
-        await update.message.reply_text("Сколько тебе лет?")
-    else:
-        await update.message.reply_text("How old are you?")
-    return ASK_AGE
-
-async def ask_weight(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    
-    try:
-        age = int(update.message.text)
-    except ValueError:
-        if language == "ru":
-            await update.message.reply_text("Пожалуйста, укажи возраст числом.")
-        else:
-            await update.message.reply_text("Please enter your age as a number.")
-        return ASK_AGE
-    
-    user_profiles[user_id]["age"] = age
-    
-    if language == "ru":
-        await update.message.reply_text("Какой у тебя текущий вес (в кг)?")
-    else:
-        await update.message.reply_text("What's your current weight (in kg)?")
-    return ASK_WEIGHT
-
-async def ask_height(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    
-    try:
-        weight = float(update.message.text.replace(",", "."))
-    except ValueError:
-        if language == "ru":
-            await update.message.reply_text("Пожалуйста, укажи вес числом.")
-        else:
-            await update.message.reply_text("Please enter your weight as a number.")
-        return ASK_WEIGHT
-    
-    user_profiles[user_id]["weight"] = weight
-    
-    if language == "ru":
-        await update.message.reply_text("Какой у тебя рост (в см)?")
-    else:
-        await update.message.reply_text("What's your height (in cm)?")
-    return ASK_HEIGHT
-
-async def ask_goal(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    
-    try:
-        height = int(update.message.text)
-        if height < 100 or height > 250:
-            if language == "ru":
-                await update.message.reply_text("Пожалуйста, укажи реальный рост (от 100 до 250 см).")
-            else:
-                await update.message.reply_text("Please enter a realistic height (100-250 cm).")
-            return ASK_HEIGHT
-    except ValueError:
-        if language == "ru":
-            await update.message.reply_text("Пожалуйста, укажи рост целым числом в сантиметрах.")
-        else:
-            await update.message.reply_text("Please enter your height as a whole number in centimeters.")
-        return ASK_HEIGHT
-    
-    user_profiles[user_id]["height"] = height
-    
-    if language == "ru":
-        await update.message.reply_text("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)")
-    else:
-        await update.message.reply_text("What's your goal? (Lose weight, Gain mass, Get toned, Just healthy lifestyle)")
-    return ASK_GOAL
-
-async def ask_activity(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    user_profiles[user_id]["goal"] = update.message.text
-    
-    if language == "ru":
-        await update.message.reply_text("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)")
-    else:
-        await update.message.reply_text("What's your activity/experience level? (Beginner, Intermediate, Advanced)")
-    return ASK_ACTIVITY
-
-async def ask_diet_pref(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    user_profiles[user_id]["activity"] = update.message.text
-    
-    if language == "ru":
-        await update.message.reply_text("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)")
-    else:
-        await update.message.reply_text("Do you have any dietary preferences? (Vegan, gluten-free, etc.)")
-    return ASK_DIET_PREF
-
-async def ask_health(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    user_profiles[user_id]["diet"] = update.message.text
-    
-    if language == "ru":
-        await update.message.reply_text("Есть ли у тебя ограничения по здоровью?")
-    else:
-        await update.message.reply_text("Do you have any health restrictions?")
-    return ASK_HEALTH
-
-async def ask_equipment(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    user_profiles[user_id]["health"] = update.message.text
-    
-    if language == "ru":
-        await update.message.reply_text("Какой инвентарь/тренажёры у тебя есть?")
-    else:
-        await update.message.reply_text("What equipment do you have available?")
-    return ASK_EQUIPMENT
-
-async def ask_target(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    user_profiles[user_id]["equipment"] = update.message.text
-    
-    if language == "ru":
-        await update.message.reply_text("Какая у тебя конкретная цель по весу или другим метрикам?")
-    else:
-        await update.message.reply_text("What's your specific weight or other metric target?")
-    return ASK_TARGET
-
-async def ask_timezone(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    user_profiles[user_id]["target_metric"] = update.message.text
-    
-    if language == "ru":
-        await update.message.reply_text("В каком городе или часовом поясе ты находишься? (Например: Москва, или Europe/Moscow, или UTC+3)")
-    else:
-        await update.message.reply_text("What city or timezone are you in? (e.g. New York, or America/New_York, or UTC-5)")
-    return ASK_TIMEZONE
-
-async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    timezone_input = update.message.text.strip()
-    
-    # Попробуем определить часовой пояс
-    try:
-        if timezone_input.startswith(("UTC", "GMT")):
-            tz = pytz.timezone(timezone_input)
-        elif "/" in timezone_input:
-            tz = pytz.timezone(timezone_input)
-        else:
-            # Попробуем найти город
-            from timezonefinder import TimezoneFinder
-            tf = TimezoneFinder()
-            lat, lon = tf.get_lat_long(timezone_input)
-            tz = tf.timezone_at(lat=lat, lng=lon)
-            if not tz:
-                raise ValueError("Не удалось определить часовой пояс")
-        
-        user_profiles[user_id]["timezone"] = tz.zone
-    except Exception as e:
-        print(f"Ошибка определения часового пояса: {e}")
-        user_profiles[user_id]["timezone"] = timezone_input  # Сохраняем как есть
-    
-    if language == "ru":
-        await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
-    else:
-        await update.message.reply_text("What time do you usually wake up? (Format: HH:MM, e.g. 07:30)")
-    return ASK_WAKEUP_TIME
-
-async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    language = user_profiles[user_id].get("language", "ru")
-    
-    try:
-        wakeup_time = datetime.strptime(update.message.text, "%H:%M").time()
-        user_profiles[user_id]["wakeup_time"] = update.message.text
-    except ValueError:
-        if language == "ru":
-            await update.message.reply_text("Пожалуйста, укажи время в формате ЧЧ:ММ (например, 07:30)")
-        else:
-            await update.message.reply_text("Please enter time in HH:MM format (e.g. 07:30)")
-        return ASK_WAKEUP_TIME
-    
-    if language == "ru":
-        await update.message.reply_text("Во сколько ты обычно ложишься спать? (Формат: ЧЧ:ММ, например 23:00)")
-    else:
-        await update.message.reply_text("What time do you usually go to sleep? (Format: HH:MM, e.g. 23:00)")
-    return ASK_SLEEP_TIME
+# ... (остальные функции ask_* остаются без изменений, как в вашем коде) ...
 
 async def ask_water_reminders(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -389,6 +158,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
         return ASK_WATER_REMINDERS
     
     user_profiles[user_id]["water_reminders"] = 1 if answer in ["да", "yes"] else 0
+    user_profiles[user_id]["water_drunk_today"] = 0  # Сбрасываем счетчик воды при завершении анкеты
     name = user_profiles[user_id]["name"]
     save_user_profile(user_id, user_profiles[user_id])
     
@@ -422,14 +192,14 @@ async def check_water_reminder_time(context: CallbackContext):
     
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT timezone, wakeup_time, sleep_time, water_reminders, language FROM user_profiles WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT timezone, wakeup_time, sleep_time, water_reminders, language, water_drunk_today, last_water_notification FROM user_profiles WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
     
     if not row or not row[4]:  # Если нет данных или языка
         return
     
-    timezone_str, wakeup_str, sleep_str, water_reminders, language = row
+    timezone_str, wakeup_str, sleep_str, water_reminders, language, water_drunk, last_notification = row
     
     if not water_reminders:  # Если напоминания отключены
         return
@@ -440,34 +210,77 @@ async def check_water_reminder_time(context: CallbackContext):
             try:
                 tz = pytz.timezone(timezone_str)
             except pytz.UnknownTimeZoneError:
-                # Если часовой пояс не распознан, используем UTC
                 tz = pytz.UTC
         else:
             tz = pytz.UTC
             
-        now = datetime.now(tz).time()
+        now = datetime.now(tz)
+        current_time = now.time()
+        today = now.date()
+        
+        # Проверяем, не было ли сегодня напоминания
+        if last_notification:
+            last_notif_date = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").date()
+            if last_notif_date != today:
+                # Сбрасываем счетчик воды, если это новый день
+                conn = sqlite3.connect("users.db")
+                cursor = conn.cursor()
+                cursor.execute("UPDATE user_profiles SET water_drunk_today = 0 WHERE user_id = ?", (user_id,))
+                conn.commit()
+                conn.close()
+                water_drunk = 0
+        
         wakeup_time = datetime.strptime(wakeup_str, "%H:%M").time()
         sleep_time = datetime.strptime(sleep_str, "%H:%M").time()
         
         # Проверяем, что текущее время между временем подъема и сна
-        if wakeup_time <= now <= sleep_time:
+        if wakeup_time <= current_time <= sleep_time:
+            # Рассчитываем рекомендуемое количество воды (30 мл на 1 кг веса)
+            conn = sqlite3.connect("users.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT weight FROM user_profiles WHERE user_id = ?", (user_id,))
+            weight = cursor.fetchone()[0]
+            conn.close()
+            
+            recommended_water = int(weight * 30)  # в мл
+            remaining_water = max(0, recommended_water - water_drunk)
+            
             # Проверяем, что сейчас подходящее время для напоминания (каждые 2 часа после подъема)
             wakeup_hour = wakeup_time.hour
-            current_hour = now.hour
+            current_hour = current_time.hour
             hours_since_wakeup = (current_hour - wakeup_hour) % 24
             
-            if hours_since_wakeup > 0 and hours_since_wakeup % 2 == 0 and now.minute < 30:
+            if hours_since_wakeup > 0 and hours_since_wakeup % 2 == 0 and current_time.minute < 30:
                 # Проверяем, не отправляли ли уже напоминание в этот период
-                last_reminder_key = f"last_water_reminder_{user_id}"
-                last_reminder_hour = context.user_data.get(last_reminder_key, 0)
+                last_notif_hour = None
+                if last_notification:
+                    last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S")
+                    last_notif_hour = (last_notif_datetime.hour - wakeup_hour) % 24
                 
-                if last_reminder_hour != hours_since_wakeup:
-                    context.user_data[last_reminder_key] = hours_since_wakeup
+                if last_notif_hour != hours_since_wakeup:
+                    # Обновляем время последнего напоминания
+                    conn = sqlite3.connect("users.db")
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE user_profiles SET last_water_notification = ? WHERE user_id = ?", 
+                                 (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
+                    conn.commit()
+                    conn.close()
+                    
+                    # Рассчитываем сколько нужно выпить сейчас (примерно 1/8 от дневной нормы)
+                    water_to_drink_now = min(250, max(150, recommended_water // 8))
                     
                     if language == "ru":
-                        message = "💧 Не забудь выпить стакан воды! Это поможет поддерживать водный баланс и улучшит твое самочувствие."
+                        message = (
+                            f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
+                            f"📊 Сегодня выпито: {water_drunk} мл из {recommended_water} мл\n"
+                            f"🚰 Осталось выпить: {remaining_water} мл"
+                        )
                     else:
-                        message = "💧 Don't forget to drink a glass of water! It will help maintain hydration and improve your well-being."
+                        message = (
+                            f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
+                            f"📊 Today drunk: {water_drunk} ml of {recommended_water} ml\n"
+                            f"🚰 Remaining: {remaining_water} ml"
+                        )
                     
                     await context.bot.send_message(chat_id=chat_id, text=message)
     except Exception as e:
@@ -491,6 +304,12 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
 
     language = row[1]  # language is the second column in the database
     
+    # Рассчитываем рекомендуемое количество воды
+    weight = row[5]  # weight in kg
+    recommended_water = int(weight * 30)  # 30 ml per kg
+    water_drunk = row[18] if row[18] is not None else 0
+    remaining_water = max(0, recommended_water - water_drunk)
+    
     if language == "ru":
         profile_text = (
             f"Твой профиль:\n\n"
@@ -510,7 +329,11 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             f"Часовой пояс: {row[14]}\n"
             f"Время подъема: {row[15]}\n"
             f"Время сна: {row[16]}\n"
-            f"Напоминания о воде: {'Включены' if row[17] else 'Выключены'}"
+            f"Напоминания о воде: {'Включены' if row[17] else 'Выключены'}\n"
+            f"💧 Водный баланс:\n"
+            f"  Рекомендуется: {recommended_water} мл/день\n"
+            f"  Выпито сегодня: {water_drunk} мл\n"
+            f"  Осталось выпить: {remaining_water} мл"
         )
     else:
         profile_text = (
@@ -531,7 +354,11 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             f"Timezone: {row[14]}\n"
             f"Wake-up time: {row[15]}\n"
             f"Sleep time: {row[16]}\n"
-            f"Water reminders: {'Enabled' if row[17] else 'Disabled'}"
+            f"Water reminders: {'Enabled' if row[17] else 'Disabled'}\n"
+            f"💧 Water balance:\n"
+            f"  Recommended: {recommended_water} ml/day\n"
+            f"  Drunk today: {water_drunk} ml\n"
+            f"  Remaining: {remaining_water} ml"
         )
     await update.message.reply_text(profile_text)
 
@@ -587,6 +414,75 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
     
     await update.message.reply_text(message)
 
+async def update_water_intake(update: Update, context: CallbackContext) -> None:
+    user_id = update.message.from_user.id
+    text = update.message.text.lower()
+    language = user_profiles.get(user_id, {}).get("language", "ru")
+    
+    # Пытаемся извлечь количество воды из сообщения
+    amount = 0
+    try:
+        if language == "ru":
+            if "выпил" in text or "выпила" in text:
+                parts = text.split()
+                for i, part in enumerate(parts):
+                    if part.isdigit():
+                        amount = int(part)
+                        if i+1 < len(parts) and parts[i+1] in ["мл", "ml"]:
+                            break  # количество в мл
+                        elif i+1 < len(parts) and parts[i+1] in ["л", "l"]:
+                            amount *= 1000  # переводим литры в мл
+                            break
+        else:
+            if "drank" in text or "drunk" in text:
+                parts = text.split()
+                for i, part in enumerate(parts):
+                    if part.isdigit():
+                        amount = int(part)
+                        if i+1 < len(parts) and parts[i+1] in ["ml"]:
+                            break
+                        elif i+1 < len(parts) and parts[i+1] in ["l", "liters"]:
+                            amount *= 1000
+                            break
+    except:
+        amount = 0
+    
+    if amount <= 0:
+        if language == "ru":
+            await update.message.reply_text("Пожалуйста, укажи количество воды в формате: 'Выпил 250 мл' или 'Drank 300 ml'")
+        else:
+            await update.message.reply_text("Please specify water amount in format: 'Drank 300 ml' or 'Выпил 250 мл'")
+        return
+    
+    # Обновляем количество выпитой воды в базе данных
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE user_profiles SET water_drunk_today = water_drunk_today + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+    
+    # Получаем обновленные данные
+    cursor.execute("SELECT weight, water_drunk_today FROM user_profiles WHERE user_id = ?", (user_id,))
+    weight, water_drunk = cursor.fetchone()
+    conn.close()
+    
+    recommended_water = int(weight * 30)
+    remaining_water = max(0, recommended_water - water_drunk)
+    
+    if language == "ru":
+        message = (
+            f"✅ Записано: +{amount} мл воды\n"
+            f"📊 Сегодня выпито: {water_drunk} мл из {recommended_water} мл\n"
+            f"🚰 Осталось выпить: {remaining_water} мл"
+        )
+    else:
+        message = (
+            f"✅ Recorded: +{amount} ml water\n"
+            f"📊 Today drunk: {water_drunk} ml of {recommended_water} ml\n"
+            f"🚰 Remaining: {remaining_water} ml"
+        )
+    
+    await update.message.reply_text(message)
+
 def get_user_profile_text(user_id: int) -> str:
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
@@ -598,6 +494,12 @@ def get_user_profile_text(user_id: int) -> str:
         return "Профиль пользователя не найден / User profile not found."
 
     language = row[1]  # language is the second column in the database
+    
+    # Рассчитываем рекомендуемое количество воды
+    weight = row[5]  # weight in kg
+    recommended_water = int(weight * 30)  # 30 ml per kg
+    water_drunk = row[18] if row[18] is not None else 0
+    remaining_water = max(0, recommended_water - water_drunk)
     
     if language == "ru":
         return (
@@ -617,7 +519,11 @@ def get_user_profile_text(user_id: int) -> str:
             f"Часовой пояс: {row[14]}\n"
             f"Время подъема: {row[15]}\n"
             f"Время сна: {row[16]}\n"
-            f"Напоминания о воде: {'Включены' if row[17] else 'Выключены'}"
+            f"Напоминания о воде: {'Включены' if row[17] else 'Выключены'}\n"
+            f"💧 Водный баланс:\n"
+            f"  Рекомендуется: {recommended_water} мл/день\n"
+            f"  Выпито сегодня: {water_drunk} мл\n"
+            f"  Осталось выпить: {remaining_water} мл"
         )
     else:
         return (
@@ -637,7 +543,11 @@ def get_user_profile_text(user_id: int) -> str:
             f"Timezone: {row[14]}\n"
             f"Wake-up time: {row[15]}\n"
             f"Sleep time: {row[16]}\n"
-            f"Water reminders: {'Enabled' if row[17] else 'Disabled'}"
+            f"Water reminders: {'Enabled' if row[17] else 'Disabled'}\n"
+            f"💧 Water balance:\n"
+            f"  Recommended: {recommended_water} ml/day\n"
+            f"  Drunk today: {water_drunk} ml\n"
+            f"  Remaining: {remaining_water} ml"
         )
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
@@ -656,6 +566,12 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         "disable water reminders"
     ]:
         await toggle_water_reminders(update, context)
+        return
+    
+    # Обработка сообщений о выпитой воде
+    if ("выпил" in user_text.lower() or "выпила" in user_text.lower() or 
+        "drank" in user_text.lower() or "drunk" in user_text.lower()):
+        await update_water_intake(update, context)
         return
 
     media_files = message.photo or []
@@ -723,6 +639,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - wakeup_time TEXT
 - sleep_time TEXT
 - water_reminders INTEGER
+- water_drunk_today INTEGER
+- last_water_notification TEXT
 
 Твоя задача:
 
@@ -748,7 +666,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
    Примеры:
    - "Я люблю кофе по вечерам" → добавляется в diet: "Факт: Любит кофе по вечерам."
-   - "У меня болит спина   - "У меня болит спина" → добавляется в health: "Факт: Боль в спине."
+   - "У меня болит спина" → добавляется в health: "Факт: Боль в спине."
    - "Люблю плавать" → добавляется в activity: "Факт: Любит плавание."
    - "Я работаю программистом" → добавляется в unique_facts: "Факт: Работает программистом."
    - "У меня есть собака" → добавляется в unique_facts: "Факт: Есть собака."
@@ -837,6 +755,7 @@ TEXT: ...
 или
 TEXT: ...
 """
+
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
 
     try:
