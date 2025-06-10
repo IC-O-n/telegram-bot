@@ -118,7 +118,245 @@ async def start(update: Update, context: CallbackContext) -> int:
     )
     return ASK_LANGUAGE
 
-# ... (остальные функции ask_* остаются без изменений, как в вашем коде) ...
+
+async def ask_name(update: Update, context: CallbackContext) -> int:
+    language = update.message.text.lower()
+    if language not in ["ru", "en"]:
+        await update.message.reply_text(
+            "Пожалуйста, выбери 'ru' для русского или 'en' для английского / Please choose 'ru' for Russian or 'en' for English"
+        )
+        return ASK_LANGUAGE
+    
+    user_id = update.message.from_user.id
+    user_profiles[user_id] = {"language": language}
+    
+    if language == "ru":
+        await update.message.reply_text("Как тебя зовут?")
+    else:
+        await update.message.reply_text("What's your name?")
+    return ASK_NAME
+
+async def ask_gender(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    user_profiles[user_id]["name"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("Укажи свой пол (м/ж):")
+    else:
+        await update.message.reply_text("Specify your gender (m/f):")
+    return ASK_GENDER
+
+async def ask_age(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    gender = update.message.text.lower()
+    
+    if language == "ru":
+        valid_genders = ["м", "ж"]
+        error_msg = "Пожалуйста, укажи только 'м' или 'ж'."
+    else:
+        valid_genders = ["m", "f"]
+        error_msg = "Please specify only 'm' or 'f'."
+    
+    if gender not in valid_genders:
+        await update.message.reply_text(error_msg)
+        return ASK_GENDER
+    
+    user_profiles[user_id]["gender"] = gender
+    
+    if language == "ru":
+        await update.message.reply_text("Сколько тебе лет?")
+    else:
+        await update.message.reply_text("How old are you?")
+    return ASK_AGE
+
+async def ask_weight(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    
+    try:
+        age = int(update.message.text)
+    except ValueError:
+        if language == "ru":
+            await update.message.reply_text("Пожалуйста, укажи возраст числом.")
+        else:
+            await update.message.reply_text("Please enter your age as a number.")
+        return ASK_AGE
+    
+    user_profiles[user_id]["age"] = age
+    
+    if language == "ru":
+        await update.message.reply_text("Какой у тебя текущий вес (в кг)?")
+    else:
+        await update.message.reply_text("What's your current weight (in kg)?")
+    return ASK_WEIGHT
+
+async def ask_height(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    
+    try:
+        weight = float(update.message.text.replace(",", "."))
+    except ValueError:
+        if language == "ru":
+            await update.message.reply_text("Пожалуйста, укажи вес числом.")
+        else:
+            await update.message.reply_text("Please enter your weight as a number.")
+        return ASK_WEIGHT
+    
+    user_profiles[user_id]["weight"] = weight
+    
+    if language == "ru":
+        await update.message.reply_text("Какой у тебя рост (в см)?")
+    else:
+        await update.message.reply_text("What's your height (in cm)?")
+    return ASK_HEIGHT
+
+async def ask_goal(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    
+    try:
+        height = int(update.message.text)
+        if height < 100 or height > 250:
+            if language == "ru":
+                await update.message.reply_text("Пожалуйста, укажи реальный рост (от 100 до 250 см).")
+            else:
+                await update.message.reply_text("Please enter a realistic height (100-250 cm).")
+            return ASK_HEIGHT
+    except ValueError:
+        if language == "ru":
+            await update.message.reply_text("Пожалуйста, укажи рост целым числом в сантиметрах.")
+        else:
+            await update.message.reply_text("Please enter your height as a whole number in centimeters.")
+        return ASK_HEIGHT
+    
+    user_profiles[user_id]["height"] = height
+    
+    if language == "ru":
+        await update.message.reply_text("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)")
+    else:
+        await update.message.reply_text("What's your goal? (Lose weight, Gain mass, Get toned, Just healthy lifestyle)")
+    return ASK_GOAL
+
+async def ask_activity(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    user_profiles[user_id]["goal"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)")
+    else:
+        await update.message.reply_text("What's your activity/experience level? (Beginner, Intermediate, Advanced)")
+    return ASK_ACTIVITY
+
+async def ask_diet_pref(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    user_profiles[user_id]["activity"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)")
+    else:
+        await update.message.reply_text("Do you have any dietary preferences? (Vegan, gluten-free, etc.)")
+    return ASK_DIET_PREF
+
+async def ask_health(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    user_profiles[user_id]["diet"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("Есть ли у тебя ограничения по здоровью?")
+    else:
+        await update.message.reply_text("Do you have any health restrictions?")
+    return ASK_HEALTH
+
+async def ask_equipment(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    user_profiles[user_id]["health"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("Какой инвентарь/тренажёры у тебя есть?")
+    else:
+        await update.message.reply_text("What equipment do you have available?")
+    return ASK_EQUIPMENT
+
+async def ask_target(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    user_profiles[user_id]["equipment"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("Какая у тебя конкретная цель по весу или другим метрикам?")
+    else:
+        await update.message.reply_text("What's your specific weight or other metric target?")
+    return ASK_TARGET
+
+async def ask_timezone(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    user_profiles[user_id]["target_metric"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("В каком городе или часовом поясе ты находишься? (Например: Москва, или Europe/Moscow, или UTC+3)")
+    else:
+        await update.message.reply_text("What city or timezone are you in? (e.g. New York, or America/New_York, or UTC-5)")
+    return ASK_TIMEZONE
+
+async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    timezone_input = update.message.text.strip()
+    
+    # Попробуем определить часовой пояс
+    try:
+        if timezone_input.startswith(("UTC", "GMT")):
+            tz = pytz.timezone(timezone_input)
+        elif "/" in timezone_input:
+            tz = pytz.timezone(timezone_input)
+        else:
+            # Попробуем найти город
+            from timezonefinder import TimezoneFinder
+            tf = TimezoneFinder()
+            lat, lon = tf.get_lat_long(timezone_input)
+            tz = tf.timezone_at(lat=lat, lng=lon)
+            if not tz:
+                raise ValueError("Не удалось определить часовой пояс")
+        
+        user_profiles[user_id]["timezone"] = tz.zone
+    except Exception as e:
+        print(f"Ошибка определения часового пояса: {e}")
+        user_profiles[user_id]["timezone"] = timezone_input  # Сохраняем как есть
+    
+    if language == "ru":
+        await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
+    else:
+        await update.message.reply_text("What time do you usually wake up? (Format: HH:MM, e.g. 07:30)")
+    return ASK_WAKEUP_TIME
+
+async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    
+    try:
+        wakeup_time = datetime.strptime(update.message.text, "%H:%M").time()
+        user_profiles[user_id]["wakeup_time"] = update.message.text
+    except ValueError:
+        if language == "ru":
+            await update.message.reply_text("Пожалуйста, укажи время в формате ЧЧ:ММ (например, 07:30)")
+        else:
+            await update.message.reply_text("Please enter time in HH:MM format (e.g. 07:30)")
+        return ASK_WAKEUP_TIME
+    
+    if language == "ru":
+        await update.message.reply_text("Во сколько ты обычно ложишься спать? (Формат: ЧЧ:ММ, например 23:00)")
+    else:
+        await update.message.reply_text("What time do you usually go to sleep? (Format: HH:MM, e.g. 23:00)")
+    return ASK_SLEEP_TIME
+
 
 async def ask_water_reminders(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
