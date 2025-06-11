@@ -788,23 +788,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_text = message.caption or message.text or ""
     contents = []
 
-    # Обработка команды отключения напоминаний
-    if user_text.lower() in [
-        "больше не нужно мне напоминать о том, что мне нужно регулярно пить воду",
-        "не напоминай мне пить воду",
-        "отключи напоминания о воде",
-        "stop water reminders",
-        "don't remind me to drink water",
-        "disable water reminders"
-    ]:
-        await toggle_water_reminders(update, context)
-        return
-    
-    # Обработка сообщений о выпитой воде
-    if ("выпил" in user_text.lower() or "выпила" in user_text.lower() or 
-        "drank" in user_text.lower() or "drunk" in user_text.lower()):
-        return
-
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
@@ -999,7 +982,6 @@ TEXT: ...
 или
 TEXT: ...
 """
-
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
 
     try:
@@ -1041,7 +1023,6 @@ TEXT: ...
 
     except Exception as e:
         await message.reply_text(f"Ошибка при генерации ответа: {e}\nError generating response: {e}")
-
 
 def main():
     init_db()
