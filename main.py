@@ -396,8 +396,27 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("What time do you usually wake up? (Format: HH:MM, e.g. 07:30)")
     return ASK_WAKEUP_TIME
 
+
 async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
+    
+    # First try in-memory storage
+    if user_id not in user_profiles:
+        # Fallback to database
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT language FROM user_profiles WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            # Reconstruct minimal profile from database
+            user_profiles[user_id] = {"language": row[0]}
+        else:
+            # If not found anywhere, restart questionnaire
+            await update.message.reply_text("Сессия устарела. Пожалуйста, начните заново с /start\nSession expired. Please start again with /start")
+            return ConversationHandler.END
+    
     language = user_profiles[user_id].get("language", "ru")
     
     try:
