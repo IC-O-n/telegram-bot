@@ -5,7 +5,6 @@ import aiohttp
 import sqlite3
 import pytz
 import telegram
-import timezonefinder
 from datetime import datetime, time
 from collections import deque
 from telegram import Update, File
@@ -464,16 +463,21 @@ async def check_water_reminder_time(context: CallbackContext):
         return
     
     try:
-        # Получаем текущее время в часовом поясе пользователя
-        tz = pytz.UTC
+        # Определяем часовой пояс
+        tz = pytz.UTC  # По умолчанию UTC
         if timezone_str:
             try:
-                # Пробуем разные форматы часового пояса
+                # Обработка форматов UTC+3, GMT+3 и т.п.
                 if timezone_str.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
-                    # Преобразуем UTC+3 в Etc/GMT-3 (обратный знак!)
-                    offset = int(timezone_str[3:])
-                    tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+                    offset_str = timezone_str[3:]
+                    try:
+                        offset = int(offset_str)
+                        # Для Etc/GMT знаки обратные (GMT+3 = Etc/GMT-3)
+                        tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+                    except ValueError:
+                        print(f"Неверный формат смещения: {offset_str}")
                 else:
+                    # Пробуем стандартные названия
                     tz = pytz.timezone(timezone_str)
             except pytz.UnknownTimeZoneError:
                 print(f"Неизвестный часовой пояс: {timezone_str}, используется UTC")
@@ -502,14 +506,12 @@ async def check_water_reminder_time(context: CallbackContext):
         wakeup_time = datetime.strptime(wakeup_str, "%H:%M").time()
         sleep_time = datetime.strptime(sleep_str, "%H:%M").time()
         
-        # Корректируем логику проверки времени активности
-        # Если время сна меньше времени пробуждения, значит сон переходит на следующий день
-        if sleep_time < wakeup_time:
-            # Пользователь активен с wakeup_time до 23:59 и с 00:00 до sleep_time
-            is_active_time = (current_time >= wakeup_time) or (current_time <= sleep_time)
+        # Проверяем, активно ли сейчас время пользователя
+        is_active_time = False
+        if sleep_time > wakeup_time:
+            is_active_time = wakeup_time <= current_time <= sleep_time
         else:
-            # Пользователь активен между wakeup_time и sleep_time
-            is_active_time = (wakeup_time <= current_time <= sleep_time)
+            is_active_time = (current_time >= wakeup_time) or (current_time <= sleep_time)
         
         if not is_active_time:
             print(f"Текущее время {current_time} вне периода активности пользователя {user_id} ({wakeup_time}-{sleep_time})")
@@ -520,29 +522,29 @@ async def check_water_reminder_time(context: CallbackContext):
         remaining_water = max(0, recommended_water - water_drunk)
         
         # Проверяем, что сейчас подходящее время для напоминания (каждые 2 часа после подъема)
-        wakeup_datetime = datetime.combine(today, wakeup_time)
-        current_datetime = datetime.combine(today, current_time)
+        wakeup_datetime = datetime.combine(today, wakeup_time).astimezone(tz)
+        current_datetime = datetime.combine(today, current_time).astimezone(tz)
         
         # Если текущее время раньше времени пробуждения (для случая, когда сон на следующий день)
         if current_datetime < wakeup_datetime:
-            current_datetime = datetime.combine(today.replace(day=today.day + 1), current_time)
+            current_datetime = datetime.combine(today.replace(day=today.day + 1), current_time).astimezone(tz)
         
         time_since_wakeup = current_datetime - wakeup_datetime
         hours_since_wakeup = time_since_wakeup.total_seconds() / 3600
         
-        # Напоминаем каждые 2 часа, но не чаще чем раз в 2 часа
-        if hours_since_wakeup > 0 and hours_since_wakeup % 2 < 0.1:  # небольшой допуск для точности
+        # Напоминаем каждые 2 часа активного времени
+        if hours_since_wakeup >= 0 and hours_since_wakeup % 2 <= 0.1:  # небольшой допуск для точности
             # Проверяем, не отправляли ли уже напоминание в этот период
             last_notif_hour = None
             if last_notification:
                 try:
-                    last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S")
+                    last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
                     last_notif_since_wakeup = last_notif_datetime - wakeup_datetime
                     last_notif_hour = last_notif_since_wakeup.total_seconds() / 3600
                 except ValueError as e:
                     print(f"Ошибка парсинга времени последнего уведомления: {e}")
             
-            if last_notif_hour is None or abs(last_notif_hour - hours_since_wakeup) >= 1.9:
+            if last_notif_hour is None or (hours_since_wakeup - last_notif_hour) >= 1.9:
                 # Обновляем время последнего напоминания
                 conn = sqlite3.connect("users.db")
                 cursor = conn.cursor()
