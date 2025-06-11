@@ -5,7 +5,7 @@ import aiohttp
 import sqlite3
 import pytz
 import telegram
-from datetime import datetime, time
+from datetime import datetime, time, date
 from collections import deque
 from telegram import Update, File
 from telegram.ext import (
@@ -59,7 +59,12 @@ def init_db():
         sleep_time TEXT,
         water_reminders INTEGER DEFAULT 1,
         water_drunk_today INTEGER DEFAULT 0,
-        last_water_notification TEXT
+        last_water_notification TEXT,
+        calories_today INTEGER DEFAULT 0,
+        proteins_today INTEGER DEFAULT 0,
+        fats_today INTEGER DEFAULT 0,
+        carbs_today INTEGER DEFAULT 0,
+        last_nutrition_update DATE
     )
     ''')
     conn.commit()
@@ -72,8 +77,9 @@ def save_user_profile(user_id: int, profile: dict):
     INSERT OR REPLACE INTO user_profiles
     (user_id, language, name, gender, age, weight, height, goal, activity, diet, health, 
      equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time, 
-     water_reminders, water_drunk_today, last_water_notification)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     water_reminders, water_drunk_today, last_water_notification,
+     calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id,
         profile.get("language"),
@@ -94,10 +100,47 @@ def save_user_profile(user_id: int, profile: dict):
         profile.get("sleep_time"),
         profile.get("water_reminders", 1),
         profile.get("water_drunk_today", 0),
-        profile.get("last_water_notification", "")
+        profile.get("last_water_notification", ""),
+        profile.get("calories_today", 0),
+        profile.get("proteins_today", 0),
+        profile.get("fats_today", 0),
+        profile.get("carbs_today", 0),
+        profile.get("last_nutrition_update", date.today().isoformat())
     ))
     conn.commit()
     conn.close()
+
+async def reset_daily_nutrition_if_needed(user_id: int):
+    """Сбрасывает дневные показатели питания, если наступил новый день"""
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_nutrition_update FROM user_profiles WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    
+    if result and result[0]:
+        last_update = date.fromisoformat(result[0])
+        if last_update < date.today():
+            cursor.execute('''
+                UPDATE user_profiles 
+                SET calories_today = 0, proteins_today = 0, fats_today = 0, carbs_today = 0,
+                    last_nutrition_update = ?, water_drunk_today = 0
+                WHERE user_id = ?
+            ''', (date.today().isoformat(), user_id))
+            conn.commit()
+    conn.close()
+
+async def download_and_encode(file: File) -> dict:
+    telegram_file = await file.get_file()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(telegram_file.file_path) as resp:
+            data = await resp.read()
+    mime_type = file.mime_type if hasattr(file, 'mime_type') else "image/jpeg"
+    return {
+        "inline_data": {
+            "mime_type": mime_type,
+            "data": base64.b64encode(data).decode("utf-8"),
+        }
+    }
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -585,9 +628,10 @@ async def check_water_reminder_time(context: CallbackContext):
     except Exception as e:
         print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
 
-
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+    await reset_daily_nutrition_if_needed(user_id)
+    
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -609,6 +653,12 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
     recommended_water = int(weight * 30)  # 30 ml per kg
     water_drunk = row[18] if row[18] is not None else 0
     remaining_water = max(0, recommended_water - water_drunk)
+    
+    # Получаем данные о питании
+    calories = row[20] if row[20] is not None else 0
+    proteins = row[21] if row[21] is not None else 0
+    fats = row[22] if row[22] is not None else 0
+    carbs = row[23] if row[23] is not None else 0
     
     if language == "ru":
         profile_text = (
@@ -633,7 +683,12 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             f"💧 Водный баланс:\n"
             f"  Рекомендуется: {recommended_water} мл/день\n"
             f"  Выпито сегодня: {water_drunk} мл\n"
-            f"  Осталось выпить: {remaining_water} мл"
+            f"  Осталось выпить: {remaining_water} мл\n"
+            f"🍽 Питание сегодня:\n"
+            f"  Калории: {calories} ккал\n"
+            f"  Белки: {proteins} г\n"
+            f"  Жиры: {fats} г\n"
+            f"  Углеводы: {carbs} г"
         )
     else:
         profile_text = (
@@ -658,7 +713,12 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             f"💧 Water balance:\n"
             f"  Recommended: {recommended_water} ml/day\n"
             f"  Drunk today: {water_drunk} ml\n"
-            f"  Remaining: {remaining_water} ml"
+            f"  Remaining: {remaining_water} ml\n"
+            f"🍽 Nutrition today:\n"
+            f"  Calories: {calories} kcal\n"
+            f"  Proteins: {proteins} g\n"
+            f"  Fats: {fats} g\n"
+            f"  Carbs: {carbs} g"
         )
     await update.message.reply_text(profile_text)
 
@@ -733,6 +793,12 @@ def get_user_profile_text(user_id: int) -> str:
     water_drunk = row[18] if row[18] is not None else 0
     remaining_water = max(0, recommended_water - water_drunk)
     
+    # Получаем данные о питании
+    calories = row[20] if row[20] is not None else 0
+    proteins = row[21] if row[21] is not None else 0
+    fats = row[22] if row[22] is not None else 0
+    carbs = row[23] if row[23] is not None else 0
+    
     if language == "ru":
         return (
             f"Язык: {row[1]}\n"
@@ -755,7 +821,13 @@ def get_user_profile_text(user_id: int) -> str:
             f"💧 Водный баланс:\n"
             f"  Рекомендуется: {recommended_water} мл/день\n"
             f"  Выпито сегодня: {water_drunk} мл\n"
-            f"  Осталось выпить: {remaining_water} мл"
+            f"  Осталось выпить: {remaining_water} мл\n"
+            f"🍽 Питание сегодня:\n"
+            f"  Калории: {calories} ккал\n"
+            f"  Белки: {proteins} г\n"
+            f"  Жиры: {fats} г\n"
+            f"  Углеводы: {carbs} г\n"
+            f"  Последнее обновление: {row[24] if row[24] else 'сегодня'}"
         )
     else:
         return (
@@ -779,14 +851,24 @@ def get_user_profile_text(user_id: int) -> str:
             f"💧 Water balance:\n"
             f"  Recommended: {recommended_water} ml/day\n"
             f"  Drunk today: {water_drunk} ml\n"
-            f"  Remaining: {remaining_water} ml"
+            f"  Remaining: {remaining_water} ml\n"
+            f"🍽 Nutrition today:\n"
+            f"  Calories: {calories} kcal\n"
+            f"  Proteins: {proteins} g\n"
+            f"  Fats: {fats} g\n"
+            f"  Carbs: {carbs} g\n"
+            f"  Last update: {row[24] if row[24] else 'today'}"
         )
+
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
     contents = []
+
+    # Проверяем и сбрасываем дневные показатели, если нужно
+    await reset_daily_nutrition_if_needed(user_id)
 
     media_files = message.photo or []
     if message.document:
@@ -825,7 +907,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         history_prompt = "\n".join(history_messages)
         contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
 
-    # Системный промпт (изменена только часть про анализ фото)
+    # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
 
 Ты получаешь от пользователя сообщения. Они могут быть:
@@ -855,6 +937,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - water_reminders INTEGER
 - water_drunk_today INTEGER
 - last_water_notification TEXT
+- calories_today INTEGER
+- proteins_today INTEGER
+- fats_today INTEGER
+- carbs_today INTEGER
+- last_nutrition_update DATE
 
 Твоя задача:
 
@@ -966,7 +1053,42 @@ TEXT:
    - "Записано: +300 мл воды. Сегодня выпито: 500 мл из 1950 мл. Осталось: 1450 мл."
    - "Вы уже достигли дневной нормы! Сегодня выпито: 2000 мл из 1950 мл."
 
-13. Ответ должен быть естественным, дружелюбным и кратким, как будто ты — заботливый, но профессиональный диетолог.
+13. Если пользователь отправляет фото еды с комментарием, что это его прием пищи (например: "мой завтрак", "это мой обед", "сегодня на ужин"):
+   - Проанализируй фото и определи примерный состав блюда
+   - Рассчитай КБЖУ (калории, белки, жиры, углеводы) для этого приема пищи
+   - Обнови соответствующие поля в базе данных:
+     SQL: UPDATE user_profiles 
+          SET calories_today = calories_today + [калории], 
+              proteins_today = proteins_today + [белки],
+              fats_today = fats_today + [жиры],
+              carbs_today = carbs_today + [углеводы],
+              last_nutrition_update = CURRENT_DATE
+          WHERE user_id = ?
+   - Ответь в формате:
+     TEXT: [описание блюда и его КБЖУ] + [обновленная статистика за день]
+
+   Пример ответа:
+   "🍽 Омлет с овощами (примерно 300 г):
+    Калории: 350 ккал | Белки: 25 г | Жиры: 20 г | Углеводы: 15 г
+    📊 Сегодня: 1200 ккал | 80 г белков | 50 г жиров | 100 г углеводов"
+
+14. Если пользователь запрашивает информацию о своем дневном питании (например: "сколько я сегодня съел", "мое питание за сегодня", "дневная статистика"):
+   - Предоставь сводку по дневному КБЖУ в понятном формате
+   - Учитывай цель пользователя (похудение/набор массы) при комментариях
+   - Формат ответа:
+     TEXT: "📊 Ваше дневное питание:
+           Калории: [X] ккал (рекомендуется [Y] ккал)
+           Белки: [A] г | Жиры: [B] г | Углеводы: [C] г
+           [Комментарий или совет с учетом цели]"
+
+15. Если пользователь поправляет тебя в анализе КБЖУ (например: "там было 200 г гречки, а не 150"):
+   - Извинись за ошибку
+   - Пересчитай КБЖУ с учетом уточнения
+   - Обнови данные в базе, вычтя старые значения и добавив новые
+   - Ответь с обновленной информацией
+
+
+16. Ответ должен быть естественным, дружелюбным и кратким, как будто ты — заботливый, но профессиональный диетолог.
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
