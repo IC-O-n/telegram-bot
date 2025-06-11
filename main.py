@@ -5,6 +5,7 @@ import aiohttp
 import sqlite3
 import pytz
 import telegram
+import timezonefinder
 from datetime import datetime, time
 from collections import deque
 from telegram import Update, File
