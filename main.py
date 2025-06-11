@@ -13,6 +13,8 @@ from telegram.ext import (
     filters, CallbackContext, ConversationHandler
 )
 import google.generativeai as genai
+from datetime import datetime, time, timedelta
+
 
 # Конфигурация
 TOKEN = os.getenv("TOKEN")
