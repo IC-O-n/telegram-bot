@@ -1076,14 +1076,8 @@ TEXT:
    - Проанализируй фото и определи примерный состав блюда
    - Рассчитай КБЖУ (калории, белки, жиры, углеводы) для этого приема пищи
    - Обнови соответствующие поля в базе данных:
-     SQL: UPDATE user_profiles 
-          SET calories_today = calories_today + [калории], 
-              proteins_today = proteins_today + [белки],
-              fats_today = fats_today + [жиры],
-              carbs_today = carbs_today + [углеводы],
-              last_nutrition_update = CURRENT_DATE
-          WHERE user_id = ?
    - Ответь в формате:
+     SQL: UPDATE user_profiles SET calories_today = calories_today + [калории], proteins_today = proteins_today + [белки], fats_today = fats_today + [жиры], carbs_today = carbs_today + [углеводы], last_nutrition_update = CURRENT_DATE WHERE user_id = ?
      TEXT: [описание блюда и его КБЖУ] + [обновленная статистика за день]
 
    Пример ответа:
