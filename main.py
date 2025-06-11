@@ -297,6 +297,7 @@ async def ask_target(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("What's your specific weight or other metric target?")
     return ASK_TARGET
 
+
 async def ask_timezone(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
@@ -318,31 +319,29 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     try:
         if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
             # Преобразуем UTC+3 в Etc/GMT-3 (знаки обратные)
-            offset = int(timezone_input[3:])
+            offset_str = timezone_input[3:]
+            offset = int(offset_str) if offset_str else 0
             tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
         elif timezone_input.startswith("+"):
             # Обработка формата "+3"
-            offset = int(timezone_input)
+            offset = int(timezone_input[1:])
             tz = pytz.timezone(f"Etc/GMT{-offset}")
         elif timezone_input.startswith("-"):
             # Обработка формата "-5"
-            offset = int(timezone_input)
+            offset = int(timezone_input[1:])
             tz = pytz.timezone(f"Etc/GMT{+offset}")
         elif "/" in timezone_input:
             tz = pytz.timezone(timezone_input)
         else:
-            # Попробуем найти город, только если установлен timezonefinder
+            # Попробуем найти город в базе данных pytz
             try:
-                from timezonefinder import TimezoneFinder
-                tf = TimezoneFinder()
-                tz = tf.timezone_at(lat=lat, lng=lon)
-                if not tz:
-                    raise ValueError("Не удалось определить часовой пояс")
-            except ImportError:
-                print("Модуль timezonefinder не установлен")
+                tz = pytz.timezone(timezone_input)
+            except pytz.UnknownTimeZoneError:
+                # Если город не найден, используем UTC как fallback
                 tz = pytz.UTC
         
         user_profiles[user_id]["timezone"] = tz.zone
+        print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
     except Exception as e:
         print(f"Ошибка определения часового пояса: {e}")
         # Используем UTC как fallback
@@ -353,7 +352,6 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     else:
         await update.message.reply_text("What time do you usually wake up? (Format: HH:MM, e.g. 07:30)")
     return ASK_WAKEUP_TIME
-
 
 async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -456,8 +454,6 @@ async def check_water_reminder_time(context: CallbackContext):
     user_id = job.user_id
     chat_id = job.chat_id
     
-    print(f"Проверка напоминания для пользователя {user_id} в {datetime.now()}")
-    
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
     cursor.execute("""
@@ -487,10 +483,12 @@ async def check_water_reminder_time(context: CallbackContext):
         current_time = now.time()
         today = now.date()
         
+        print(f"Проверка для пользователя {user_id} в {now} (часовой пояс: {tz.zone})")
+        
         # Проверяем, не было ли сегодня напоминания
         if last_notification:
             try:
-                last_notif_date = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").date()
+                last_notif_date = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz).date()
                 if last_notif_date != today:
                     # Сбрасываем счетчик воды, если это новый день
                     conn = sqlite3.connect("users.db")
@@ -577,10 +575,11 @@ async def check_water_reminder_time(context: CallbackContext):
                     )
                 
                 await context.bot.send_message(chat_id=chat_id, text=message)
-                print(f"Напоминание отправлено пользователю {user_id}")
+                print(f"Напоминание отправлено пользователю {user_id} в {now}")
     
     except Exception as e:
         print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
+
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
