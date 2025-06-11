@@ -415,6 +415,8 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_profiles[user_id]["water_reminders"] = 1 if answer in ["да", "yes"] else 0
     user_profiles[user_id]["water_drunk_today"] = 0
     name = user_profiles[user_id]["name"]
+    weight = user_profiles[user_id]["weight"]
+    recommended_water = int(weight * 30)
     save_user_profile(user_id, user_profiles[user_id])
     
     # Удаляем старые задачи для этого пользователя, если они есть
@@ -437,17 +439,18 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     if language == "ru":
         await update.message.reply_text(
             f"Отлично, {name}! Анкета завершена 🎉\n"
+            f"На основе твоего веса ({weight} кг) тебе рекомендуется выпивать {recommended_water} мл воды в день.\n"
             f"Я буду напоминать тебе пить воду в течение дня, если ты не отключишь эту функцию.\n"
             f"Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!"
         )
     else:
         await update.message.reply_text(
             f"Great, {name}! Questionnaire completed 🎉\n"
+            f"Based on your weight ({weight} kg), your recommended daily water intake is {recommended_water} ml.\n"
             f"I'll remind you to drink water during the day unless you disable this feature.\n"
             f"You can send me photos, text or documents - I'll help you with analysis and recommendations!"
         )
     return ConversationHandler.END
-
 
 async def check_water_reminder_time(context: CallbackContext):
     job = context.job
@@ -476,6 +479,13 @@ async def check_water_reminder_time(context: CallbackContext):
         print(f"Напоминания отключены для пользователя {user_id}")
         return
     
+    recommended_water = int(weight * 30)
+    
+    # Если уже выпито достаточно - не напоминаем
+    if water_drunk >= recommended_water:
+        print(f"Пользователь {user_id} уже выпил достаточное количество воды")
+        return  
+
     try:
         # Определяем часовой пояс
         tz = pytz.timezone(timezone_str) if timezone_str else pytz.UTC
@@ -488,18 +498,13 @@ async def check_water_reminder_time(context: CallbackContext):
         # Проверяем, не было ли сегодня напоминания
         if last_notification:
             try:
-                last_notif_date = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz).date()
-                if last_notif_date != today:
-                    # Сбрасываем счетчик воды, если это новый день
-                    conn = sqlite3.connect("users.db")
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE user_profiles SET water_drunk_today = 0 WHERE user_id = ?", (user_id,))
-                    conn.commit()
-                    conn.close()
-                    water_drunk = 0
-                    print(f"Сброс счетчика воды для пользователя {user_id} - новый день")
+                last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+                time_since_last = now - last_notif_datetime
+                if time_since_last.total_seconds() < 3600:  # Не напоминаем чаще чем раз в час
+                    print(f"Слишком рано для нового напоминания пользователю {user_id}")
+                    return
             except ValueError as e:
-                print(f"Ошибка парсинга даты последнего уведомления: {e}")
+                print(f"Ошибка парсинга времени последнего уведомления: {e}")
         
         # Парсим время пробуждения и сна
         wakeup_time = datetime.strptime(wakeup_str, "%H:%M").time()
@@ -709,74 +714,6 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
     
     await update.message.reply_text(message)
 
-async def update_water_intake(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    text = update.message.text.lower()
-    language = user_profiles.get(user_id, {}).get("language", "ru")
-    
-    # Пытаемся извлечь количество воды из сообщения
-    amount = 0
-    try:
-        if language == "ru":
-            if "выпил" in text or "выпила" in text:
-                parts = text.split()
-                for i, part in enumerate(parts):
-                    if part.isdigit():
-                        amount = int(part)
-                        if i+1 < len(parts) and parts[i+1] in ["мл", "ml"]:
-                            break  # количество в мл
-                        elif i+1 < len(parts) and parts[i+1] in ["л", "l"]:
-                            amount *= 1000  # переводим литры в мл
-                            break
-        else:
-            if "drank" in text or "drunk" in text:
-                parts = text.split()
-                for i, part in enumerate(parts):
-                    if part.isdigit():
-                        amount = int(part)
-                        if i+1 < len(parts) and parts[i+1] in ["ml"]:
-                            break
-                        elif i+1 < len(parts) and parts[i+1] in ["l", "liters"]:
-                            amount *= 1000
-                            break
-    except:
-        amount = 0
-    
-    if amount <= 0:
-        if language == "ru":
-            await update.message.reply_text("Пожалуйста, укажи количество воды в формате: 'Выпил 250 мл' или 'Drank 300 ml'")
-        else:
-            await update.message.reply_text("Please specify water amount in format: 'Drank 300 ml' or 'Выпил 250 мл'")
-        return
-    
-    # Обновляем количество выпитой воды в базе данных
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    cursor.execute("UPDATE user_profiles SET water_drunk_today = water_drunk_today + ? WHERE user_id = ?", (amount, user_id))
-    conn.commit()
-    
-    # Получаем обновленные данные
-    cursor.execute("SELECT weight, water_drunk_today FROM user_profiles WHERE user_id = ?", (user_id,))
-    weight, water_drunk = cursor.fetchone()
-    conn.close()
-    
-    recommended_water = int(weight * 30)
-    remaining_water = max(0, recommended_water - water_drunk)
-    
-    if language == "ru":
-        message = (
-            f"✅ Записано: +{amount} мл воды\n"
-            f"📊 Сегодня выпито: {water_drunk} мл из {recommended_water} мл\n"
-            f"🚰 Осталось выпить: {remaining_water} мл"
-        )
-    else:
-        message = (
-            f"✅ Recorded: +{amount} ml water\n"
-            f"📊 Today drunk: {water_drunk} ml of {recommended_water} ml\n"
-            f"🚰 Remaining: {remaining_water} ml"
-        )
-    
-    await update.message.reply_text(message)
 
 def get_user_profile_text(user_id: int) -> str:
     conn = sqlite3.connect("users.db")
@@ -866,7 +803,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Обработка сообщений о выпитой воде
     if ("выпил" in user_text.lower() or "выпила" in user_text.lower() or 
         "drank" in user_text.lower() or "drunk" in user_text.lower()):
-        await update_water_intake(update, context)
         return
 
     media_files = message.photo or []
@@ -1034,7 +970,20 @@ TEXT:
 - Пример ответа:
   "По фото: % жира около 12-14% (подтянутый), мышцы ~65-70%. Визуальная оценка может быть неточной - рекомендуются инструментальные измерения."
 
-12. Ответ должен быть естественным, дружелюбным и кратким, как будто ты — заботливый, но профессиональный диетолог.
+12. Если пользователь сообщает о выпитой воде (в любом формате, например: "я выпил 300 мл", "только что 2 стакана воды", "drank 500ml"):
+   - Извлеки количество воды из сообщения (в мл)
+   - Обнови поле water_drunk_today в базе данных
+   - Проверь, не превышает ли выпитое количество дневную норму (30 мл на 1 кг веса)
+   - Если норма достигнута или превышена, отключи напоминания на сегодня
+   - Ответь пользователю в формате:
+     SQL: UPDATE user_profiles SET water_drunk_today = water_drunk_today + ? WHERE user_id = ?
+     TEXT: [естественный ответ с текущей статистикой по воде]
+
+   Примеры ответов:
+   - "Записано: +300 мл воды. Сегодня выпито: 500 мл из 1950 мл. Осталось: 1450 мл."
+   - "Вы уже достигли дневной нормы! Сегодня выпито: 2000 мл из 1950 мл."
+
+13. Ответ должен быть естественным, дружелюбным и кратким, как будто ты — заботливый, но профессиональный диетолог.
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
