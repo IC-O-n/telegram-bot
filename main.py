@@ -378,6 +378,7 @@ async def ask_water_reminders(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("Do you want to receive water drinking reminders during the day? (yes/no)")
     return ASK_WATER_REMINDERS
 
+
 async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
@@ -396,18 +397,26 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
         return ASK_WATER_REMINDERS
     
     user_profiles[user_id]["water_reminders"] = 1 if answer in ["да", "yes"] else 0
-    user_profiles[user_id]["water_drunk_today"] = 0  # Сбрасываем счетчик воды при завершении анкеты
+    user_profiles[user_id]["water_drunk_today"] = 0
     name = user_profiles[user_id]["name"]
     save_user_profile(user_id, user_profiles[user_id])
     
-    # Запускаем задачу проверки времени для напоминаний
-    context.job_queue.run_repeating(
-        check_water_reminder_time,
-        interval=300,  # Проверяем каждые 5 минут
-        first=0,
-        user_id=user_id,
-        chat_id=update.message.chat_id
-    )
+    # Удаляем старые задачи для этого пользователя, если они есть
+    current_jobs = context.job_queue.get_jobs_by_name(str(user_id))
+    for job in current_jobs:
+        job.schedule_removal()
+    
+    # Создаем новую задачу для напоминаний
+    if user_profiles[user_id]["water_reminders"]:
+        context.job_queue.run_repeating(
+            check_water_reminder_time,
+            interval=300,  # Проверяем каждые 5 минут
+            first=10,      # Первая проверка через 10 секунд
+            chat_id=update.message.chat_id,
+            user_id=user_id,
+            name=str(user_id)  # Уникальное имя для задачи
+        )
+        print(f"Создана задача напоминаний для пользователя {user_id}")
     
     if language == "ru":
         await update.message.reply_text(
@@ -423,106 +432,136 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
         )
     return ConversationHandler.END
 
+
 async def check_water_reminder_time(context: CallbackContext):
     job = context.job
     user_id = job.user_id
     chat_id = job.chat_id
     
+    print(f"Проверка напоминания для пользователя {user_id} в {datetime.now()}")
+    
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT timezone, wakeup_time, sleep_time, water_reminders, language, water_drunk_today, last_water_notification FROM user_profiles WHERE user_id = ?", (user_id,))
+    cursor.execute("""
+        SELECT timezone, wakeup_time, sleep_time, water_reminders, language, 
+               water_drunk_today, last_water_notification, weight 
+        FROM user_profiles 
+        WHERE user_id = ?
+    """, (user_id,))
     row = cursor.fetchone()
     conn.close()
     
-    if not row or not row[4]:  # Если нет данных или языка
+    if not row:
+        print(f"Профиль пользователя {user_id} не найден")
         return
     
-    timezone_str, wakeup_str, sleep_str, water_reminders, language, water_drunk, last_notification = row
+    (timezone_str, wakeup_str, sleep_str, water_reminders, language, 
+     water_drunk, last_notification, weight) = row
     
-    if not water_reminders:  # Если напоминания отключены
+    if not water_reminders:
+        print(f"Напоминания отключены для пользователя {user_id}")
         return
     
     try:
         # Получаем текущее время в часовом поясе пользователя
+        tz = pytz.UTC
         if timezone_str:
             try:
                 tz = pytz.timezone(timezone_str)
             except pytz.UnknownTimeZoneError:
-                tz = pytz.UTC
-        else:
-            tz = pytz.UTC
-            
+                print(f"Неизвестный часовой пояс: {timezone_str}, используется UTC")
+        
         now = datetime.now(tz)
         current_time = now.time()
         today = now.date()
         
         # Проверяем, не было ли сегодня напоминания
         if last_notification:
-            last_notif_date = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").date()
-            if last_notif_date != today:
-                # Сбрасываем счетчик воды, если это новый день
-                conn = sqlite3.connect("users.db")
-                cursor = conn.cursor()
-                cursor.execute("UPDATE user_profiles SET water_drunk_today = 0 WHERE user_id = ?", (user_id,))
-                conn.commit()
-                conn.close()
-                water_drunk = 0
+            try:
+                last_notif_date = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").date()
+                if last_notif_date != today:
+                    # Сбрасываем счетчик воды, если это новый день
+                    conn = sqlite3.connect("users.db")
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE user_profiles SET water_drunk_today = 0 WHERE user_id = ?", (user_id,))
+                    conn.commit()
+                    conn.close()
+                    water_drunk = 0
+                    print(f"Сброс счетчика воды для пользователя {user_id} - новый день")
+            except ValueError as e:
+                print(f"Ошибка парсинга даты последнего уведомления: {e}")
         
         wakeup_time = datetime.strptime(wakeup_str, "%H:%M").time()
         sleep_time = datetime.strptime(sleep_str, "%H:%M").time()
         
         # Проверяем, что текущее время между временем подъема и сна
-        if wakeup_time <= current_time <= sleep_time:
-            # Рассчитываем рекомендуемое количество воды (30 мл на 1 кг веса)
-            conn = sqlite3.connect("users.db")
-            cursor = conn.cursor()
-            cursor.execute("SELECT weight FROM user_profiles WHERE user_id = ?", (user_id,))
-            weight = cursor.fetchone()[0]
-            conn.close()
-            
-            recommended_water = int(weight * 30)  # в мл
-            remaining_water = max(0, recommended_water - water_drunk)
-            
-            # Проверяем, что сейчас подходящее время для напоминания (каждые 2 часа после подъема)
-            wakeup_hour = wakeup_time.hour
-            current_hour = current_time.hour
-            hours_since_wakeup = (current_hour - wakeup_hour) % 24
-            
-            if hours_since_wakeup > 0 and hours_since_wakeup % 2 == 0 and current_time.minute < 30:
-                # Проверяем, не отправляли ли уже напоминание в этот период
-                last_notif_hour = None
-                if last_notification:
-                    last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S")
-                    last_notif_hour = (last_notif_datetime.hour - wakeup_hour) % 24
-                
-                if last_notif_hour != hours_since_wakeup:
-                    # Обновляем время последнего напоминания
-                    conn = sqlite3.connect("users.db")
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE user_profiles SET last_water_notification = ? WHERE user_id = ?", 
-                                 (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
-                    conn.commit()
-                    conn.close()
-                    
-                    # Рассчитываем сколько нужно выпить сейчас (примерно 1/8 от дневной нормы)
-                    water_to_drink_now = min(250, max(150, recommended_water // 8))
-                    
-                    if language == "ru":
-                        message = (
-                            f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
-                            f"📊 Сегодня выпито: {water_drunk} мл из {recommended_water} мл\n"
-                            f"🚰 Осталось выпить: {remaining_water} мл"
-                        )
-                    else:
-                        message = (
-                            f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
-                            f"📊 Today drunk: {water_drunk} ml of {recommended_water} ml\n"
-                            f"🚰 Remaining: {remaining_water} ml"
-                        )
-                    
-                    await context.bot.send_message(chat_id=chat_id, text=message)
+        if not (wakeup_time <= current_time <= sleep_time):
+            print(f"Текущее время {current_time} вне периода активности пользователя {user_id} ({wakeup_time}-{sleep_time})")
+            return
+        
+        # Рассчитываем рекомендуемое количество воды (30 мл на 1 кг веса)
+        recommended_water = int(weight * 30)  # в мл
+        remaining_water = max(0, recommended_water - water_drunk)
+        
+        # Проверяем, что сейчас подходящее время для напоминания (каждые 2 часа после подъема)
+        wakeup_hour = wakeup_time.hour
+        current_hour = current_time.hour
+        hours_since_wakeup = (current_hour - wakeup_hour) % 24
+        
+        if hours_since_wakeup <= 0 or hours_since_wakeup % 2 != 0 or current_time.minute >= 30:
+            print(f"Не время для напоминания: hours_since_wakeup={hours_since_wakeup}, minute={current_time.minute}")
+            return
+        
+        # Проверяем, не отправляли ли уже напоминание в этот период
+        last_notif_hour = None
+        if last_notification:
+            try:
+                last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S")
+                last_notif_hour = (last_notif_datetime.hour - wakeup_hour) % 24
+            except ValueError as e:
+                print(f"Ошибка парсинга времени последнего уведомления: {e}")
+        
+        if last_notif_hour == hours_since_wakeup:
+            print(f"Напоминание уже отправлено в этот период для пользователя {user_id}")
+            return
+        
+        # Обновляем время последнего напоминания
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE user_profiles 
+            SET last_water_notification = ? 
+            WHERE user_id = ?
+        """, (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
+        conn.commit()
+        conn.close()
+        
+        # Рассчитываем сколько нужно выпить сейчас (примерно 1/8 от дневной нормы)
+        water_to_drink_now = min(250, max(150, recommended_water // 8))
+        
+        if language == "ru":
+            message = (
+                f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
+                f"📊 Сегодня выпито: {water_drunk} мл из {recommended_water} мл\n"
+                f"🚰 Осталось выпить: {remaining_water} мл\n\n"
+                f"После того как выпьешь воду, отправь мне сообщение в формате:\n"
+                f"'Выпил 250 мл' или 'Drank 300 ml'"
+            )
+        else:
+            message = (
+                f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
+                f"📊 Today drunk: {water_drunk} ml of {recommended_water} ml\n"
+                f"🚰 Remaining: {remaining_water} ml\n\n"
+                f"After drinking water, send me a message in the format:\n"
+                f"'Drank 300 ml' or 'Выпил 250 мл'"
+            )
+        
+        await context.bot.send_message(chat_id=chat_id, text=message)
+        print(f"Напоминание отправлено пользователю {user_id}")
+        
     except Exception as e:
-        print(f"Ошибка при проверке времени для напоминания: {e}")
+        print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
+
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
