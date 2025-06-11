@@ -1096,6 +1096,8 @@ TEXT:
 
 ⚠️ Отвечай пользователю на том же языке, на котором он к тебе обращается (учитывай поле language в профиле).
 
+⚠️ Важно: SQL-запросы никогда не должны показываться пользователю! Они выполняются автоматически и только для обновления базы данных.
+
 ⚠️ Общая длина ответа никогда не должна превышать 4096 символов.
 
 Ответ всегда возвращай строго в формате:
@@ -1104,6 +1106,7 @@ TEXT: ...
 или
 TEXT: ...
 """
+
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
 
     try:
@@ -1113,38 +1116,43 @@ TEXT: ...
         # Сохраняем последний ответ бота в контексте
         context.user_data['last_bot_reply'] = response_text
 
-        # Разделим SQL и TEXT
-        sql_match = re.search(r"SQL:\s*(.*?)\nTEXT:", response_text, re.DOTALL)
-        text_match = re.search(r"TEXT:\s*(.+)", response_text, re.DOTALL)
+        # Разделяем SQL и TEXT части ответа
+        parts = response_text.split("TEXT:")
+        if len(parts) > 1:
+            # Если есть SQL часть - выполняем её
+            if "SQL:" in parts[0]:
+                sql_part = parts[0].replace("SQL:", "").strip()
+                try:
+                    conn = sqlite3.connect("users.db")
+                    cursor = conn.cursor()
 
-        if sql_match:
-            sql_query = sql_match.group(1).strip()
+                    # Проверяем, содержит ли SQL-запрос параметры
+                    if "?" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
 
-            try:
-                conn = sqlite3.connect("users.db")
-                cursor = conn.cursor()
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    print(f"Ошибка при выполнении SQL: {e}")
+                    # Можно добавить логирование ошибки, но не показываем пользователю
 
-                # Проверка: содержит ли SQL-запрос знак вопроса
-                if "?" in sql_query:
-                    cursor.execute(sql_query, (user_id,))
-                else:
-                    cursor.execute(sql_query)
-
-                conn.commit()
-                conn.close()
-            except Exception as e:
-                await message.reply_text(f"Ошибка при обновлении профиля: {e}\nError updating profile: {e}")
-                return
-
-        if text_match:
-            reply_text = text_match.group(1).strip()
-            await message.reply_text(reply_text)
+            # Отправляем только TEXT часть пользователю
+            text_to_send = parts[1].strip()
+            await message.reply_text(text_to_send)
         else:
-            # Если текстового ответа не найдено — просто верни всё как есть
+            # Если нет разделения на SQL/TEXT - отправляем весь ответ как есть
             await message.reply_text(response_text)
 
     except Exception as e:
-        await message.reply_text(f"Ошибка при генерации ответа: {e}\nError generating response: {e}")
+        error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
+        if user_profiles.get(user_id, {}).get("language", "ru") == "en":
+            error_message = "An error occurred while processing your request. Please try again."
+        await message.reply_text(error_message)
+        print(f"Ошибка при генерации ответа: {e}")
+
+
 
 def main():
     init_db()
