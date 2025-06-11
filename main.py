@@ -306,36 +306,52 @@ async def ask_timezone(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("What city or timezone are you in? (e.g. New York, or America/New_York, or UTC-5)")
     return ASK_TIMEZONE
 
+
 async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     timezone_input = update.message.text.strip()
     
-    # Попробуем определить часовой пояс
+    # Упрощенная обработка часового пояса
     try:
-        if timezone_input.startswith(("UTC", "GMT")):
-            tz = pytz.timezone(timezone_input)
+        if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
+            # Преобразуем UTC+3 в Etc/GMT-3 (знаки обратные)
+            offset = int(timezone_input[3:])
+            tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+        elif timezone_input.startswith("+"):
+            # Обработка формата "+3"
+            offset = int(timezone_input)
+            tz = pytz.timezone(f"Etc/GMT{-offset}")
+        elif timezone_input.startswith("-"):
+            # Обработка формата "-5"
+            offset = int(timezone_input)
+            tz = pytz.timezone(f"Etc/GMT{+offset}")
         elif "/" in timezone_input:
             tz = pytz.timezone(timezone_input)
         else:
-            # Попробуем найти город
-            from timezonefinder import TimezoneFinder
-            tf = TimezoneFinder()
-            lat, lon = tf.get_lat_long(timezone_input)
-            tz = tf.timezone_at(lat=lat, lng=lon)
-            if not tz:
-                raise ValueError("Не удалось определить часовой пояс")
+            # Попробуем найти город, только если установлен timezonefinder
+            try:
+                from timezonefinder import TimezoneFinder
+                tf = TimezoneFinder()
+                tz = tf.timezone_at(lat=lat, lng=lon)
+                if not tz:
+                    raise ValueError("Не удалось определить часовой пояс")
+            except ImportError:
+                print("Модуль timezonefinder не установлен")
+                tz = pytz.UTC
         
         user_profiles[user_id]["timezone"] = tz.zone
     except Exception as e:
         print(f"Ошибка определения часового пояса: {e}")
-        user_profiles[user_id]["timezone"] = timezone_input  # Сохраняем как есть
+        # Используем UTC как fallback
+        user_profiles[user_id]["timezone"] = "UTC"
     
     if language == "ru":
         await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
     else:
         await update.message.reply_text("What time do you usually wake up? (Format: HH:MM, e.g. 07:30)")
     return ASK_WAKEUP_TIME
+
 
 async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -464,24 +480,7 @@ async def check_water_reminder_time(context: CallbackContext):
     
     try:
         # Определяем часовой пояс
-        tz = pytz.UTC  # По умолчанию UTC
-        if timezone_str:
-            try:
-                # Обработка форматов UTC+3, GMT+3 и т.п.
-                if timezone_str.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
-                    offset_str = timezone_str[3:]
-                    try:
-                        offset = int(offset_str)
-                        # Для Etc/GMT знаки обратные (GMT+3 = Etc/GMT-3)
-                        tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
-                    except ValueError:
-                        print(f"Неверный формат смещения: {offset_str}")
-                else:
-                    # Пробуем стандартные названия
-                    tz = pytz.timezone(timezone_str)
-            except pytz.UnknownTimeZoneError:
-                print(f"Неизвестный часовой пояс: {timezone_str}, используется UTC")
-        
+        tz = pytz.timezone(timezone_str) if timezone_str else pytz.UTC
         now = datetime.now(tz)
         current_time = now.time()
         today = now.date()
@@ -506,12 +505,17 @@ async def check_water_reminder_time(context: CallbackContext):
         wakeup_time = datetime.strptime(wakeup_str, "%H:%M").time()
         sleep_time = datetime.strptime(sleep_str, "%H:%M").time()
         
+        # Создаем datetime объекты для сравнения
+        wakeup_dt = datetime.combine(today, wakeup_time).astimezone(tz)
+        sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
+        current_dt = datetime.combine(today, current_time).astimezone(tz)
+        
+        # Корректируем sleep_dt, если сон переходит через полночь
+        if sleep_time < wakeup_time:
+            sleep_dt += timedelta(days=1)
+        
         # Проверяем, активно ли сейчас время пользователя
-        is_active_time = False
-        if sleep_time > wakeup_time:
-            is_active_time = wakeup_time <= current_time <= sleep_time
-        else:
-            is_active_time = (current_time >= wakeup_time) or (current_time <= sleep_time)
+        is_active_time = wakeup_dt <= current_dt <= sleep_dt
         
         if not is_active_time:
             print(f"Текущее время {current_time} вне периода активности пользователя {user_id} ({wakeup_time}-{sleep_time})")
@@ -521,30 +525,24 @@ async def check_water_reminder_time(context: CallbackContext):
         recommended_water = int(weight * 30)  # в мл
         remaining_water = max(0, recommended_water - water_drunk)
         
-        # Проверяем, что сейчас подходящее время для напоминания (каждые 2 часа после подъема)
-        wakeup_datetime = datetime.combine(today, wakeup_time).astimezone(tz)
-        current_datetime = datetime.combine(today, current_time).astimezone(tz)
-        
-        # Если текущее время раньше времени пробуждения (для случая, когда сон на следующий день)
-        if current_datetime < wakeup_datetime:
-            current_datetime = datetime.combine(today.replace(day=today.day + 1), current_time).astimezone(tz)
-        
-        time_since_wakeup = current_datetime - wakeup_datetime
+        # Рассчитываем сколько часов прошло с момента пробуждения
+        time_since_wakeup = current_dt - wakeup_dt
         hours_since_wakeup = time_since_wakeup.total_seconds() / 3600
         
         # Напоминаем каждые 2 часа активного времени
-        if hours_since_wakeup >= 0 and hours_since_wakeup % 2 <= 0.1:  # небольшой допуск для точности
+        reminder_interval = 2  # часа
+        if hours_since_wakeup >= 0 and hours_since_wakeup % reminder_interval <= 0.1:  # небольшой допуск
             # Проверяем, не отправляли ли уже напоминание в этот период
             last_notif_hour = None
             if last_notification:
                 try:
                     last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
-                    last_notif_since_wakeup = last_notif_datetime - wakeup_datetime
+                    last_notif_since_wakeup = last_notif_datetime - wakeup_dt
                     last_notif_hour = last_notif_since_wakeup.total_seconds() / 3600
                 except ValueError as e:
                     print(f"Ошибка парсинга времени последнего уведомления: {e}")
             
-            if last_notif_hour is None or (hours_since_wakeup - last_notif_hour) >= 1.9:
+            if last_notif_hour is None or (hours_since_wakeup - last_notif_hour) >= (reminder_interval - 0.1):
                 # Обновляем время последнего напоминания
                 conn = sqlite3.connect("users.db")
                 cursor = conn.cursor()
@@ -578,10 +576,9 @@ async def check_water_reminder_time(context: CallbackContext):
                 
                 await context.bot.send_message(chat_id=chat_id, text=message)
                 print(f"Напоминание отправлено пользователю {user_id}")
-        
+    
     except Exception as e:
         print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
-
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
