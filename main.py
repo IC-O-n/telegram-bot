@@ -1186,6 +1186,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 ⚠️ Общая длина ответа никогда не должна превышать 4096 символов.
 
+⚠️ Важно: SQL-запросы должны быть строго отделены от текста для пользователя и НИКОГДА не показываться ему. Формат ответа должен быть:
+
+SQL: [запрос для базы данных, только если нужно обновить данные]
+TEXT: [ответ пользователю, всегда на его языке]
+
+ИЛИ (если не нужно обновлять базу):
+
+TEXT: [ответ пользователю]
+
+Никогда не смешивай эти части и не показывай SQL пользователю!
+
 Ответ всегда возвращай строго в формате:
 SQL: ...
 TEXT: ...
@@ -1203,33 +1214,43 @@ TEXT: ...
         context.user_data['last_bot_reply'] = response_text
 
         # Разделяем SQL и TEXT части ответа
-        parts = response_text.split("TEXT:")
-        if len(parts) > 1:
-            # Если есть SQL часть - выполняем её
-            if "SQL:" in parts[0]:
-                sql_part = parts[0].replace("SQL:", "").strip()
-                try:
-                    conn = sqlite3.connect("users.db")
-                    cursor = conn.cursor()
+        sql_part = None
+        text_part = None
 
-                    # Проверяем, содержит ли SQL-запрос параметры
-                    if "?" in sql_part:
-                        cursor.execute(sql_part, (user_id,))
-                    else:
-                        cursor.execute(sql_part)
+        # Ищем SQL часть
+        sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
+        if sql_match:
+            sql_part = sql_match.group(1).strip()
+            try:
+                conn = sqlite3.connect("users.db")
+                cursor = conn.cursor()
 
-                    conn.commit()
-                    conn.close()
-                except Exception as e:
-                    print(f"Ошибка при выполнении SQL: {e}")
-                    # Можно добавить логирование ошибки, но не показываем пользователю
+                # Проверяем, содержит ли SQL-запрос параметры
+                if "?" in sql_part:
+                    cursor.execute(sql_part, (user_id,))
+                else:
+                    cursor.execute(sql_part)
 
-            # Отправляем только TEXT часть пользователю
-            text_to_send = parts[1].strip()
-            await message.reply_text(text_to_send)
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"Ошибка при выполнении SQL: {e}")
+                # Можно добавить логирование ошибки, но не показываем пользователю
+
+        # Ищем TEXT часть (берем последнюю, если их несколько)
+        text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
+        if text_matches:
+            text_part = text_matches[-1].strip()
         else:
-            # Если нет разделения на SQL/TEXT - отправляем весь ответ как есть
-            await message.reply_text(response_text)
+            # Если нет TEXT части, используем весь ответ, но очищаем от возможных SQL частей
+            text_part = re.sub(r'SQL:.*?(?=TEXT:|$)', '', response_text, flags=re.DOTALL).strip()
+
+        # Если после обработки text_part пустой, используем fallback сообщение
+        if not text_part:
+            text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
+
+        # Отправляем только очищенную TEXT часть пользователю
+        await message.reply_text(text_part)
 
     except Exception as e:
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
@@ -1237,6 +1258,7 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
+
 
 
 
