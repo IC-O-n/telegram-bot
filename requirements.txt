@@ -8,3 +8,4 @@ python-dotenv
 pytz
 python-telegram-bot[job-queue]
 timezonefinder
+pymysql
