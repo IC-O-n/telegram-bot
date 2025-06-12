@@ -549,6 +549,7 @@ async def check_reminders(context: CallbackContext):
                             (json.dumps(reminders), user_id)
                         conn.commit()
                         conn.close()
+                        )
                     except Exception as e:
                         print(f"Ошибка при отправке напоминания пользователю {user_id}: {e}")
         except Exception as e:
