@@ -41,7 +41,7 @@ user_profiles = {}
 
 def init_db():
     conn = pymysql.connect(
-        host=os.getenv("51.158.36.33"),
+        host=os.getenv("x91345bo.beget.tech"),
         user=os.getenv("x91345bo_nutrbot"),
         password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
         database=os.getenv("x91345bo_nutrbot"),
@@ -88,7 +88,7 @@ def init_db():
 
 def save_user_profile(user_id: int, profile: dict):
     conn = pymysql.connect(
-        host=os.getenv("51.158.36.33"),
+        host=os.getenv("x91345bo.beget.tech"),
         user=os.getenv("x91345bo_nutrbot"),
         password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
         database=os.getenv("x91345bo_nutrbot"),
@@ -169,7 +169,7 @@ def save_user_profile(user_id: int, profile: dict):
 
 async def reset_daily_nutrition_if_needed(user_id: int):
     conn = pymysql.connect(
-        host=os.getenv("51.158.36.33"),
+        host=os.getenv("x91345bo.beget.tech"),
         user=os.getenv("x91345bo_nutrbot"),
         password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
         database=os.getenv("x91345bo_nutrbot"),
@@ -584,7 +584,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
 
 async def check_reminders(context: CallbackContext):
     conn = pymysql.connect(
-        host=os.getenv("51.158.36.33"),
+        host=os.getenv("x91345bo.beget.tech"),
         user=os.getenv("x91345bo_nutrbot"),
         password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
         database=os.getenv("x91345bo_nutrbot"),
@@ -652,7 +652,7 @@ async def check_water_reminder_time(context: CallbackContext):
     chat_id = job.chat_id
     
     conn = pymysql.connect(
-        host=os.getenv("51.158.36.33"),
+        host=os.getenv("x91345bo.beget.tech"),
         user=os.getenv("x91345bo_nutrbot"),
         password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
         database=os.getenv("x91345bo_nutrbot"),
@@ -773,7 +773,7 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
     await reset_daily_nutrition_if_needed(user_id)
     
     conn = pymysql.connect(
-        host=os.getenv("51.158.36.33"),
+        host=os.getenv("x91345bo.beget.tech"),
         user=os.getenv("x91345bo_nutrbot"),
         password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
         database=os.getenv("x91345bo_nutrbot"),
@@ -877,7 +877,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
     
     try:
         conn = pymysql.connect(
-            host=os.getenv("51.158.36.33"),
+            host=os.getenv("x91345bo.beget.tech"),
             user=os.getenv("x91345bo_nutrbot"),
             password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
             database=os.getenv("x91345bo_nutrbot"),
@@ -897,7 +897,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
 async def toggle_water_reminders(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     conn = pymysql.connect(
-        host=os.getenv("51.158.36.33"),
+        host=os.getenv("x91345bo.beget.tech"),
         user=os.getenv("x91345bo_nutrbot"),
         password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
         database=os.getenv("x91345bo_nutrbot"),
@@ -938,7 +938,7 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
 
 def get_user_profile_text(user_id: int) -> str:
     conn = pymysql.connect(
-        host=os.getenv("51.158.36.33"),
+        host=os.getenv("x91345bo.beget.tech"),
         user=os.getenv("x91345bo_nutrbot"),
         password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
         database=os.getenv("x91345bo_nutrbot"),
@@ -1415,4 +1415,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
