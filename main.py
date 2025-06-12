@@ -5,6 +5,7 @@ import aiohttp
 import sqlite3
 import pytz
 import telegram
+import json
 from datetime import datetime, time, date
 from collections import deque
 from telegram import Update, File
@@ -520,12 +521,15 @@ async def check_reminders(context: CallbackContext):
     """Проверяет и отправляет напоминания пользователям"""
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT user_id, reminders, timezone FROM user_profiles WHERE reminders != '[]'")
+    cursor.execute("SELECT user_id, reminders, timezone, language FROM user_profiles WHERE reminders != '[]' AND reminders IS NOT NULL")
     users = cursor.fetchall()
     conn.close()
 
-    for user_id, reminders_json, timezone_str in users:
+    for user_id, reminders_json, timezone_str, language in users:
         try:
+            if not reminders_json or reminders_json == '[]':
+                continue
+                
             reminders = json.loads(reminders_json)
             tz = pytz.timezone(timezone_str) if timezone_str else pytz.UTC
             now = datetime.now(tz)
@@ -535,10 +539,18 @@ async def check_reminders(context: CallbackContext):
                 if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
                     # Отправляем напоминание
                     try:
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=f"⏰ Напоминание: {reminder['text']}\n\n(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
-                        )
+                        if language == "ru":
+                            message = (
+                                f"⏰ Напоминание: {reminder['text']}\n\n"
+                                f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
+                            )
+                        else:
+                            message = (
+                                f"⏰ Reminder: {reminder['text']}\n\n"
+                                f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
+                            )
+
+                        await context.bot.send_message(chat_id=user_id, text=message)
 
                         # Обновляем дату последней отправки
                         reminder["last_sent"] = now.date().isoformat()
@@ -546,7 +558,8 @@ async def check_reminders(context: CallbackContext):
                         cursor = conn.cursor()
                         cursor.execute(
                             "UPDATE user_profiles SET reminders = ? WHERE user_id = ?",
-                            (json.dumps(reminders), user_id))
+                            (json.dumps(reminders), user_id)
+                        )
                         conn.commit()
                         conn.close()
                         
@@ -554,6 +567,8 @@ async def check_reminders(context: CallbackContext):
                         print(f"Ошибка при отправке напоминания пользователю {user_id}: {e}")
         except Exception as e:
             print(f"Ошибка при обработке напоминаний для пользователя {user_id}: {e}")
+            print(f"Reminders JSON: {reminders_json}")
+            print(f"Error details: {str(e)}")
 
 
 async def check_water_reminder_time(context: CallbackContext):
