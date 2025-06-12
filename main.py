@@ -6,8 +6,6 @@ import sqlite3
 import pytz
 import telegram
 import json
-import pymysql
-from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
 from telegram import Update, File
@@ -38,163 +36,100 @@ user_profiles = {}
     ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS
 ) = range(16)
 
-
 def init_db():
-    conn = pymysql.connect(
-        host=os.getenv("x91345bo.beget.tech"),
-        user=os.getenv("x91345bo_nutrbot"),
-        password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-        database=os.getenv("x91345bo_nutrbot"),
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_profiles (
+        user_id INTEGER PRIMARY KEY,
+        language TEXT,
+        name TEXT,
+        gender TEXT,
+        age INTEGER,
+        weight REAL,
+        height INTEGER,
+        goal TEXT,
+        activity TEXT,
+        diet TEXT,
+        health TEXT,
+        equipment TEXT,
+        target_metric TEXT,
+        unique_facts TEXT,
+        timezone TEXT,
+        wakeup_time TEXT,
+        sleep_time TEXT,
+        water_reminders INTEGER DEFAULT 1,
+        water_drunk_today INTEGER DEFAULT 0,
+        last_water_notification TEXT,
+        calories_today INTEGER DEFAULT 0,
+        proteins_today INTEGER DEFAULT 0,
+        fats_today INTEGER DEFAULT 0,
+        carbs_today INTEGER DEFAULT 0,
+        last_nutrition_update DATE,
+        reminders TEXT DEFAULT '[]'
     )
-    
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_profiles (
-                user_id BIGINT PRIMARY KEY,
-                language VARCHAR(10),
-                name VARCHAR(100),
-                gender VARCHAR(10),
-                age INT,
-                weight FLOAT,
-                height INT,
-                goal TEXT,
-                activity TEXT,
-                diet TEXT,
-                health TEXT,
-                equipment TEXT,
-                target_metric TEXT,
-                unique_facts TEXT,
-                timezone VARCHAR(50),
-                wakeup_time VARCHAR(5),
-                sleep_time VARCHAR(5),
-                water_reminders TINYINT DEFAULT 1,
-                water_drunk_today INT DEFAULT 0,
-                last_water_notification TEXT,
-                calories_today INT DEFAULT 0,
-                proteins_today INT DEFAULT 0,
-                fats_today INT DEFAULT 0,
-                carbs_today INT DEFAULT 0,
-                last_nutrition_update DATE,
-                reminders TEXT DEFAULT '[]'
-            )
-            ''')
-        conn.commit()
-    finally:
-        conn.close()
-
+    ''')
+    conn.commit()
+    conn.close()
 
 def save_user_profile(user_id: int, profile: dict):
-    conn = pymysql.connect(
-        host=os.getenv("x91345bo.beget.tech"),
-        user=os.getenv("x91345bo_nutrbot"),
-        password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-        database=os.getenv("x91345bo_nutrbot"),
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute('''
-            INSERT INTO user_profiles (
-                user_id, language, name, gender, age, weight, height, goal, activity, diet, 
-                health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
-                water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s,
-                %s, %s, %s, %s, %s
-            )
-            ON DUPLICATE KEY UPDATE
-                language = VALUES(language),
-                name = VALUES(name),
-                gender = VALUES(gender),
-                age = VALUES(age),
-                weight = VALUES(weight),
-                height = VALUES(height),
-                goal = VALUES(goal),
-                activity = VALUES(activity),
-                diet = VALUES(diet),
-                health = VALUES(health),
-                equipment = VALUES(equipment),
-                target_metric = VALUES(target_metric),
-                unique_facts = VALUES(unique_facts),
-                timezone = VALUES(timezone),
-                wakeup_time = VALUES(wakeup_time),
-                sleep_time = VALUES(sleep_time),
-                water_reminders = VALUES(water_reminders),
-                water_drunk_today = VALUES(water_drunk_today),
-                last_water_notification = VALUES(last_water_notification),
-                calories_today = VALUES(calories_today),
-                proteins_today = VALUES(proteins_today),
-                fats_today = VALUES(fats_today),
-                carbs_today = VALUES(carbs_today),
-                last_nutrition_update = VALUES(last_nutrition_update)
-            ''', (
-                user_id,
-                profile.get("language"),
-                profile.get("name"),
-                profile.get("gender"),
-                profile.get("age"),
-                profile.get("weight"),
-                profile.get("height"),
-                profile.get("goal"),
-                profile.get("activity"),
-                profile.get("diet"),
-                profile.get("health"),
-                profile.get("equipment"),
-                profile.get("target_metric"),
-                profile.get("unique_facts"),
-                profile.get("timezone"),
-                profile.get("wakeup_time"),
-                profile.get("sleep_time"),
-                profile.get("water_reminders", 1),
-                profile.get("water_drunk_today", 0),
-                profile.get("last_water_notification", ""),
-                profile.get("calories_today", 0),
-                profile.get("proteins_today", 0),
-                profile.get("fats_today", 0),
-                profile.get("carbs_today", 0),
-                profile.get("last_nutrition_update", date.today().isoformat())
-            ))
-        conn.commit()
-    finally:
-        conn.close()
-
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT OR REPLACE INTO user_profiles
+    (user_id, language, name, gender, age, weight, height, goal, activity, diet, health, 
+     equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time, 
+     water_reminders, water_drunk_today, last_water_notification,
+     calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        user_id,
+        profile.get("language"),
+        profile.get("name"),
+        profile.get("gender"),
+        profile.get("age"),
+        profile.get("weight"),
+        profile.get("height"),
+        profile.get("goal"),
+        profile.get("activity"),
+        profile.get("diet"),
+        profile.get("health"),
+        profile.get("equipment"),
+        profile.get("target_metric"),
+        profile.get("unique_facts"),
+        profile.get("timezone"),
+        profile.get("wakeup_time"),
+        profile.get("sleep_time"),
+        profile.get("water_reminders", 1),
+        profile.get("water_drunk_today", 0),
+        profile.get("last_water_notification", ""),
+        profile.get("calories_today", 0),
+        profile.get("proteins_today", 0),
+        profile.get("fats_today", 0),
+        profile.get("carbs_today", 0),
+        profile.get("last_nutrition_update", date.today().isoformat())
+    ))
+    conn.commit()
+    conn.close()
 
 async def reset_daily_nutrition_if_needed(user_id: int):
-    conn = pymysql.connect(
-        host=os.getenv("x91345bo.beget.tech"),
-        user=os.getenv("x91345bo_nutrbot"),
-        password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-        database=os.getenv("x91345bo_nutrbot"),
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    """Сбрасывает дневные показатели питания, если наступил новый день"""
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_nutrition_update FROM user_profiles WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
     
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s", (user_id,))
-            result = cursor.fetchone()
-            
-            if result and result['last_nutrition_update']:
-                last_update = result['last_nutrition_update']
-                if last_update < date.today():
-                    cursor.execute('''
-                        UPDATE user_profiles 
-                        SET calories_today = 0, proteins_today = 0, fats_today = 0, carbs_today = 0,
-                            last_nutrition_update = %s, water_drunk_today = 0
-                        WHERE user_id = %s
-                    ''', (date.today().isoformat(), user_id))
-                    conn.commit()
-    finally:
-        conn.close()
-
+    if result and result[0]:
+        last_update = date.fromisoformat(result[0])
+        if last_update < date.today():
+            cursor.execute('''
+                UPDATE user_profiles 
+                SET calories_today = 0, proteins_today = 0, fats_today = 0, carbs_today = 0,
+                    last_nutrition_update = ?, water_drunk_today = 0
+                WHERE user_id = ?
+            ''', (date.today().isoformat(), user_id))
+            conn.commit()
+    conn.close()
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -583,67 +518,57 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
 
 
 async def check_reminders(context: CallbackContext):
-    conn = pymysql.connect(
-        host=os.getenv("x91345bo.beget.tech"),
-        user=os.getenv("x91345bo_nutrbot"),
-        password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-        database=os.getenv("x91345bo_nutrbot"),
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT user_id, reminders, timezone, language 
-                FROM user_profiles 
-                WHERE reminders != '[]' AND reminders IS NOT NULL
-            """)
-            users = cursor.fetchall()
+    """Проверяет и отправляет напоминания пользователям"""
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, reminders, timezone, language FROM user_profiles WHERE reminders != '[]' AND reminders IS NOT NULL")
+    users = cursor.fetchall()
+    conn.close()
 
-        for user in users:
-            try:
-                if not user['reminders'] or user['reminders'] == '[]':
-                    continue
-                    
-                reminders = json.loads(user['reminders'])
-                tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
-                now = datetime.now(tz)
-                current_time = now.strftime("%H:%M")
+    for user_id, reminders_json, timezone_str, language in users:
+        try:
+            if not reminders_json or reminders_json == '[]':
+                continue
+                
+            reminders = json.loads(reminders_json)
+            tz = pytz.timezone(timezone_str) if timezone_str else pytz.UTC
+            now = datetime.now(tz)
+            current_time = now.strftime("%H:%M")
 
-                for reminder in reminders:
-                    if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
-                        try:
-                            if user['language'] == "ru":
-                                message = (
-                                    f"⏰ Напоминание: {reminder['text']}\n\n"
-                                    f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
-                                )
-                            else:
-                                message = (
-                                    f"⏰ Reminder: {reminder['text']}\n\n"
-                                    f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
-                                )
+            for reminder in reminders:
+                if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
+                    # Отправляем напоминание
+                    try:
+                        if language == "ru":
+                            message = (
+                                f"⏰ Напоминание: {reminder['text']}\n\n"
+                                f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
+                            )
+                        else:
+                            message = (
+                                f"⏰ Reminder: {reminder['text']}\n\n"
+                                f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
+                            )
 
-                            await context.bot.send_message(chat_id=user['user_id'], text=message)
+                        await context.bot.send_message(chat_id=user_id, text=message)
 
-                            # Обновляем дату последней отправки
-                            reminder["last_sent"] = now.date().isoformat()
-                            with conn.cursor() as update_cursor:
-                                update_cursor.execute(
-                                    "UPDATE user_profiles SET reminders = %s WHERE user_id = %s",
-                                    (json.dumps(reminders), user['user_id'])
-                                )
-                            conn.commit()
-                            
-                        except Exception as e:
-                            print(f"Ошибка при отправке напоминания пользователю {user['user_id']}: {e}")
-            except Exception as e:
-                print(f"Ошибка при обработке напоминаний для пользователя {user['user_id']}: {e}")
-                print(f"Reminders JSON: {user['reminders']}")
-                print(f"Error details: {str(e)}")
-    finally:
-        conn.close()
+                        # Обновляем дату последней отправки
+                        reminder["last_sent"] = now.date().isoformat()
+                        conn = sqlite3.connect("users.db")
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "UPDATE user_profiles SET reminders = ? WHERE user_id = ?",
+                            (json.dumps(reminders), user_id)
+                        )
+                        conn.commit()
+                        conn.close()
+                        
+                    except Exception as e:
+                        print(f"Ошибка при отправке напоминания пользователю {user_id}: {e}")
+        except Exception as e:
+            print(f"Ошибка при обработке напоминаний для пользователя {user_id}: {e}")
+            print(f"Reminders JSON: {reminders_json}")
+            print(f"Error details: {str(e)}")
 
 
 async def check_water_reminder_time(context: CallbackContext):
@@ -651,382 +576,365 @@ async def check_water_reminder_time(context: CallbackContext):
     user_id = job.user_id
     chat_id = job.chat_id
     
-    conn = pymysql.connect(
-        host=os.getenv("x91345bo.beget.tech"),
-        user=os.getenv("x91345bo_nutrbot"),
-        password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-        database=os.getenv("x91345bo_nutrbot"),
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT timezone, wakeup_time, sleep_time, water_reminders, language, 
+               water_drunk_today, last_water_notification, weight 
+        FROM user_profiles 
+        WHERE user_id = ?
+    """, (user_id,))
+    row = cursor.fetchone()
+    conn.close()
     
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT timezone, wakeup_time, sleep_time, water_reminders, language, 
-                       water_drunk_today, last_water_notification, weight 
-                FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            row = cursor.fetchone()
-        
-        if not row:
-            print(f"Профиль пользователя {user_id} не найден")
-            return
-        
-        if not row['water_reminders']:
-            print(f"Напоминания отключены для пользователя {user_id}")
-            return
-        
-        recommended_water = int(row['weight'] * 30)
-        
-        if row['water_drunk_today'] >= recommended_water:
-            print(f"Пользователь {user_id} уже выпил достаточное количество воды")
-            return  
+    if not row:
+        print(f"Профиль пользователя {user_id} не найден")
+        return
+    
+    (timezone_str, wakeup_str, sleep_str, water_reminders, language, 
+     water_drunk, last_notification, weight) = row
+    
+    if not water_reminders:
+        print(f"Напоминания отключены для пользователя {user_id}")
+        return
+    
+    recommended_water = int(weight * 30)
+    
+    # Если уже выпито достаточно - не напоминаем
+    if water_drunk >= recommended_water:
+        print(f"Пользователь {user_id} уже выпил достаточное количество воды")
+        return  
 
-        try:
-            tz = pytz.timezone(row['timezone']) if row['timezone'] else pytz.UTC
-            now = datetime.now(tz)
-            current_time = now.time()
-            today = now.date()
-            
-            if row['last_water_notification']:
+    try:
+        # Определяем часовой пояс
+        tz = pytz.timezone(timezone_str) if timezone_str else pytz.UTC
+        now = datetime.now(tz)
+        current_time = now.time()
+        today = now.date()
+        
+        print(f"Проверка для пользователя {user_id} в {now} (часовой пояс: {tz.zone})")
+        
+        # Проверяем, не было ли сегодня напоминания
+        if last_notification:
+            try:
+                last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+                time_since_last = now - last_notif_datetime
+                if time_since_last.total_seconds() < 3600:  # Не напоминаем чаще чем раз в час
+                    print(f"Слишком рано для нового напоминания пользователю {user_id}")
+                    return
+            except ValueError as e:
+                print(f"Ошибка парсинга времени последнего уведомления: {e}")
+        
+        # Парсим время пробуждения и сна
+        wakeup_time = datetime.strptime(wakeup_str, "%H:%M").time()
+        sleep_time = datetime.strptime(sleep_str, "%H:%M").time()
+        
+        # Создаем datetime объекты для сравнения
+        wakeup_dt = datetime.combine(today, wakeup_time).astimezone(tz)
+        sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
+        current_dt = datetime.combine(today, current_time).astimezone(tz)
+        
+        # Корректируем sleep_dt, если сон переходит через полночь
+        if sleep_time < wakeup_time:
+            sleep_dt += timedelta(days=1)
+        
+        # Проверяем, активно ли сейчас время пользователя
+        is_active_time = wakeup_dt <= current_dt <= sleep_dt
+        
+        if not is_active_time:
+            print(f"Текущее время {current_time} вне периода активности пользователя {user_id} ({wakeup_time}-{sleep_time})")
+            return
+        
+        # Рассчитываем рекомендуемое количество воды (30 мл на 1 кг веса)
+        recommended_water = int(weight * 30)  # в мл
+        remaining_water = max(0, recommended_water - water_drunk)
+        
+        # Рассчитываем сколько часов прошло с момента пробуждения
+        time_since_wakeup = current_dt - wakeup_dt
+        hours_since_wakeup = time_since_wakeup.total_seconds() / 3600
+        
+        # Напоминаем каждые 2 часа активного времени
+        reminder_interval = 2  # часа
+        if hours_since_wakeup >= 0 and hours_since_wakeup % reminder_interval <= 0.1:  # небольшой допуск
+            # Проверяем, не отправляли ли уже напоминание в этот период
+            last_notif_hour = None
+            if last_notification:
                 try:
-                    last_notif_datetime = datetime.strptime(row['last_water_notification'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
-                    time_since_last = now - last_notif_datetime
-                    if time_since_last.total_seconds() < 3600:
-                        print(f"Слишком рано для нового напоминания пользователю {user_id}")
-                        return
+                    last_notif_datetime = datetime.strptime(last_notification, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+                    last_notif_since_wakeup = last_notif_datetime - wakeup_dt
+                    last_notif_hour = last_notif_since_wakeup.total_seconds() / 3600
                 except ValueError as e:
                     print(f"Ошибка парсинга времени последнего уведомления: {e}")
             
-            wakeup_time = datetime.strptime(row['wakeup_time'], "%H:%M").time()
-            sleep_time = datetime.strptime(row['sleep_time'], "%H:%M").time()
-            
-            wakeup_dt = datetime.combine(today, wakeup_time).astimezone(tz)
-            sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
-            current_dt = datetime.combine(today, current_time).astimezone(tz)
-            
-            if sleep_time < wakeup_time:
-                sleep_dt += timedelta(days=1)
-            
-            is_active_time = wakeup_dt <= current_dt <= sleep_dt
-            
-            if not is_active_time:
-                print(f"Текущее время {current_time} вне периода активности пользователя {user_id} ({wakeup_time}-{sleep_time})")
-                return
-            
-            remaining_water = max(0, recommended_water - row['water_drunk_today'])
-            time_since_wakeup = current_dt - wakeup_dt
-            hours_since_wakeup = time_since_wakeup.total_seconds() / 3600
-            
-            reminder_interval = 2
-            if hours_since_wakeup >= 0 and hours_since_wakeup % reminder_interval <= 0.1:
-                last_notif_hour = None
-                if row['last_water_notification']:
-                    try:
-                        last_notif_datetime = datetime.strptime(row['last_water_notification'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
-                        last_notif_since_wakeup = last_notif_datetime - wakeup_dt
-                        last_notif_hour = last_notif_since_wakeup.total_seconds() / 3600
-                    except ValueError as e:
-                        print(f"Ошибка парсинга времени последнего уведомления: {e}")
+            if last_notif_hour is None or (hours_since_wakeup - last_notif_hour) >= (reminder_interval - 0.1):
+                # Обновляем время последнего напоминания
+                conn = sqlite3.connect("users.db")
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE user_profiles 
+                    SET last_water_notification = ? 
+                    WHERE user_id = ?
+                """, (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
+                conn.commit()
+                conn.close()
                 
-                if last_notif_hour is None or (hours_since_wakeup - last_notif_hour) >= (reminder_interval - 0.1):
-                    with conn.cursor() as update_cursor:
-                        update_cursor.execute("""
-                            UPDATE user_profiles 
-                            SET last_water_notification = %s 
-                            WHERE user_id = %s
-                        """, (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
-                    conn.commit()
-                    
-                    water_to_drink_now = min(250, max(150, recommended_water // 8))
-                    
-                    if row['language'] == "ru":
-                        message = (
-                            f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
-                            f"📊 Сегодня выпито: {row['water_drunk_today']} мл из {recommended_water} мл\n"
-                            f"🚰 Осталось выпить: {remaining_water} мл\n\n"
-                            f"После того как выпьешь воду, отправь мне сообщение в формате:\n"
-                            f"'Выпил 250 мл' или 'Drank 300 ml'"
-                        )
-                    else:
-                        message = (
-                            f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
-                            f"📊 Today drunk: {row['water_drunk_today']} ml of {recommended_water} ml\n"
-                            f"🚰 Remaining: {remaining_water} ml\n\n"
-                            f"After drinking water, send me a message in the format:\n"
-                            f"'Drank 300 ml' or 'Выпил 250 мл'"
-                        )
-                    
-                    await context.bot.send_message(chat_id=chat_id, text=message)
-                    print(f"Напоминание отправлено пользователю {user_id} в {now}")
-        
-        except Exception as e:
-            print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
-    finally:
-        conn.close()
-
+                # Рассчитываем сколько нужно выпить сейчас (примерно 1/8 от дневной нормы)
+                water_to_drink_now = min(250, max(150, recommended_water // 8))
+                
+                if language == "ru":
+                    message = (
+                        f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
+                        f"📊 Сегодня выпито: {water_drunk} мл из {recommended_water} мл\n"
+                        f"🚰 Осталось выпить: {remaining_water} мл\n\n"
+                        f"После того как выпьешь воду, отправь мне сообщение в формате:\n"
+                        f"'Выпил 250 мл' или 'Drank 300 ml'"
+                    )
+                else:
+                    message = (
+                        f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
+                        f"📊 Today drunk: {water_drunk} ml of {recommended_water} ml\n"
+                        f"🚰 Remaining: {remaining_water} ml\n\n"
+                        f"After drinking water, send me a message in the format:\n"
+                        f"'Drank 300 ml' or 'Выпил 250 мл'"
+                    )
+                
+                await context.bot.send_message(chat_id=chat_id, text=message)
+                print(f"Напоминание отправлено пользователю {user_id} в {now}")
+    
+    except Exception as e:
+        print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     await reset_daily_nutrition_if_needed(user_id)
     
-    conn = pymysql.connect(
-        host=os.getenv("x91345bo.beget.tech"),
-        user=os.getenv("x91345bo_nutrbot"),
-        password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-        database=os.getenv("x91345bo_nutrbot"),
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
 
-        if not row:
-            language = user_profiles.get(user_id, {}).get("language", "ru")
-            if language == "ru":
-                await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.")
-            else:
-                await update.message.reply_text("Profile not found. Complete the questionnaire with /start.")
-            return
-
-        language = row['language']
-        weight = row['weight']
-        recommended_water = int(weight * 30)
-        water_drunk = row['water_drunk_today'] if row['water_drunk_today'] is not None else 0
-        remaining_water = max(0, recommended_water - water_drunk)
-        
-        calories = row['calories_today'] if row['calories_today'] is not None else 0
-        proteins = row['proteins_today'] if row['proteins_today'] is not None else 0
-        fats = row['fats_today'] if row['fats_today'] is not None else 0
-        carbs = row['carbs_today'] if row['carbs_today'] is not None else 0
-        
+    if not row:
+        language = user_profiles.get(user_id, {}).get("language", "ru")
         if language == "ru":
-            profile_text = (
-                f"Твой профиль:\n\n"
-                f"Язык: {row['language']}\n"
-                f"Имя: {row['name']}\n"
-                f"Пол: {row['gender']}\n"
-                f"Возраст: {row['age']}\n"
-                f"Вес: {row['weight']} кг\n"
-                f"Рост: {row['height']} см\n"
-                f"Цель: {row['goal']}\n"
-                f"Активность: {row['activity']}\n"
-                f"Питание: {row['diet']}\n"
-                f"Здоровье: {row['health']}\n"
-                f"Инвентарь: {row['equipment']}\n"
-                f"Целевая метрика: {row['target_metric']}\n"
-                f"Уникальные факты: {row['unique_facts']}\n"
-                f"Часовой пояс: {row['timezone']}\n"
-                f"Время подъема: {row['wakeup_time']}\n"
-                f"Время сна: {row['sleep_time']}\n"
-                f"Напоминания о воде: {'Включены' if row['water_reminders'] else 'Выключены'}\n"
-                f"💧 Водный баланс:\n"
-                f"  Рекомендуется: {recommended_water} мл/день\n"
-                f"  Выпито сегодня: {water_drunk} мл\n"
-                f"  Осталось выпить: {remaining_water} мл\n"
-                f"🍽 Питание сегодня:\n"
-                f"  Калории: {calories} ккал\n"
-                f"  Белки: {proteins} г\n"
-                f"  Жиры: {fats} г\n"
-                f"  Углеводы: {carbs} г"
-            )
+            await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.")
         else:
-            profile_text = (
-                f"Your profile:\n\n"
-                f"Language: {row['language']}\n"
-                f"Name: {row['name']}\n"
-                f"Gender: {row['gender']}\n"
-                f"Age: {row['age']}\n"
-                f"Weight: {row['weight']} kg\n"
-                f"Height: {row['height']} cm\n"
-                f"Goal: {row['goal']}\n"
-                f"Activity: {row['activity']}\n"
-                f"Diet: {row['diet']}\n"
-                f"Health: {row['health']}\n"
-                f"Equipment: {row['equipment']}\n"
-                f"Target metric: {row['target_metric']}\n"
-                f"Unique facts: {row['unique_facts']}\n"
-                f"Timezone: {row['timezone']}\n"
-                f"Wake-up time: {row['wakeup_time']}\n"
-                f"Sleep time: {row['sleep_time']}\n"
-                f"Water reminders: {'Enabled' if row['water_reminders'] else 'Disabled'}\n"
-                f"💧 Water balance:\n"
-                f"  Recommended: {recommended_water} ml/day\n"
-                f"  Drunk today: {water_drunk} ml\n"
-                f"  Remaining: {remaining_water} ml\n"
-                f"🍽 Nutrition today:\n"
-                f"  Calories: {calories} kcal\n"
-                f"  Proteins: {proteins} g\n"
-                f"  Fats: {fats} g\n"
-                f"  Carbs: {carbs} g"
-            )
-        await update.message.reply_text(profile_text)
-    finally:
-        conn.close()
+            await update.message.reply_text("Profile not found. Complete the questionnaire with /start.")
+        return
 
+    language = row[1]  # language is the second column in the database
+    
+    # Рассчитываем рекомендуемое количество воды
+    weight = row[5]  # weight in kg
+    recommended_water = int(weight * 30)  # 30 ml per kg
+    water_drunk = row[18] if row[18] is not None else 0
+    remaining_water = max(0, recommended_water - water_drunk)
+    
+    # Получаем данные о питании
+    calories = row[20] if row[20] is not None else 0
+    proteins = row[21] if row[21] is not None else 0
+    fats = row[22] if row[22] is not None else 0
+    carbs = row[23] if row[23] is not None else 0
+    
+    if language == "ru":
+        profile_text = (
+            f"Твой профиль:\n\n"
+            f"Язык: {row[1]}\n"
+            f"Имя: {row[2]}\n"
+            f"Пол: {row[3]}\n"
+            f"Возраст: {row[4]}\n"
+            f"Вес: {row[5]} кг\n"
+            f"Рост: {row[6]} см\n"
+            f"Цель: {row[7]}\n"
+            f"Активность: {row[8]}\n"
+            f"Питание: {row[9]}\n"
+            f"Здоровье: {row[10]}\n"
+            f"Инвентарь: {row[11]}\n"
+            f"Целевая метрика: {row[12]}\n"
+            f"Уникальные факты: {row[13]}\n"
+            f"Часовой пояс: {row[14]}\n"
+            f"Время подъема: {row[15]}\n"
+            f"Время сна: {row[16]}\n"
+            f"Напоминания о воде: {'Включены' if row[17] else 'Выключены'}\n"
+            f"💧 Водный баланс:\n"
+            f"  Рекомендуется: {recommended_water} мл/день\n"
+            f"  Выпито сегодня: {water_drunk} мл\n"
+            f"  Осталось выпить: {remaining_water} мл\n"
+            f"🍽 Питание сегодня:\n"
+            f"  Калории: {calories} ккал\n"
+            f"  Белки: {proteins} г\n"
+            f"  Жиры: {fats} г\n"
+            f"  Углеводы: {carbs} г"
+        )
+    else:
+        profile_text = (
+            f"Your profile:\n\n"
+            f"Language: {row[1]}\n"
+            f"Name: {row[2]}\n"
+            f"Gender: {row[3]}\n"
+            f"Age: {row[4]}\n"
+            f"Weight: {row[5]} kg\n"
+            f"Height: {row[6]} cm\n"
+            f"Goal: {row[7]}\n"
+            f"Activity: {row[8]}\n"
+            f"Diet: {row[9]}\n"
+            f"Health: {row[10]}\n"
+            f"Equipment: {row[11]}\n"
+            f"Target metric: {row[12]}\n"
+            f"Unique facts: {row[13]}\n"
+            f"Timezone: {row[14]}\n"
+            f"Wake-up time: {row[15]}\n"
+            f"Sleep time: {row[16]}\n"
+            f"Water reminders: {'Enabled' if row[17] else 'Disabled'}\n"
+            f"💧 Water balance:\n"
+            f"  Recommended: {recommended_water} ml/day\n"
+            f"  Drunk today: {water_drunk} ml\n"
+            f"  Remaining: {remaining_water} ml\n"
+            f"🍽 Nutrition today:\n"
+            f"  Calories: {calories} kcal\n"
+            f"  Proteins: {proteins} g\n"
+            f"  Fats: {fats} g\n"
+            f"  Carbs: {carbs} g"
+        )
+    await update.message.reply_text(profile_text)
 
 async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+    
+    # Очищаем временные данные
     user_histories.pop(user_id, None)
     user_profiles.pop(user_id, None)
     
+    # Удаляем пользователя из базы данных
     try:
-        conn = pymysql.connect(
-            host=os.getenv("x91345bo.beget.tech"),
-            user=os.getenv("x91345bo_nutrbot"),
-            password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-            database=os.getenv("x91345bo_nutrbot"),
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("DELETE FROM user_profiles WHERE user_id = %s", (user_id,))
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
         conn.commit()
+        conn.close()
         await update.message.reply_text("Все данные успешно сброшены! Начнем с чистого листа 🧼\nAll data has been reset! Let's start fresh 🧼")
     except Exception as e:
         await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}\nAn error occurred while resetting data: {e}")
-    finally:
-        conn.close()
-
 
 async def toggle_water_reminders(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
-    conn = pymysql.connect(
-        host=os.getenv("x91345bo.beget.tech"),
-        user=os.getenv("x91345bo_nutrbot"),
-        password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-        database=os.getenv("x91345bo_nutrbot"),
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
     
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT water_reminders, language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-        
-        if not row:
-            await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
-            return
-        
-        new_state = 0 if row['water_reminders'] else 1
-        
-        with conn.cursor() as update_cursor:
-            update_cursor.execute("UPDATE user_profiles SET water_reminders = %s WHERE user_id = %s", (new_state, user_id))
-        conn.commit()
-        
-        if row['language'] == "ru":
-            if new_state:
-                message = "Напоминания о воде включены! Я буду напоминать тебе пить воду в течение дня."
-            else:
-                message = "Напоминания о воде отключены. Ты можешь снова включить их через команду /water."
+    # Получаем текущее состояние напоминаний
+    cursor.execute("SELECT water_reminders, language FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    
+    if not row:
+        await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
+        return
+    
+    current_state, language = row
+    new_state = 0 if current_state else 1
+    
+    # Обновляем состояние в базе данных
+    cursor.execute("UPDATE user_profiles SET water_reminders = ? WHERE user_id = ?", (new_state, user_id))
+    conn.commit()
+    conn.close()
+    
+    if language == "ru":
+        if new_state:
+            message = "Напоминания о воде включены! Я буду напоминать тебе пить воду в течение дня."
         else:
-            if new_state:
-                message = "Water reminders enabled! I'll remind you to drink water during the day."
-            else:
-                message = "Water reminders disabled. You can enable them again with /water command."
-        
-        await update.message.reply_text(message)
-    finally:
-        conn.close()
+            message = "Напоминания о воде отключены. Ты можешь снова включить их через команду /water."
+    else:
+        if new_state:
+            message = "Water reminders enabled! I'll remind you to drink water during the day."
+        else:
+            message = "Water reminders disabled. You can enable them again with /water command."
+    
+    await update.message.reply_text(message)
 
 
 def get_user_profile_text(user_id: int) -> str:
-    conn = pymysql.connect(
-        host=os.getenv("x91345bo.beget.tech"),
-        user=os.getenv("x91345bo_nutrbot"),
-        password=os.getenv("E8G5RsAboc8FJrzmqbp4GAMbRZ"),
-        database=os.getenv("x91345bo_nutrbot"),
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return "Профиль пользователя не найден / User profile not found."
+
+    language = row[1]  # language is the second column in the database
     
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-
-        if not row:
-            return "Профиль пользователя не найден / User profile not found."
-
-        language = row['language']
-        weight = row['weight']
-        recommended_water = int(weight * 30)
-        water_drunk = row['water_drunk_today'] if row['water_drunk_today'] is not None else 0
-        remaining_water = max(0, recommended_water - water_drunk)
-        
-        calories = row['calories_today'] if row['calories_today'] is not None else 0
-        proteins = row['proteins_today'] if row['proteins_today'] is not None else 0
-        fats = row['fats_today'] if row['fats_today'] is not None else 0
-        carbs = row['carbs_today'] if row['carbs_today'] is not None else 0
-        
-        if language == "ru":
-            return (
-                f"Язык: {row['language']}\n"
-                f"Имя: {row['name']}\n"
-                f"Пол: {row['gender']}\n"
-                f"Возраст: {row['age']}\n"
-                f"Вес: {row['weight']} кг\n"
-                f"Рост: {row['height']} см\n"
-                f"Цель: {row['goal']}\n"
-                f"Активность: {row['activity']}\n"
-                f"Питание: {row['diet']}\n"
-                f"Здоровье: {row['health']}\n"
-                f"Инвентарь: {row['equipment']}\n"
-                f"Целевая метрика: {row['target_metric']}\n"
-                f"Уникальные факты: {row['unique_facts']}\n"
-                f"Часовой пояс: {row['timezone']}\n"
-                f"Время подъема: {row['wakeup_time']}\n"
-                f"Время сна: {row['sleep_time']}\n"
-                f"Напоминания о воде: {'Включены' if row['water_reminders'] else 'Выключены'}\n"
-                f"💧 Водный баланс:\n"
-                f"  Рекомендуется: {recommended_water} мл/день\n"
-                f"  Выпито сегодня: {water_drunk} мл\n"
-                f"  Осталось выпить: {remaining_water} мл\n"
-                f"🍽 Питание сегодня:\n"
-                f"  Калории: {calories} ккал\n"
-                f"  Белки: {proteins} г\n"
-                f"  Жиры: {fats} г\n"
-                f"  Углеводы: {carbs} г\n"
-                f"  Последнее обновление: {row['last_nutrition_update'] if row['last_nutrition_update'] else 'сегодня'}"
-            )
-        else:
-            return (
-                f"Language: {row['language']}\n"
-                f"Name: {row['name']}\n"
-                f"Gender: {row['gender']}\n"
-                f"Age: {row['age']}\n"
-                f"Weight: {row['weight']} kg\n"
-                f"Height: {row['height']} cm\n"
-                f"Goal: {row['goal']}\n"
-                f"Activity: {row['activity']}\n"
-                f"Diet: {row['diet']}\n"
-                f"Health: {row['health']}\n"
-                f"Equipment: {row['equipment']}\n"
-                f"Target metric: {row['target_metric']}\n"
-                f"Unique facts: {row['unique_facts']}\n"
-                f"Timezone: {row['timezone']}\n"
-                f"Wake-up time: {row['wakeup_time']}\n"
-                f"Sleep time: {row['sleep_time']}\n"
-                f"Water reminders: {'Enabled' if row['water_reminders'] else 'Disabled'}\n"
-                f"💧 Water balance:\n"
-                f"  Recommended: {recommended_water} ml/day\n"
-                f"  Drunk today: {water_drunk} ml\n"
-                f"  Remaining: {remaining_water} ml\n"
-                f"🍽 Nutrition today:\n"
-                f"  Calories: {calories} kcal\n"
-                f"  Proteins: {proteins} g\n"
-                f"  Fats: {fats} g\n"
-                f"  Carbs: {carbs} g\n"
-                f"  Last update: {row['last_nutrition_update'] if row['last_nutrition_update'] else 'today'}"
-            )
-    finally:
-        conn.close()
+    # Рассчитываем рекомендуемое количество воды
+    weight = row[5]  # weight in kg
+    recommended_water = int(weight * 30)  # 30 ml per kg
+    water_drunk = row[18] if row[18] is not None else 0
+    remaining_water = max(0, recommended_water - water_drunk)
+    
+    # Получаем данные о питании
+    calories = row[20] if row[20] is not None else 0
+    proteins = row[21] if row[21] is not None else 0
+    fats = row[22] if row[22] is not None else 0
+    carbs = row[23] if row[23] is not None else 0
+    
+    if language == "ru":
+        return (
+            f"Язык: {row[1]}\n"
+            f"Имя: {row[2]}\n"
+            f"Пол: {row[3]}\n"
+            f"Возраст: {row[4]}\n"
+            f"Вес: {row[5]} кг\n"
+            f"Рост: {row[6]} см\n"
+            f"Цель: {row[7]}\n"
+            f"Активность: {row[8]}\n"
+            f"Питание: {row[9]}\n"
+            f"Здоровье: {row[10]}\n"
+            f"Инвентарь: {row[11]}\n"
+            f"Целевая метрика: {row[12]}\n"
+            f"Уникальные факты: {row[13]}\n"
+            f"Часовой пояс: {row[14]}\n"
+            f"Время подъема: {row[15]}\n"
+            f"Время сна: {row[16]}\n"
+            f"Напоминания о воде: {'Включены' if row[17] else 'Выключены'}\n"
+            f"💧 Водный баланс:\n"
+            f"  Рекомендуется: {recommended_water} мл/день\n"
+            f"  Выпито сегодня: {water_drunk} мл\n"
+            f"  Осталось выпить: {remaining_water} мл\n"
+            f"🍽 Питание сегодня:\n"
+            f"  Калории: {calories} ккал\n"
+            f"  Белки: {proteins} г\n"
+            f"  Жиры: {fats} г\n"
+            f"  Углеводы: {carbs} г\n"
+            f"  Последнее обновление: {row[24] if row[24] else 'сегодня'}"
+        )
+    else:
+        return (
+            f"Language: {row[1]}\n"
+            f"Name: {row[2]}\n"
+            f"Gender: {row[3]}\n"
+            f"Age: {row[4]}\n"
+            f"Weight: {row[5]} kg\n"
+            f"Height: {row[6]} cm\n"
+            f"Goal: {row[7]}\n"
+            f"Activity: {row[8]}\n"
+            f"Diet: {row[9]}\n"
+            f"Health: {row[10]}\n"
+            f"Equipment: {row[11]}\n"
+            f"Target metric: {row[12]}\n"
+            f"Unique facts: {row[13]}\n"
+            f"Timezone: {row[14]}\n"
+            f"Wake-up time: {row[15]}\n"
+            f"Sleep time: {row[16]}\n"
+            f"Water reminders: {'Enabled' if row[17] else 'Disabled'}\n"
+            f"💧 Water balance:\n"
+            f"  Recommended: {recommended_water} ml/day\n"
+            f"  Drunk today: {water_drunk} ml\n"
+            f"  Remaining: {remaining_water} ml\n"
+            f"🍽 Nutrition today:\n"
+            f"  Calories: {calories} kcal\n"
+            f"  Proteins: {proteins} g\n"
+            f"  Fats: {fats} g\n"
+            f"  Carbs: {carbs} g\n"
+            f"  Last update: {row[24] if row[24] else 'today'}"
+        )
 
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
@@ -1083,23 +991,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - обновлениями данных (например, "я набрал 3 кг" или "мне теперь 20 лет")
 - сообщениями после изображения (например, "добавь это в инвентарь")
 - уникальными фактами о пользователе (например, "я люблю плавание", "у меня была травма колена", "я вегетарианец 5 лет", "люблю кофе по вечерам")
-
-Ключевые изменения для MySQL:
-1. Используй `%s` вместо `?` для параметров
-2. Для обновления при дубликате ключа применяй `ON DUPLICATE KEY UPDATE`
-3. Типы данных: `INT` вместо `INTEGER`, `VARCHAR(255)` вместо `TEXT` для коротких полей
-4. Для JSON-полей используй `TEXT` с хранением в формате JSON
-
-Примеры запросов:
--- Вставка с обновлением при дубликате
-INSERT INTO user_profiles (user_id, name)
-VALUES (%s, %s)
-ON DUPLICATE KEY UPDATE name = VALUES(name);
-
--- Обновление JSON-поля
-UPDATE user_profiles
-SET reminders = %s
-WHERE user_id = %s;
 
 В базе данных есть таблица user_profiles с колонками:
 - user_id INTEGER PRIMARY KEY
