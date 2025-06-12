@@ -64,7 +64,8 @@ def init_db():
         proteins_today INTEGER DEFAULT 0,
         fats_today INTEGER DEFAULT 0,
         carbs_today INTEGER DEFAULT 0,
-        last_nutrition_update DATE
+        last_nutrition_update DATE,
+        reminders TEXT DEFAULT '[]'
     )
     ''')
     conn.commit()
@@ -514,6 +515,46 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
         )
     return ConversationHandler.END
 
+
+async def check_reminders(context: CallbackContext):
+    """Проверяет и отправляет напоминания пользователям"""
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, reminders, timezone FROM user_profiles WHERE reminders != '[]'")
+    users = cursor.fetchall()
+    conn.close()
+
+    for user_id, reminders_json, timezone_str in users:
+        try:
+            reminders = json.loads(reminders_json)
+            tz = pytz.timezone(timezone_str) if timezone_str else pytz.UTC
+            now = datetime.now(tz)
+            current_time = now.strftime("%H:%M")
+
+            for reminder in reminders:
+                if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
+                    # Отправляем напоминание
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=f"⏰ Напоминание: {reminder['text']}\n\n(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
+                        )
+
+                        # Обновляем дату последней отправки
+                        reminder["last_sent"] = now.date().isoformat()
+                        conn = sqlite3.connect("users.db")
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "UPDATE user_profiles SET reminders = ? WHERE user_id = ?",
+                            (json.dumps(reminders), user_id)
+                        conn.commit()
+                        conn.close()
+                    except Exception as e:
+                        print(f"Ошибка при отправке напоминания пользователю {user_id}: {e}")
+        except Exception as e:
+            print(f"Ошибка при обработке напоминаний для пользователя {user_id}: {e}")
+
+
 async def check_water_reminder_time(context: CallbackContext):
     job = context.job
     user_id = job.user_id
@@ -961,6 +1002,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - fats_today INTEGER
 - carbs_today INTEGER
 - last_nutrition_update DATE
+- reminders TEXT
 
 Твоя задача:
 
@@ -1090,6 +1132,34 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 18. Всегда проверяй, что после TEXT: идет чистый ответ для пользователя без технических деталей.
 
+19. Если пользователь просит установить напоминание (например: "напоминай мне пить омега-3 в 09:00", "напоминай принимать инсулин каждый день в 17:00"):
+   - Извлеки текст напоминания и время из сообщения
+   - Проверь, есть ли уже такое напоминание в базе (поле reminders в формате JSON)
+   - Если напоминание уже существует - обнови его время
+   - Если это новое напоминание - добавь его в список
+   - Формат хранения в базе:
+     [{"text": "текст напоминания", "time": "ЧЧ:ММ", "last_sent": "дата последней отправки"}]
+   - SQL для добавления/обновления:
+     SQL: UPDATE user_profiles SET reminders = ? WHERE user_id = ?
+   - Ответь пользователю:
+     TEXT: [подтверждение установки напоминания]
+
+20. Если пользователь просит удалить напоминание (например: "хватит напоминать мне омега-3", "больше не напоминай про инсулин"):
+   - Найди соответствующее напоминание в списке (поле reminders)
+   - Удали его из списка
+   - SQL для обновления:
+     SQL: UPDATE user_profiles SET reminders = ? WHERE user_id = ?
+   - Ответь пользователю:
+     TEXT: [подтверждение удаления напоминания]
+
+21. Если пользователь запрашивает список своих напоминаний:
+   - Извлеки список из поля reminders
+   - Сформируй понятный ответ с перечнем напоминаний
+   - Формат ответа:
+     TEXT: "📅 Ваши текущие напоминания:
+           - [текст напоминания 1] в [время]
+           - [текст напоминания 2] в [время]"
+
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
 ⚠️ Всегда строго учитывай известные факты о пользователе из его профиля И контекст текущего диалога.
@@ -1158,6 +1228,13 @@ def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
+    # Добавляем job для проверки напоминаний
+    app.job_queue.run_repeating(
+        check_reminders,
+        interval=60,  # Проверяем каждую минуту
+        first=10      # Первая проверка через 10 секунд
+    )
+
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -1191,3 +1268,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
