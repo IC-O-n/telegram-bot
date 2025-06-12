@@ -546,10 +546,10 @@ async def check_reminders(context: CallbackContext):
                         cursor = conn.cursor()
                         cursor.execute(
                             "UPDATE user_profiles SET reminders = ? WHERE user_id = ?",
-                            (json.dumps(reminders), user_id)
+                            (json.dumps(reminders), user_id))
                         conn.commit()
                         conn.close()
-                        )
+                        
                     except Exception as e:
                         print(f"Ошибка при отправке напоминания пользователю {user_id}: {e}")
         except Exception as e:
