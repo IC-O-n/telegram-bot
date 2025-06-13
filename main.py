@@ -117,8 +117,8 @@ def save_user_profile(user_id: int, profile: dict):
     
     try:
         with conn.cursor() as cursor:
-            # Добавляем поле reminders в запрос и обработку
-            reminders = json.dumps(profile.get("reminders", []))
+            # Обработка reminders как JSON
+            reminders = json.dumps(profile.get("reminders", [])) if isinstance(profile.get("reminders"), list) else profile.get("reminders", "[]")
             
             cursor.execute('''
             INSERT INTO user_profiles (
@@ -192,7 +192,6 @@ def save_user_profile(user_id: int, profile: dict):
         raise
     finally:
         conn.close()
-
 
 async def reset_daily_nutrition_if_needed(user_id: int):
     conn = pymysql.connect(
@@ -1110,6 +1109,46 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
 
+Ключевые правила для обновления полей:
+1. Для текстовых полей (diet, health, equipment, unique_facts):
+   - Если поле содержит "Факт:" - добавляй новый факт с новой строки
+   - Если поле содержит "Нет" - заменяй его на новый факт
+   - Формат: "Факт: [описание факта]."
+
+2. Для JSON-полей (reminders):
+   - Всегда используй полный JSON-массив при обновлении
+   - Формат: [{"text": "напоминание", "time": "ЧЧ:ММ"}]
+
+Примеры корректных SQL-запросов:
+-- Добавление факта о здоровье (замена если было "Нет")
+UPDATE user_profiles 
+SET health = %s 
+WHERE user_id = %s;
+
+-- Добавление напоминания (полная замена массива)
+UPDATE user_profiles 
+SET reminders = %s 
+WHERE user_id = %s;
+
+-- Обновление воды (числовые поля)
+UPDATE user_profiles 
+SET water_drunk_today = water_drunk_today + %s 
+WHERE user_id = %s;
+
+-- Обновление КБЖУ
+UPDATE user_profiles 
+SET calories_today = calories_today + %s, 
+    proteins_today = proteins_today + %s, 
+    fats_today = fats_today + %s, 
+    carbs_today = carbs_today + %s 
+WHERE user_id = %s;
+
+Всегда проверяй:
+1. Для текстовых полей - не конкатенируй, а добавляй факты с новой строки
+2. Для числовых полей - используй математические операции
+3. Для JSON - всегда полная замена массива
+4. Все параметры передаются через %s (не ?)
+
 Ты получаешь от пользователя сообщения. Они могут быть:
 - просто вопросами (например, о питании, тренировках, фото и т.д.)
 - обновлениями данных (например, "я набрал 3 кг" или "мне теперь 20 лет")
@@ -1350,20 +1389,15 @@ TEXT: ...
     try:
         response = model.generate_content(contents)
         response_text = response.text.strip()
-
-        # Сохраняем последний ответ бота в контексте
         context.user_data['last_bot_reply'] = response_text
 
-        # Разделяем SQL и TEXT части ответа
         sql_part = None
         text_part = None
 
-        # Ищем SQL часть
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
             try:
-                # Заменяем SQLite на MySQL соединение
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
                     user='x91345bo_nutrbot',
@@ -1374,12 +1408,27 @@ TEXT: ...
                 )
                 cursor = conn.cursor()
 
-                # Заменяем параметры с ? на %s для MySQL
+                # Заменяем параметры и обрабатываем JSON поля
                 sql_part = sql_part.replace('?', '%s')
                 
-                # Проверяем, содержит ли SQL-запрос параметры
-                if "%s" in sql_part:
-                    cursor.execute(sql_part, (user_id,))
+                # Определяем параметры для запроса
+                params = []
+                if "reminders" in sql_part.lower() and "VALUES(reminders)" not in sql_part.upper():
+                    # Обработка JSON для reminders
+                    reminders_match = re.search(r"reminders\s*=\s*(.*?)(?:\s|$|,)", sql_part, re.IGNORECASE)
+                    if reminders_match:
+                        try:
+                            reminders_value = json.loads(reminders_match.group(1).strip("'"))
+                            params.append(json.dumps(reminders_value))
+                        except:
+                            params.append(reminders_match.group(1).strip("'"))
+                
+                # Добавляем user_id в параметры, если нужно
+                if "%s" in sql_part and "user_id" in sql_part.lower():
+                    params.append(user_id)
+                
+                if params:
+                    cursor.execute(sql_part, params)
                 else:
                     cursor.execute(sql_part)
 
@@ -1387,7 +1436,8 @@ TEXT: ...
                 conn.close()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
-                # Можно добавить логирование ошибки, но не показываем пользователю
+                print(f"SQL запрос: {sql_part}")
+                print(f"Параметры: {params if 'params' in locals() else 'нет'}")
 
         # Остальная часть функции остается без изменений
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
