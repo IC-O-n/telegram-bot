@@ -117,17 +117,20 @@ def save_user_profile(user_id: int, profile: dict):
     
     try:
         with conn.cursor() as cursor:
+            # Добавляем поле reminders в запрос и обработку
+            reminders = json.dumps(profile.get("reminders", []))
+            
             cursor.execute('''
             INSERT INTO user_profiles (
                 user_id, language, name, gender, age, weight, height, goal, activity, diet, 
                 health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
                 water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update
+                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, reminders
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s,
-                %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s
             )
             ON DUPLICATE KEY UPDATE
                 language = VALUES(language),
@@ -153,7 +156,8 @@ def save_user_profile(user_id: int, profile: dict):
                 proteins_today = VALUES(proteins_today),
                 fats_today = VALUES(fats_today),
                 carbs_today = VALUES(carbs_today),
-                last_nutrition_update = VALUES(last_nutrition_update)
+                last_nutrition_update = VALUES(last_nutrition_update),
+                reminders = VALUES(reminders)
             ''', (
                 user_id,
                 profile.get("language"),
@@ -179,9 +183,13 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("proteins_today", 0),
                 profile.get("fats_today", 0),
                 profile.get("carbs_today", 0),
-                profile.get("last_nutrition_update", date.today().isoformat())
+                profile.get("last_nutrition_update", date.today().isoformat()),
+                reminders
             ))
         conn.commit()
+    except Exception as e:
+        print(f"Ошибка при сохранении профиля: {e}")
+        raise
     finally:
         conn.close()
 
@@ -227,18 +235,6 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
-async def download_and_encode(file: File) -> dict:
-    telegram_file = await file.get_file()
-    async with aiohttp.ClientSession() as session:
-        async with session.get(telegram_file.file_path) as resp:
-            data = await resp.read()
-    mime_type = file.mime_type if hasattr(file, 'mime_type') else "image/jpeg"
-    return {
-        "inline_data": {
-            "mime_type": mime_type,
-            "data": base64.b64encode(data).decode("utf-8"),
-        }
-    }
 
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
@@ -561,6 +557,8 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     
     user_profiles[user_id]["water_reminders"] = 1 if answer in ["да", "yes"] else 0
     user_profiles[user_id]["water_drunk_today"] = 0
+    user_profiles[user_id]["reminders"] = []  # Инициализируем пустой список напоминаний
+    
     name = user_profiles[user_id]["name"]
     weight = user_profiles[user_id]["weight"]
     recommended_water = int(weight * 30)
@@ -575,11 +573,11 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     if user_profiles[user_id]["water_reminders"]:
         context.job_queue.run_repeating(
             check_water_reminder_time,
-            interval=300,  # Проверяем каждые 5 минут
-            first=10,      # Первая проверка через 10 секунд
+            interval=300,
+            first=10,
             chat_id=update.message.chat_id,
             user_id=user_id,
-            name=str(user_id)  # Уникальное имя для задачи
+            name=str(user_id)
         )
         print(f"Создана задача напоминаний для пользователя {user_id}")
     
@@ -983,8 +981,17 @@ def get_user_profile_text(user_id: int) -> str:
         fats = row['fats_today'] if row['fats_today'] is not None else 0
         carbs = row['carbs_today'] if row['carbs_today'] is not None else 0
         
+        # Обработка поля reminders
+        reminders = []
+        if row['reminders']:
+            try:
+                reminders = json.loads(row['reminders'])
+            except:
+                reminders = []
+        
         if language == "ru":
-            return (
+            profile_text = (
+                f"Твой профиль:\n\n"
                 f"Язык: {row['language']}\n"
                 f"Имя: {row['name']}\n"
                 f"Пол: {row['gender']}\n"
@@ -1002,6 +1009,7 @@ def get_user_profile_text(user_id: int) -> str:
                 f"Время подъема: {row['wakeup_time']}\n"
                 f"Время сна: {row['sleep_time']}\n"
                 f"Напоминания о воде: {'Включены' if row['water_reminders'] else 'Выключены'}\n"
+                f"Активные напоминания: {len(reminders)}\n"
                 f"💧 Водный баланс:\n"
                 f"  Рекомендуется: {recommended_water} мл/день\n"
                 f"  Выпито сегодня: {water_drunk} мл\n"
@@ -1014,7 +1022,8 @@ def get_user_profile_text(user_id: int) -> str:
                 f"  Последнее обновление: {row['last_nutrition_update'] if row['last_nutrition_update'] else 'сегодня'}"
             )
         else:
-            return (
+            profile_text = (
+                f"Your profile:\n\n"
                 f"Language: {row['language']}\n"
                 f"Name: {row['name']}\n"
                 f"Gender: {row['gender']}\n"
@@ -1032,6 +1041,7 @@ def get_user_profile_text(user_id: int) -> str:
                 f"Wake-up time: {row['wakeup_time']}\n"
                 f"Sleep time: {row['sleep_time']}\n"
                 f"Water reminders: {'Enabled' if row['water_reminders'] else 'Disabled'}\n"
+                f"Active reminders: {len(reminders)}\n"
                 f"💧 Water balance:\n"
                 f"  Recommended: {recommended_water} ml/day\n"
                 f"  Drunk today: {water_drunk} ml\n"
@@ -1043,6 +1053,10 @@ def get_user_profile_text(user_id: int) -> str:
                 f"  Carbs: {carbs} g\n"
                 f"  Last update: {row['last_nutrition_update'] if row['last_nutrition_update'] else 'today'}"
             )
+        return profile_text
+    except Exception as e:
+        print(f"Ошибка при получении профиля: {e}")
+        return f"Ошибка при получении профиля / Error getting profile: {e}"
     finally:
         conn.close()
 
@@ -1349,11 +1363,22 @@ TEXT: ...
         if sql_match:
             sql_part = sql_match.group(1).strip()
             try:
-                conn = sqlite3.connect("users.db")
+                # Заменяем SQLite на MySQL соединение
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
                 cursor = conn.cursor()
 
+                # Заменяем параметры с ? на %s для MySQL
+                sql_part = sql_part.replace('?', '%s')
+                
                 # Проверяем, содержит ли SQL-запрос параметры
-                if "?" in sql_part:
+                if "%s" in sql_part:
                     cursor.execute(sql_part, (user_id,))
                 else:
                     cursor.execute(sql_part)
@@ -1364,19 +1389,16 @@ TEXT: ...
                 print(f"Ошибка при выполнении SQL: {e}")
                 # Можно добавить логирование ошибки, но не показываем пользователю
 
-        # Ищем TEXT часть (берем последнюю, если их несколько)
+        # Остальная часть функции остается без изменений
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
         if text_matches:
             text_part = text_matches[-1].strip()
         else:
-            # Если нет TEXT части, используем весь ответ, но очищаем от возможных SQL частей
             text_part = re.sub(r'SQL:.*?(?=TEXT:|$)', '', response_text, flags=re.DOTALL).strip()
 
-        # Если после обработки text_part пустой, используем fallback сообщение
         if not text_part:
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
-        # Отправляем только очищенную TEXT часть пользователю
         await message.reply_text(text_part)
 
     except Exception as e:
@@ -1385,7 +1407,6 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 
 
