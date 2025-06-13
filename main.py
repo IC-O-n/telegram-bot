@@ -117,25 +117,17 @@ def save_user_profile(user_id: int, profile: dict):
     
     try:
         with conn.cursor() as cursor:
-            # Очищаем текстовые поля от старых "Факт:" перед сохранением
-            for field in ['diet', 'health', 'equipment', 'unique_facts']:
-                if field in profile and isinstance(profile[field], str):
-                    if profile[field].startswith("Нет") or profile[field].startswith("Ничего"):
-                        profile[field] = ""
-            
-            reminders = json.dumps(profile.get("reminders", []))
-            
             cursor.execute('''
             INSERT INTO user_profiles (
                 user_id, language, name, gender, age, weight, height, goal, activity, diet, 
                 health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
                 water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, reminders
+                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s,
-                %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s
             )
             ON DUPLICATE KEY UPDATE
                 language = VALUES(language),
@@ -161,8 +153,7 @@ def save_user_profile(user_id: int, profile: dict):
                 proteins_today = VALUES(proteins_today),
                 fats_today = VALUES(fats_today),
                 carbs_today = VALUES(carbs_today),
-                last_nutrition_update = VALUES(last_nutrition_update),
-                reminders = VALUES(reminders)
+                last_nutrition_update = VALUES(last_nutrition_update)
             ''', (
                 user_id,
                 profile.get("language"),
@@ -188,13 +179,9 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("proteins_today", 0),
                 profile.get("fats_today", 0),
                 profile.get("carbs_today", 0),
-                profile.get("last_nutrition_update", date.today().isoformat()),
-                reminders
+                profile.get("last_nutrition_update", date.today().isoformat())
             ))
         conn.commit()
-    except Exception as e:
-        print(f"Ошибка при сохранении профиля: {e}")
-        raise
     finally:
         conn.close()
 
@@ -240,6 +227,18 @@ async def download_and_encode(file: File) -> dict:
         }
     }
 
+async def download_and_encode(file: File) -> dict:
+    telegram_file = await file.get_file()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(telegram_file.file_path) as resp:
+            data = await resp.read()
+    mime_type = file.mime_type if hasattr(file, 'mime_type') else "image/jpeg"
+    return {
+        "inline_data": {
+            "mime_type": mime_type,
+            "data": base64.b64encode(data).decode("utf-8"),
+        }
+    }
 
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
@@ -562,8 +561,6 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     
     user_profiles[user_id]["water_reminders"] = 1 if answer in ["да", "yes"] else 0
     user_profiles[user_id]["water_drunk_today"] = 0
-    user_profiles[user_id]["reminders"] = []  # Инициализируем пустой список напоминаний
-    
     name = user_profiles[user_id]["name"]
     weight = user_profiles[user_id]["weight"]
     recommended_water = int(weight * 30)
@@ -578,11 +575,11 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     if user_profiles[user_id]["water_reminders"]:
         context.job_queue.run_repeating(
             check_water_reminder_time,
-            interval=300,
-            first=10,
+            interval=300,  # Проверяем каждые 5 минут
+            first=10,      # Первая проверка через 10 секунд
             chat_id=update.message.chat_id,
             user_id=user_id,
-            name=str(user_id)
+            name=str(user_id)  # Уникальное имя для задачи
         )
         print(f"Создана задача напоминаний для пользователя {user_id}")
     
@@ -986,17 +983,8 @@ def get_user_profile_text(user_id: int) -> str:
         fats = row['fats_today'] if row['fats_today'] is not None else 0
         carbs = row['carbs_today'] if row['carbs_today'] is not None else 0
         
-        # Обработка поля reminders
-        reminders = []
-        if row['reminders']:
-            try:
-                reminders = json.loads(row['reminders'])
-            except:
-                reminders = []
-        
         if language == "ru":
-            profile_text = (
-                f"Твой профиль:\n\n"
+            return (
                 f"Язык: {row['language']}\n"
                 f"Имя: {row['name']}\n"
                 f"Пол: {row['gender']}\n"
@@ -1014,7 +1002,6 @@ def get_user_profile_text(user_id: int) -> str:
                 f"Время подъема: {row['wakeup_time']}\n"
                 f"Время сна: {row['sleep_time']}\n"
                 f"Напоминания о воде: {'Включены' if row['water_reminders'] else 'Выключены'}\n"
-                f"Активные напоминания: {len(reminders)}\n"
                 f"💧 Водный баланс:\n"
                 f"  Рекомендуется: {recommended_water} мл/день\n"
                 f"  Выпито сегодня: {water_drunk} мл\n"
@@ -1027,8 +1014,7 @@ def get_user_profile_text(user_id: int) -> str:
                 f"  Последнее обновление: {row['last_nutrition_update'] if row['last_nutrition_update'] else 'сегодня'}"
             )
         else:
-            profile_text = (
-                f"Your profile:\n\n"
+            return (
                 f"Language: {row['language']}\n"
                 f"Name: {row['name']}\n"
                 f"Gender: {row['gender']}\n"
@@ -1046,7 +1032,6 @@ def get_user_profile_text(user_id: int) -> str:
                 f"Wake-up time: {row['wakeup_time']}\n"
                 f"Sleep time: {row['sleep_time']}\n"
                 f"Water reminders: {'Enabled' if row['water_reminders'] else 'Disabled'}\n"
-                f"Active reminders: {len(reminders)}\n"
                 f"💧 Water balance:\n"
                 f"  Recommended: {recommended_water} ml/day\n"
                 f"  Drunk today: {water_drunk} ml\n"
@@ -1058,10 +1043,6 @@ def get_user_profile_text(user_id: int) -> str:
                 f"  Carbs: {carbs} g\n"
                 f"  Last update: {row['last_nutrition_update'] if row['last_nutrition_update'] else 'today'}"
             )
-        return profile_text
-    except Exception as e:
-        print(f"Ошибка при получении профиля: {e}")
-        return f"Ошибка при получении профиля / Error getting profile: {e}"
     finally:
         conn.close()
 
@@ -1113,43 +1094,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
 
     # Обновленный системный промпт с добавлением функционала КБЖУ
-    GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
-
-Ключевые правила для SQL-запросов:
-1. Всегда используй параметры с %s вместо значений
-2. Для INSERT используй формат:
-   SQL: INSERT INTO user_profiles (user_id, поле) VALUES (%s, %s)
-3. Для UPDATE используй формат:
-   SQL: UPDATE user_profiles SET поле = %s WHERE user_id = %s
-4. Всегда указывай user_id как последний параметр
-5. Для числовых полей не используй кавычки вокруг %s
-6. Для текстовых полей используй значения в кавычках в TEXT части, но не в SQL
-
-Примеры корректных запросов:
--- Обновление имени
-SQL: UPDATE user_profiles SET name = %s WHERE user_id = %s
-TEXT: Имя обновлено на 'Роман'
-
--- Обновление возраста
-SQL: UPDATE user_profiles SET age = %s WHERE user_id = %s
-TEXT: Возраст обновлен на 21
-
--- Добавление факта о здоровье
-SQL: UPDATE user_profiles SET health = %s WHERE user_id = %s
-TEXT: Факт о здоровье добавлен: 'Аллергия на пыльцу'
-
--- Обновление воды
-SQL: UPDATE user_profiles SET water_drunk_today = water_drunk_today + %s WHERE user_id = %s
-TEXT: Выпито 250 мл воды
-
-Важно:
-1. Всегда генерируй SQL и TEXT части
-2. В SQL используй только %s для параметров
-3. В TEXT указывай значения в читаемом формате
-4. Для числовых полей не используй кавычки
-5. Для INSERT всегда указывай user_id первым параметром
-6. Для UPDATE всегда указывай user_id последним параметром
-7. Если обновляешь несколько полей, передавай значения для всех полей перед user_id
+    GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных MySQL.
 
 Ты получаешь от пользователя сообщения. Они могут быть:
 - просто вопросами (например, о питании, тренировках, фото и т.д.)
@@ -1157,31 +1102,38 @@ TEXT: Выпито 250 мл воды
 - сообщениями после изображения (например, "добавь это в инвентарь")
 - уникальными фактами о пользователе (например, "я люблю плавание", "у меня была травма колена", "я вегетарианец 5 лет", "люблю кофе по вечерам")
 
-Ключевые изменения для MySQL:
-1. Используй `%s` вместо `?` для параметров
-2. Для обновления при дубликате ключа применяй `ON DUPLICATE KEY UPDATE`
-3. Типы данных: `INT` вместо `INTEGER`, `VARCHAR(255)` вместо `TEXT` для коротких полей
-4. Для JSON-полей используй `TEXT` с хранением в формате JSON
+Ключевые правила для работы с MySQL:
+1. Всегда используй параметризованные запросы с `%s` вместо значений
+2. Для обновления существующих записей используй `ON DUPLICATE KEY UPDATE`
+3. При обновлении полей с текстом - ЗАМЕНЯЙ полностью старое значение, а не добавляй к нему
+4. Для JSON-данных используй `JSON_SET`, `JSON_REMOVE` или `JSON_ARRAY_APPEND`
+5. Для числовых полей (калории, вода) - изменяй значения арифметически
 
-Примеры запросов:
--- Вставка с обновлением при дубликате
-INSERT INTO user_profiles (user_id, name)
-VALUES (%s, %s)
-ON DUPLICATE KEY UPDATE name = VALUES(name);
+Примеры правильных запросов:
+-- Обновление текстового поля (полная замена)
+UPDATE user_profiles SET health = %s WHERE user_id = %s;
 
--- Обновление JSON-поля
-UPDATE user_profiles
-SET reminders = %s
+-- Обновление числового поля (арифметическая операция)
+UPDATE user_profiles SET water_drunk_today = water_drunk_today + %s WHERE user_id = %s;
+
+-- Обновление JSON (добавление напоминания)
+UPDATE user_profiles 
+SET reminders = JSON_ARRAY_APPEND(COALESCE(reminders, JSON_ARRAY()), '$', %s)
+WHERE user_id = %s;
+
+-- Обновление JSON (удаление напоминания)
+UPDATE user_profiles 
+SET reminders = JSON_REMOVE(reminders, JSON_UNQUOTE(JSON_SEARCH(reminders, 'one', %s)))
 WHERE user_id = %s;
 
 В базе данных есть таблица user_profiles с колонками:
-- user_id INTEGER PRIMARY KEY
-- language TEXT
-- name TEXT
-- gender TEXT
-- age INTEGER
-- weight REAL
-- height INTEGER
+- user_id BIGINT PRIMARY KEY
+- language VARCHAR(10)
+- name VARCHAR(100)
+- gender VARCHAR(10)
+- age INT
+- weight FLOAT
+- height INT
 - goal TEXT
 - activity TEXT
 - diet TEXT
@@ -1189,25 +1141,25 @@ WHERE user_id = %s;
 - equipment TEXT
 - target_metric TEXT
 - unique_facts TEXT
-- timezone TEXT
-- wakeup_time TEXT
-- sleep_time TEXT
-- water_reminders INTEGER
-- water_drunk_today INTEGER
+- timezone VARCHAR(50)
+- wakeup_time VARCHAR(5)
+- sleep_time VARCHAR(5)
+- water_reminders TINYINT
+- water_drunk_today INT
 - last_water_notification TEXT
-- calories_today INTEGER
-- proteins_today INTEGER
-- fats_today INTEGER
-- carbs_today INTEGER
+- calories_today INT
+- proteins_today INT
+- fats_today INT
+- carbs_today INT
 - last_nutrition_update DATE
-- reminders TEXT
+- reminders TEXT (в формате JSON)
 
 Твоя задача:
 
 1. Всегда сначала анализируй информацию из профиля пользователя (особенно поля diet, health, activity, unique_facts) и строго учитывай её в ответах.
 
 2. Если в сообщении есть чёткое изменение данных профиля (например: вес, возраст, цели, оборудование и т.п.) — сгенерируй:
-    SQL: <SQL-запрос>
+    SQL: <SQL-запрос для MySQL с параметрами>
     TEXT: <ответ человеку на естественном языке>
 
 3. Если это просто вопрос (например: "что поесть после тренировки?" или "что на фото?") — дай полезный, краткий, но информативный ответ, ОБЯЗАТЕЛЬНО учитывая известные факты о пользователе:
@@ -1217,18 +1169,19 @@ WHERE user_id = %s;
    Если пользователь поправляет тебя (например: "на фото было 2 яйца, а не 3") — СРАЗУ ЖЕ учти это в следующем ответе и извинись за ошибку.
 
 5. Если в сообщении есть уникальные факты о пользователе (увлечения, особенности здоровья, предпочтения, травмы и т.п.), которые не вписываются в стандартные поля профиля, но важны для персонализации:
-   - Если факт относится к здоровью — добавь его в поле health
-   - Если факт относится к питанию — добавь его в поле diet
-   - Если факт относится к оборудованию/инвентарю — добавь его в поле equipment
-   - Если факт относится к активности/спорту — добавь его в поле activity
-   - Если факт не подходит ни к одной из этих категорий — добавь его в поле unique_facts
+   - Если факт относится к здоровью — ЗАМЕНИ полностью поле health новым значением
+     SQL: UPDATE user_profiles SET health = %s WHERE user_id = %s
+   - Если факт относится к питанию — ЗАМЕНИ полностью поле diet
+   - Если факт относится к оборудованию/инвентарю — ЗАМЕНИ полностью поле equipment
+   - Если факт относится к активности/спорту — ЗАМЕНИ полностью поле activity
+   - Если факт не подходит ни к одной из этих категорий — ДОБАВЬ его в поле unique_facts через JSON_ARRAY_APPEND
    Формат добавления: "Факт: [описание факта]."
 
 6. ⚠️ Если пользователь отправил изображение еды и явно указал, что это его еда (например: "мой завтрак", "это мой обед", "сегодня на ужин"):
    - Проанализируй фото и определи примерный состав блюда
    - Рассчитай КБЖУ (калории, белки, жиры, углеводы) для этого приема пищи
    - Обнови соответствующие поля в базе данных:
-     SQL: UPDATE user_profiles SET calories_today = calories_today + [калории], proteins_today = proteins_today + [белки], fats_today = fats_today + [жиры], carbs_today = carbs_today + [углеводы], last_nutrition_update = CURRENT_DATE WHERE user_id = ?
+     SQL: UPDATE user_profiles SET calories_today = calories_today + %s, proteins_today = proteins_today + %s, fats_today = fats_today + %s, carbs_today = carbs_today + %s, last_nutrition_update = CURRENT_DATE WHERE user_id = %s
    - Ответь в формате:
      TEXT: 
      🔍 Анализ блюда:
@@ -1299,7 +1252,7 @@ WHERE user_id = %s;
 12. Если пользователь сообщает о выпитой воде (в любом формате, например: "я выпил 300 мл", "только что 2 стакана воды", "drank 500ml"):
    - Извлеки количество воды из сообщения (в мл)
    - Обнови поле water_drunk_today в базе данных
-     SQL: UPDATE user_profiles SET water_drunk_today = water_drunk_today + ? WHERE user_id = ?
+     SQL: UPDATE user_profiles SET water_drunk_today = water_drunk_today + %s WHERE user_id = %s
    - Проверь, не превышает ли выпитое количество дневную норму (30 мл на 1 кг веса)
    - Если норма достигнута или превышена, отключи напоминания на сегодня
    - Ответь пользователю в формате:
@@ -1318,7 +1271,7 @@ WHERE user_id = %s;
    - Извинись за ошибку
    - Пересчитай КБЖУ с учетом уточнения
    - Обнови данные в базе, вычтя старые значения и добавив новые
-     SQL: UPDATE user_profiles SET calories_today = calories_today - [старые калории] + [новые калории], proteins_today = proteins_today - [старые белки] + [новые белки], fats_today = fats_today - [старые жиры] + [новые жиры], carbs_today = carbs_today - [старые углеводы] + [новые углеводы] WHERE user_id = ?
+     SQL: UPDATE user_profiles SET calories_today = calories_today - %s + %s, proteins_today = proteins_today - %s + %s, fats_today = fats_today - %s + %s, carbs_today = carbs_today - %s + %s WHERE user_id = %s
    - Ответь с обновленной информацией
 
 15. В полночь (по времени пользователя) все дневные показатели (калории, белки, жиры, углеводы, вода) должны автоматически обнуляться:
@@ -1338,7 +1291,7 @@ WHERE user_id = %s;
    - Формат хранения в базе:
      [{"text": "текст напоминания", "time": "ЧЧ:ММ", "last_sent": "дата последней отправки"}]
    - SQL для добавления/обновления:
-     SQL: UPDATE user_profiles SET reminders = ? WHERE user_id = ?
+     SQL: UPDATE user_profiles SET reminders = JSON_SET(COALESCE(reminders, JSON_ARRAY()), '$[0]', %s) WHERE user_id = %s
    - Ответь пользователю:
      TEXT: [подтверждение установки напоминания]
 
@@ -1346,7 +1299,7 @@ WHERE user_id = %s;
    - Найди соответствующее напоминание в списке (поле reminders)
    - Удали его из списка
    - SQL для обновления:
-     SQL: UPDATE user_profiles SET reminders = ? WHERE user_id = ?
+     SQL: UPDATE user_profiles SET reminders = JSON_REMOVE(reminders, JSON_UNQUOTE(JSON_SEARCH(reminders, 'one', %s))) WHERE user_id = %s
    - Ответь пользователю:
      TEXT: [подтверждение удаления напоминания]
 
@@ -1391,6 +1344,8 @@ TEXT: ...
     try:
         response = model.generate_content(contents)
         response_text = response.text.strip()
+
+        # Сохраняем последний ответ бота в контексте
         context.user_data['last_bot_reply'] = response_text
 
         # Разделяем SQL и TEXT части ответа
@@ -1402,50 +1357,12 @@ TEXT: ...
         if sql_match:
             sql_part = sql_match.group(1).strip()
             try:
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
+                conn = sqlite3.connect("users.db")
                 cursor = conn.cursor()
 
-                # Заменяем ? на %s для MySQL
-                sql_part = sql_part.replace('?', '%s')
-                
-                # Извлекаем параметры из текста ответа
-                params = []
-                if "%s" in sql_part:
-                    # Для простых обновлений (name, age и т.д.)
-                    value_match = re.search(r"=\s*%s", sql_part)
-                    if value_match:
-                        # Ищем значение в тексте ответа
-                        text_value_match = re.search(r"'([^']*)'", response_text)
-                        if text_value_match:
-                            params.append(text_value_match.group(1))
-                    
-                    # Для обновления воды (числовое значение)
-                    if "water_drunk_today" in sql_part:
-                        water_match = re.search(r"(\d+)\s*мл", user_text)
-                        if water_match:
-                            params.insert(0, int(water_match.group(1)))
-                    
-                    # Для обновления КБЖУ (числовые значения)
-                    if "calories_today" in sql_part:
-                        # Здесь нужно более сложное извлечение значений из анализа фото
-                        # Пока просто добавляем user_id
-                        pass
-                    
-                    # Всегда добавляем user_id в конец
-                    params.append(user_id)
-
-                print(f"Executing SQL: {sql_part}")
-                print(f"With params: {params}")
-                
-                if params:
-                    cursor.execute(sql_part, params)
+                # Проверяем, содержит ли SQL-запрос параметры
+                if "?" in sql_part:
+                    cursor.execute(sql_part, (user_id,))
                 else:
                     cursor.execute(sql_part)
 
@@ -1453,19 +1370,21 @@ TEXT: ...
                 conn.close()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
-                print(f"SQL запрос: {sql_part}")
-                print(f"Параметры: {params}")
+                # Можно добавить логирование ошибки, но не показываем пользователю
 
-        # Извлекаем TEXT часть для ответа пользователю
+        # Ищем TEXT часть (берем последнюю, если их несколько)
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
         if text_matches:
             text_part = text_matches[-1].strip()
         else:
+            # Если нет TEXT части, используем весь ответ, но очищаем от возможных SQL частей
             text_part = re.sub(r'SQL:.*?(?=TEXT:|$)', '', response_text, flags=re.DOTALL).strip()
 
+        # Если после обработки text_part пустой, используем fallback сообщение
         if not text_part:
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
+        # Отправляем только очищенную TEXT часть пользователю
         await message.reply_text(text_part)
 
     except Exception as e:
@@ -1474,6 +1393,7 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
+
 
 
 
@@ -1522,6 +1442,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
