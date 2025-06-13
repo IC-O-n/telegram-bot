@@ -80,18 +80,15 @@ def init_db():
                     fats_today INT DEFAULT 0,
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
-                    reminders TEXT
+                    reminders TEXT,
+                    dna_analysis_data TEXT,
+                    blind_spots_log TEXT,
+                    metabolism_hacks TEXT,
+                    health_diary TEXT
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
 
-            cursor.execute("""
-                    ALTER TABLE user_profiles
-                    ADD COLUMN IF NOT EXISTS dna_analysis_data JSON DEFAULT NULL,
-                    ADD COLUMN IF NOT EXISTS blind_spots_log TEXT DEFAULT NULL,
-                    ADD COLUMN IF NOT EXISTS metabolism_hacks TEXT DEFAULT NULL,
-                    ADD COLUMN IF NOT EXISTS health_diary TEXT DEFAULT NULL
-            """)
-            
+                        
             # Проверяем существование колонок и добавляем их, если нужно
             cursor.execute("""
                 SELECT COLUMN_NAME 
@@ -937,7 +934,11 @@ async def reset(update: Update, context: CallbackContext) -> None:
                     fats_today = 0,
                     carbs_today = 0,
                     last_nutrition_update = NULL,
-                    reminders = NULL
+                    reminders = NULL,
+                    dna_analysis_data = NULL,
+                    blind_spots_log = NULL,
+                    metabolism_hacks = NULL,
+                    health_diary = NULL
                 WHERE user_id = %s
             """, (user_id,))
         conn.commit()
@@ -1196,6 +1197,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - carbs_today INTEGER
 - last_nutrition_update DATE
 - reminders TEXT
+- dna_analysis_data TEXT
+- blind_spots_log TEXT
+- metabolism_hacks TEXT
+- health_diary TEXT
 
 Твоя задача:
 
