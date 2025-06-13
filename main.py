@@ -52,7 +52,8 @@ def init_db():
     
     try:
         with conn.cursor() as cursor:
-            cursor.execute('''
+            # Сначала проверяем существование таблицы
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id BIGINT PRIMARY KEY,
                     language VARCHAR(10),
@@ -79,12 +80,26 @@ def init_db():
                     fats_today INT DEFAULT 0,
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
-                    reminders TEXT DEFAULT '[]'
+                    reminders TEXT
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            ''')
+            """)
+            
+            # Проверяем существование колонок и добавляем их, если нужно
+            cursor.execute("""
+                SELECT COLUMN_NAME 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'user_profiles'
+            """)
+            existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
+            
+            # Добавляем недостающие колонки
+            if 'reminders' not in existing_columns:
+                cursor.execute("ALTER TABLE user_profiles ADD COLUMN reminders TEXT")
+            
         conn.commit()
     except Exception as e:
-        print(f"Ошибка при создании таблицы: {e}")
+        print(f"Ошибка при инициализации базы данных: {e}")
         raise
     finally:
         conn.close()
