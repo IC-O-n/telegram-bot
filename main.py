@@ -117,8 +117,13 @@ def save_user_profile(user_id: int, profile: dict):
     
     try:
         with conn.cursor() as cursor:
-            # Обработка reminders как JSON
-            reminders = json.dumps(profile.get("reminders", [])) if isinstance(profile.get("reminders"), list) else profile.get("reminders", "[]")
+            # Очищаем текстовые поля от старых "Факт:" перед сохранением
+            for field in ['diet', 'health', 'equipment', 'unique_facts']:
+                if field in profile and isinstance(profile[field], str):
+                    if profile[field].startswith("Нет") or profile[field].startswith("Ничего"):
+                        profile[field] = ""
+            
+            reminders = json.dumps(profile.get("reminders", []))
             
             cursor.execute('''
             INSERT INTO user_profiles (
@@ -192,6 +197,7 @@ def save_user_profile(user_id: int, profile: dict):
         raise
     finally:
         conn.close()
+
 
 async def reset_daily_nutrition_if_needed(user_id: int):
     conn = pymysql.connect(
@@ -1143,6 +1149,7 @@ TEXT: Выпито 250 мл воды
 4. Для числовых полей не используй кавычки
 5. Для INSERT всегда указывай user_id первым параметром
 6. Для UPDATE всегда указывай user_id последним параметром
+7. Если обновляешь несколько полей, передавай значения для всех полей перед user_id
 
 Ты получаешь от пользователя сообщения. Они могут быть:
 - просто вопросами (например, о питании, тренировках, фото и т.д.)
@@ -1386,9 +1393,11 @@ TEXT: ...
         response_text = response.text.strip()
         context.user_data['last_bot_reply'] = response_text
 
+        # Разделяем SQL и TEXT части ответа
         sql_part = None
         text_part = None
 
+        # Ищем SQL часть
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
@@ -1403,24 +1412,37 @@ TEXT: ...
                 )
                 cursor = conn.cursor()
 
-                # Заменяем параметры и обрабатываем JSON поля
+                # Заменяем ? на %s для MySQL
                 sql_part = sql_part.replace('?', '%s')
                 
-                # Определяем параметры для запроса
+                # Извлекаем параметры из текста ответа
                 params = []
-                if "reminders" in sql_part.lower() and "VALUES(reminders)" not in sql_part.upper():
-                    # Обработка JSON для reminders
-                    reminders_match = re.search(r"reminders\s*=\s*(.*?)(?:\s|$|,)", sql_part, re.IGNORECASE)
-                    if reminders_match:
-                        try:
-                            reminders_value = json.loads(reminders_match.group(1).strip("'"))
-                            params.append(json.dumps(reminders_value))
-                        except:
-                            params.append(reminders_match.group(1).strip("'"))
-                
-                # Добавляем user_id в параметры, если нужно
-                if "%s" in sql_part and "user_id" in sql_part.lower():
+                if "%s" in sql_part:
+                    # Для простых обновлений (name, age и т.д.)
+                    value_match = re.search(r"=\s*%s", sql_part)
+                    if value_match:
+                        # Ищем значение в тексте ответа
+                        text_value_match = re.search(r"'([^']*)'", response_text)
+                        if text_value_match:
+                            params.append(text_value_match.group(1))
+                    
+                    # Для обновления воды (числовое значение)
+                    if "water_drunk_today" in sql_part:
+                        water_match = re.search(r"(\d+)\s*мл", user_text)
+                        if water_match:
+                            params.insert(0, int(water_match.group(1)))
+                    
+                    # Для обновления КБЖУ (числовые значения)
+                    if "calories_today" in sql_part:
+                        # Здесь нужно более сложное извлечение значений из анализа фото
+                        # Пока просто добавляем user_id
+                        pass
+                    
+                    # Всегда добавляем user_id в конец
                     params.append(user_id)
+
+                print(f"Executing SQL: {sql_part}")
+                print(f"With params: {params}")
                 
                 if params:
                     cursor.execute(sql_part, params)
@@ -1432,9 +1454,9 @@ TEXT: ...
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
                 print(f"SQL запрос: {sql_part}")
-                print(f"Параметры: {params if 'params' in locals() else 'нет'}")
+                print(f"Параметры: {params}")
 
-        # Остальная часть функции остается без изменений
+        # Извлекаем TEXT часть для ответа пользователю
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
         if text_matches:
             text_part = text_matches[-1].strip()
