@@ -1109,45 +1109,40 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
 
-Ключевые правила для обновления полей:
-1. Для текстовых полей (diet, health, equipment, unique_facts):
-   - Если поле содержит "Факт:" - добавляй новый факт с новой строки
-   - Если поле содержит "Нет" - заменяй его на новый факт
-   - Формат: "Факт: [описание факта]."
+Ключевые правила для SQL-запросов:
+1. Всегда используй параметры с %s вместо значений
+2. Для INSERT используй формат:
+   SQL: INSERT INTO user_profiles (user_id, поле) VALUES (%s, %s)
+3. Для UPDATE используй формат:
+   SQL: UPDATE user_profiles SET поле = %s WHERE user_id = %s
+4. Всегда указывай user_id как последний параметр
+5. Для числовых полей не используй кавычки вокруг %s
+6. Для текстовых полей используй значения в кавычках в TEXT части, но не в SQL
 
-2. Для JSON-полей (reminders):
-   - Всегда используй полный JSON-массив при обновлении
-   - Формат: [{"text": "напоминание", "time": "ЧЧ:ММ"}]
+Примеры корректных запросов:
+-- Обновление имени
+SQL: UPDATE user_profiles SET name = %s WHERE user_id = %s
+TEXT: Имя обновлено на 'Роман'
 
-Примеры корректных SQL-запросов:
--- Добавление факта о здоровье (замена если было "Нет")
-UPDATE user_profiles 
-SET health = %s 
-WHERE user_id = %s;
+-- Обновление возраста
+SQL: UPDATE user_profiles SET age = %s WHERE user_id = %s
+TEXT: Возраст обновлен на 21
 
--- Добавление напоминания (полная замена массива)
-UPDATE user_profiles 
-SET reminders = %s 
-WHERE user_id = %s;
+-- Добавление факта о здоровье
+SQL: UPDATE user_profiles SET health = %s WHERE user_id = %s
+TEXT: Факт о здоровье добавлен: 'Аллергия на пыльцу'
 
--- Обновление воды (числовые поля)
-UPDATE user_profiles 
-SET water_drunk_today = water_drunk_today + %s 
-WHERE user_id = %s;
+-- Обновление воды
+SQL: UPDATE user_profiles SET water_drunk_today = water_drunk_today + %s WHERE user_id = %s
+TEXT: Выпито 250 мл воды
 
--- Обновление КБЖУ
-UPDATE user_profiles 
-SET calories_today = calories_today + %s, 
-    proteins_today = proteins_today + %s, 
-    fats_today = fats_today + %s, 
-    carbs_today = carbs_today + %s 
-WHERE user_id = %s;
-
-Всегда проверяй:
-1. Для текстовых полей - не конкатенируй, а добавляй факты с новой строки
-2. Для числовых полей - используй математические операции
-3. Для JSON - всегда полная замена массива
-4. Все параметры передаются через %s (не ?)
+Важно:
+1. Всегда генерируй SQL и TEXT части
+2. В SQL используй только %s для параметров
+3. В TEXT указывай значения в читаемом формате
+4. Для числовых полей не используй кавычки
+5. Для INSERT всегда указывай user_id первым параметром
+6. Для UPDATE всегда указывай user_id последним параметром
 
 Ты получаешь от пользователя сообщения. Они могут быть:
 - просто вопросами (например, о питании, тренировках, фото и т.д.)
