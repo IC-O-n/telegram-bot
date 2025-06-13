@@ -39,26 +39,6 @@ user_profiles = {}
 ) = range(16)
 
 
-def check_db_connection():
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        conn.ping()  # Проверяем подключение
-        print("✅ Подключение к базе данных успешно")
-        return True
-    except pymysql.Error as e:
-        print(f"❌ Ошибка подключения к базе данных: {e}")
-        return False
-    finally:
-        if 'conn' in locals():
-            conn.close()
-
 
 def init_db():
     conn = pymysql.connect(
@@ -72,7 +52,6 @@ def init_db():
     
     try:
         with conn.cursor() as cursor:
-            # Упрощенный запрос для создания таблицы
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id BIGINT PRIMARY KEY,
@@ -80,7 +59,7 @@ def init_db():
                     name VARCHAR(100),
                     gender VARCHAR(10),
                     age INT,
-                    weight DECIMAL(5,2),
+                    weight FLOAT,
                     height INT,
                     goal TEXT,
                     activity TEXT,
@@ -92,7 +71,7 @@ def init_db():
                     timezone VARCHAR(50),
                     wakeup_time VARCHAR(5),
                     sleep_time VARCHAR(5),
-                    water_reminders TINYINT(1) DEFAULT 1,
+                    water_reminders TINYINT DEFAULT 1,
                     water_drunk_today INT DEFAULT 0,
                     last_water_notification TEXT,
                     calories_today INT DEFAULT 0,
@@ -104,7 +83,7 @@ def init_db():
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             ''')
         conn.commit()
-    except pymysql.Error as e:
+    except Exception as e:
         print(f"Ошибка при создании таблицы: {e}")
         raise
     finally:
@@ -1396,9 +1375,6 @@ TEXT: ...
 
 
 def main():
-    if not check_db_connection():
-        raise RuntimeError("Не удалось подключиться к базе данных")
-    
     init_db()
     app = Application.builder().token(TOKEN).build()
 
@@ -1443,5 +1419,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
