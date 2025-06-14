@@ -81,7 +81,7 @@ def init_db():
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
                     reminders TEXT,
-                    meal_history JSON
+                    nutrition_history JSON DEFAULT 0
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -97,12 +97,6 @@ def init_db():
             # Добавляем недостающие колонки
             if 'reminders' not in existing_columns:
                 cursor.execute("ALTER TABLE user_profiles ADD COLUMN reminders TEXT")
-
-            if 'meal_history' not in existing_columns:
-                cursor.execute("""
-                    ALTER TABLE user_profiles
-                    ADD COLUMN meal_history JSON
-                """)
             
         conn.commit()
     except Exception as e:
@@ -113,25 +107,31 @@ def init_db():
 
 
 def save_user_profile(user_id: int, profile: dict):
-    conn = pymysql.connect(...)
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
     
     try:
         with conn.cursor() as cursor:
+            # Добавляем поле reminders в запрос и обработку
             reminders = json.dumps(profile.get("reminders", []))
-            meal_history = json.dumps(profile.get("meal_history", {}))  # Новое поле
             
             cursor.execute('''
             INSERT INTO user_profiles (
                 user_id, language, name, gender, age, weight, height, goal, activity, diet, 
                 health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
                 water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
-                reminders, meal_history  # Добавлено новое поле
+                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, reminders
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s  # Добавлен новый параметр
+                %s, %s, %s, %s, %s, %s
             )
             ON DUPLICATE KEY UPDATE
                 language = VALUES(language),
@@ -158,8 +158,7 @@ def save_user_profile(user_id: int, profile: dict):
                 fats_today = VALUES(fats_today),
                 carbs_today = VALUES(carbs_today),
                 last_nutrition_update = VALUES(last_nutrition_update),
-                reminders = VALUES(reminders),
-                meal_history = VALUES(meal_history)
+                reminders = VALUES(reminders)
             ''', (
                 user_id,
                 profile.get("language"),
@@ -186,8 +185,7 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("fats_today", 0),
                 profile.get("carbs_today", 0),
                 profile.get("last_nutrition_update", date.today().isoformat()),
-                reminders,
-                meal_history
+                reminders
             ))
         conn.commit()
     except Exception as e:
@@ -196,9 +194,8 @@ def save_user_profile(user_id: int, profile: dict):
     finally:
         conn.close()
 
-
-async def update_meal_history(user_id: int, meal_data: dict):
-    """Обновляет историю питания на основе готовых данных от Gemini"""
+async def add_meal_to_history(user_id: int, meal_type: str, meal_data: dict):
+    """Добавляет запись о приеме пищи в историю"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -210,29 +207,71 @@ async def update_meal_history(user_id: int, meal_data: dict):
     
     try:
         with conn.cursor() as cursor:
-            cursor.execute(
-                "UPDATE user_profiles SET meal_history = JSON_MERGE_PATCH("
-                "COALESCE(meal_history, '{}'), "
-                "JSON_OBJECT(%s, JSON_OBJECT(%s, %s))) "
-                "WHERE user_id = %s",
-                (
-                    date.today().isoformat(),
-                    meal_data['type'],
-                    json.dumps({
-                        'time': meal_data['time'],
-                        'food': meal_data['description'],
-                        'calories': meal_data['calories'],
-                        'proteins': meal_data['proteins'],
-                        'fats': meal_data['fats'],
-                        'carbs': meal_data['carbs']
-                    }),
-                    user_id
-                )
-            )
+            # Получаем текущую историю
+            cursor.execute("SELECT nutrition_history FROM user_profiles WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            
+            current_history = json.loads(result['nutrition_history']) if result and result['nutrition_history'] else {}
+            today = date.today().isoformat()
+            
+            # Создаем структуру данных если ее нет
+            if today not in current_history:
+                current_history[today] = {}
+            
+            # Добавляем прием пищи
+            current_history[today][meal_type] = {
+                "time": datetime.now().strftime("%H:%M"),
+                "food": meal_data.get("description", ""),
+                "calories": meal_data.get("calories", 0),
+                "proteins": meal_data.get("proteins", 0),
+                "fats": meal_data.get("fats", 0),
+                "carbs": meal_data.get("carbs", 0)
+            }
+            
+            # Ограничиваем историю 3 днями
+            if len(current_history) > 3:
+                oldest_day = sorted(current_history.keys())[0]
+                del current_history[oldest_day]
+            
+            # Обновляем базу
+            cursor.execute("""
+                UPDATE user_profiles 
+                SET nutrition_history = %s 
+                WHERE user_id = %s
+            """, (json.dumps(current_history, ensure_ascii=False), user_id))
             conn.commit()
-    except Exception as e:
-        print(f"Ошибка при обновлении истории питания: {e}")
-        raise
+    finally:
+        conn.close()
+
+async def remove_last_meal(user_id: int, meal_type: str):
+    """Удаляет последний прием пищи указанного типа"""
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT nutrition_history FROM user_profiles WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            
+            if result and result['nutrition_history']:
+                current_history = json.loads(result['nutrition_history'])
+                today = date.today().isoformat()
+                
+                if today in current_history and meal_type in current_history[today]:
+                    del current_history[today][meal_type]
+                    
+                    cursor.execute("""
+                        UPDATE user_profiles 
+                        SET nutrition_history = %s 
+                        WHERE user_id = %s
+                    """, (json.dumps(current_history, ensure_ascii=False), user_id))
+                    conn.commit()
     finally:
         conn.close()
 
@@ -972,8 +1011,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
                     fats_today = 0,
                     carbs_today = 0,
                     last_nutrition_update = NULL,
-                    reminders = NULL,
-                    meal_history = 0
+                    reminders = NULL
                 WHERE user_id = %s
             """, (user_id,))
         conn.commit()
@@ -1159,6 +1197,18 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
 
+    # Определяем тип приема пищи по текущему времени
+    current_time = datetime.now().time()
+    if time(5, 0) <= current_time <= time(10, 0):
+        meal_type = "завтрак"
+    elif time(10, 1) <= current_time <= time(15, 0):
+        meal_type = "обед"
+    elif time(15, 1) <= current_time <= time(20, 0):
+        meal_type = "ужин"
+    else:
+        meal_type = "перекус"
+
+    # Обработка медиафайлов
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
@@ -1182,19 +1232,23 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if profile_info and "не найден" not in profile_info and "not found" not in profile_info:
         contents.insert(0, {"text": f"Информация о пользователе / User information:\n{profile_info}"})
 
-    # История - увеличиваем размер очереди до 10 сообщений
+    # Добавляем информацию о текущем приеме пищи в контекст
+    contents.insert(0, {
+        "text": f"Текущий прием пищи: {meal_type} (автоматически определен по времени)"
+    })
+
+    # История диалога
     if user_id not in user_histories:
         user_histories[user_id] = deque(maxlen=10)
     user_histories[user_id].append(f"Пользователь / User: {user_text}")
     
-    # Добавляем предыдущие ответы бота в историю
     if 'last_bot_reply' in context.user_data:
         user_histories[user_id].append(f"Бот / Bot: {context.user_data['last_bot_reply']}")
     
     history_messages = list(user_histories[user_id])
     if history_messages:
         history_prompt = "\n".join(history_messages)
-        contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
+        contents.insert(0, {"text": f"Контекст диалога / Dialog context:\n{history_prompt}"})
 
     # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
@@ -1405,81 +1459,63 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
            - [текст напоминания 1] в [время]
            - [текст напоминания 2] в [время]"
 
-22. Формат ответа для анализа еды:
-   Всегда предоставляй анализ в строгом формате:
-   
-   🍽 Анализ приема пищи:
-   Тип: [завтрак/обед/ужин/перекус]
-   Время: [текущее время в формате ЧЧ:ММ]
-   Описание: [точное описание блюда из фото]
-   Калории: [число] ккал
-   Белки: [число] г
-   Жиры: [число] г
-   Углеводы: [число] г
-   
-   SQL: UPDATE user_profiles 
-        SET meal_history = JSON_MERGE_PATCH(
-            COALESCE(meal_history, '{}'), 
-            JSON_OBJECT(
-                CURRENT_DATE(), 
-                JSON_OBJECT(
-                    %s, 
-                    JSON_OBJECT(
-                        'time', %s,
-                        'food', %s,
-                        'calories', %s,
-                        'proteins', %s,
-                        'fats', %s,
-                        'carbs', %s
-                    )
-                )
-            )
+22. При анализе приема пищи:
+- Определи тип приема (завтрак/обед/ужин/перекус) по времени:
+  * 05:00-10:00 → завтрак
+  * 10:01-15:00 → обед
+  * 15:01-20:00 → ужин
+  * остальное → перекус
+- Сгенерируй SQL для сохранения в историю:
+  SQL: UPDATE user_profiles SET nutrition_history = JSON_MERGE_PATCH(
+    COALESCE(nutrition_history, '{}'), 
+    JSON_OBJECT(
+      'дата', JSON_OBJECT(
+        'тип_приема', JSON_OBJECT(
+          'time', 'ЧЧ:ММ',
+          'food', 'описание',
+          'calories', X,
+          'proteins', A,
+          'fats', B,
+          'carbs', C
         )
-        WHERE user_id = %s
-   Параметры: [тип_приема], [время], [описание], [калории], [белки], [жиры], [углеводы], [user_id]
+      )
+    )
+  ) WHERE user_id = %s
 
-23. Метаболизм-хаки (анализ питания):
-   При запросах о питании/метаболизме:
-   1. Анализируй данные из meal_history за 3 дня
-   2. Выявляй паттерны:
-      - Средние интервалы между приемами пищи
-      - Распределение нутриентов по времени суток
-      - Соотношение БЖУ в разные периоды
-   3. Формируй персонализированные рекомендации:
-      TEXT:
-      🔬 Метаболический анализ (последние 3 дня):
-      • Оптимальное окно питания: [рекомендация] (сейчас: [факт])
-      • Дефицит/избыток: [нутриент] [время] ([+/-]Xг от нормы)
-      • Основные паттерны: [наблюдение]
-      
-      💡 Персональные хаки:
-      1. [Рекомендация 1]
-      2. [Рекомендация 2]
-      3. [Рекомендация 3]
+23. Если пользователь указывает на ошибку в анализе еды:
+- Определи тип приема пищи, который нужно исправить
+- Сгенерируй SQL для удаления ошибочной записи:
+  SQL: UPDATE user_profiles 
+  SET nutrition_history = JSON_REMOVE(
+    nutrition_history, 
+    CONCAT('$."', DATE_FORMAT(CURRENT_DATE, '%Y-%m-%d'), '"."', 'тип_приема', '"')
+  ) 
+  WHERE user_id = %s
+- После этого добавь исправленные данные через запрос из пункта 22
 
-   Примеры триггеров:
-   - "Как ускорить метаболизм?"
-   - "Почему я не худею?"
-   - "Оптимальное время для ужина"
-   - "Анализ моего питания"
-   - "Давай разберем мой рацион"
+24. При запросах о метаболизме/анализе питания:
+- Проанализируй данные из nutrition_history за последние 3 дня
+- Обрати внимание на:
+  * Распределение КБЖУ по времени суток
+  * Баланс нутриентов
+  * Регулярность приемов пищи
+- Формат ответа:
+  TEXT:
+  🔍 Метаболический анализ (последние 3 дня):
 
-   Формат данных meal_history:
-   {
-     "дата": {
-       "тип_приема_пищи": {
-         "time": "ЧЧ:ММ",
-         "food": "описание",
-         "calories": X,
-         "proteins": A,
-         "fats": B,
-         "carbs": C
-       },
-       ...
-     },
-     ...
-   }
+  📊 Общие показатели:
+  • Среднесуточные калории: X ккал
+  • Соотношение БЖУ: A%/B%/C%
 
+  ⏰ Паттерны питания:
+  • Самый плотный прием: [тип] в [время] (~X ккал)
+  • Пропуски: [чаще всего пропускает завтрак/обед/ужин]
+
+  💡 Рекомендации:
+  • [Конкретный совет на основе данных]
+  • [Еще один совет]
+
+  Пример: "Попробуйте перенести 10% углеводов с ужина на завтрак"
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
@@ -1514,16 +1550,20 @@ TEXT: ...
     try:
         response = model.generate_content(contents)
         response_text = response.text.strip()
+
+        # Сохраняем последний ответ бота в контексте
         context.user_data['last_bot_reply'] = response_text
 
-        # Обработка SQL части (сохранение в базу)
+        # Разделяем SQL и TEXT части ответа
         sql_part = None
         text_part = None
 
+        # Ищем SQL часть
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
             try:
+                # Заменяем SQLite на MySQL соединение
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
                     user='x91345bo_nutrbot',
@@ -1534,48 +1574,22 @@ TEXT: ...
                 )
                 cursor = conn.cursor()
 
-                # === НАЧАЛО ЗАМЕНЯЕМОГО КОДА ===
-                # Если это запрос для meal_history, извлекаем данные из ответа Gemini
-                if "meal_history" in sql_part.lower():
-                    # Парсим данные из ответа Gemini
-                    try:
-                        meal_type_match = re.search(r'Тип: (.*?)\n', response_text)
-                        time_match = re.search(r'Время: (.*?)\n', response_text)
-                        description_match = re.search(r'Описание: (.*?)\n', response_text)
-                        calories_match = re.search(r'Калории: (\d+)', response_text)
-                        proteins_match = re.search(r'Белки: (\d+)', response_text)
-                        fats_match = re.search(r'Жиры: (\d+)', response_text)
-                        carbs_match = re.search(r'Углеводы: (\d+)', response_text)
-
-                        meal_data = {
-                            'type': meal_type_match.group(1).strip() if meal_type_match else 'meal',
-                            'time': time_match.group(1).strip() if time_match else datetime.now().strftime("%H:%M"),
-                            'description': description_match.group(1).strip() if description_match else (user_text if user_text else "Фото еды"),
-                            'calories': int(calories_match.group(1)) if calories_match else 0,
-                            'proteins': int(proteins_match.group(1)) if proteins_match else 0,
-                            'fats': int(fats_match.group(1)) if fats_match else 0,
-                            'carbs': int(carbs_match.group(1)) if carbs_match else 0
-                        }
-
-                        # Обновляем историю питания
-                        await update_meal_history(user_id, meal_data)
-                    except Exception as e:
-                        print(f"Ошибка при парсинге данных о питании: {e}")
+                # Заменяем параметры с ? на %s для MySQL
+                sql_part = sql_part.replace('?', '%s')
+                
+                # Проверяем, содержит ли SQL-запрос параметры
+                if "%s" in sql_part:
+                    cursor.execute(sql_part, (user_id,))
                 else:
-                    # Обычные SQL-запросы
-                    sql_part = sql_part.replace('?', '%s')
-                    if "%s" in sql_part:
-                        cursor.execute(sql_part, (user_id,))
-                    else:
-                        cursor.execute(sql_part)
-                # === КОНЕЦ ЗАМЕНЯЕМОГО КОДА ===
+                    cursor.execute(sql_part)
 
                 conn.commit()
                 conn.close()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
+                # Можно добавить логирование ошибки, но не показываем пользователю
 
-        # Извлекаем текст для пользователя
+        # Остальная часть функции остается без изменений
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
         if text_matches:
             text_part = text_matches[-1].strip()
@@ -1641,8 +1655,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
 
