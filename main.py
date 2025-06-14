@@ -1648,63 +1648,94 @@ TEXT: ...
         response = model.generate_content(contents)
         response_text = response.text.strip()
 
-        # Сохраняем последний ответ бота в контексте
+        # Save the last bot reply in context
         context.user_data['last_bot_reply'] = response_text
 
-        # Разделяем SQL и TEXT части ответа
-        sql_part = None
-        text_part = None
+        # Parse the response to separate SQL and TEXT parts
+        sql_queries = []
+        text_parts = []
+        
+        # Split response into parts
+        parts = re.split(r'(SQL:|TEXT:)', response_text)
+        current_type = None
+        current_content = []
+        
+        for part in parts:
+            if part == 'SQL:':
+                if current_type == 'TEXT' and current_content:
+                    text_parts.append(''.join(current_content).strip()
+                    current_content = []
+                current_type = 'SQL'
+            elif part == 'TEXT:':
+                if current_type == 'SQL' and current_content:
+                    sql_queries.append(''.join(current_content).strip()
+                    current_content = []
+                current_type = 'TEXT'
+            else:
+                if current_type and part.strip():
+                    current_content.append(part)
+        
+        # Add the last content
+        if current_type == 'SQL' and current_content:
+            sql_queries.append(''.join(current_content).strip())
+        elif current_type == 'TEXT' and current_content:
+            text_parts.append(''.join(current_content).strip())
 
-        # Ищем SQL часть
-        sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
-        if sql_match:
-            sql_part = sql_match.group(1).strip()
+        # Execute SQL queries if any
+        if sql_queries:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            
             try:
-                # Заменяем SQLite на MySQL соединение
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
-                cursor = conn.cursor()
-
-                # Заменяем параметры с ? на %s для MySQL
-                sql_part = sql_part.replace('?', '%s')
-                
-                # Проверяем, содержит ли SQL-запрос параметры
-                if "%s" in sql_part:
-                    cursor.execute(sql_part, (user_id,))
-                else:
-                    cursor.execute(sql_part)
-
-                conn.commit()
+                with conn.cursor() as cursor:
+                    for sql in sql_queries:
+                        try:
+                            # Clean up the SQL query
+                            sql = sql.strip()
+                            if not sql:
+                                continue
+                                
+                            # Remove any non-SQL parts that might have been included
+                            sql = re.sub(r'TEXT:.*', '', sql, flags=re.DOTALL).strip()
+                            
+                            # Replace SQLite placeholders with MySQL placeholders
+                            sql = sql.replace('?', '%s')
+                            
+                            # Execute the query
+                            if '%s' in sql:
+                                cursor.execute(sql, (update.message.from_user.id,))
+                            else:
+                                cursor.execute(sql)
+                            
+                            conn.commit()
+                        except Exception as e:
+                            print(f"Error executing SQL: {e}")
+                            print(f"Problematic SQL: {sql}")
+                            continue
+            finally:
                 conn.close()
-            except Exception as e:
-                print(f"Ошибка при выполнении SQL: {e}")
-                # Можно добавить логирование ошибки, но не показываем пользователю
 
-        # Остальная часть функции остается без изменений
-        text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
-        if text_matches:
-            text_part = text_matches[-1].strip()
+        # Prepare the text response
+        if text_parts:
+            final_text = '\n\n'.join(text_parts)
         else:
-            text_part = re.sub(r'SQL:.*?(?=TEXT:|$)', '', response_text, flags=re.DOTALL).strip()
+            final_text = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
-        if not text_part:
-            text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
-
-        await message.reply_text(text_part)
+        # Send the response to the user
+        await update.message.reply_text(final_text)
 
     except Exception as e:
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
-        if user_profiles.get(user_id, {}).get("language", "ru") == "en":
+        if user_profiles.get(update.message.from_user.id, {}).get("language", "ru") == "en":
             error_message = "An error occurred while processing your request. Please try again."
-        await message.reply_text(error_message)
+        await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 
 def main():
