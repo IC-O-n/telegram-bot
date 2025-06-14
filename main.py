@@ -52,7 +52,7 @@ def init_db():
     
     try:
         with conn.cursor() as cursor:
-            # Сначала проверяем существование таблицы
+            # Create table if not exists
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id BIGINT PRIMARY KEY,
@@ -85,7 +85,7 @@ def init_db():
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
-            # Проверяем существование колонок и добавляем их, если нужно
+            # Check for existing columns
             cursor.execute("""
                 SELECT COLUMN_NAME 
                 FROM INFORMATION_SCHEMA.COLUMNS 
@@ -94,9 +94,12 @@ def init_db():
             """)
             existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
             
-            # Добавляем недостающие колонки
+            # Add missing columns
             if 'reminders' not in existing_columns:
                 cursor.execute("ALTER TABLE user_profiles ADD COLUMN reminders TEXT")
+            
+            if 'nutrition_history' not in existing_columns:
+                cursor.execute("ALTER TABLE user_profiles ADD COLUMN nutrition_history JSON DEFAULT NULL")
             
         conn.commit()
     except Exception as e:
@@ -104,7 +107,6 @@ def init_db():
         raise
     finally:
         conn.close()
-
 
 def save_user_profile(user_id: int, profile: dict):
     conn = pymysql.connect(
@@ -118,85 +120,174 @@ def save_user_profile(user_id: int, profile: dict):
     
     try:
         with conn.cursor() as cursor:
-            # Initialize reminders and nutrition_history with empty values if not present
+            # Initialize with default values if not present
             reminders = json.dumps(profile.get("reminders", []))
             nutrition_history = json.dumps(profile.get("nutrition_history", {}))
             
-            cursor.execute('''
-            INSERT INTO user_profiles (
-                user_id, language, name, gender, age, weight, height, goal, activity, diet, 
-                health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
-                water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, reminders, nutrition_history
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s
-            )
-            ON DUPLICATE KEY UPDATE
-                language = VALUES(language),
-                name = VALUES(name),
-                gender = VALUES(gender),
-                age = VALUES(age),
-                weight = VALUES(weight),
-                height = VALUES(height),
-                goal = VALUES(goal),
-                activity = VALUES(activity),
-                diet = VALUES(diet),
-                health = VALUES(health),
-                equipment = VALUES(equipment),
-                target_metric = VALUES(target_metric),
-                unique_facts = VALUES(unique_facts),
-                timezone = VALUES(timezone),
-                wakeup_time = VALUES(wakeup_time),
-                sleep_time = VALUES(sleep_time),
-                water_reminders = VALUES(water_reminders),
-                water_drunk_today = VALUES(water_drunk_today),
-                last_water_notification = VALUES(last_water_notification),
-                calories_today = VALUES(calories_today),
-                proteins_today = VALUES(proteins_today),
-                fats_today = VALUES(fats_today),
-                carbs_today = VALUES(carbs_today),
-                last_nutrition_update = VALUES(last_nutrition_update),
-                reminders = VALUES(reminders),
-                nutrition_history = VALUES(nutrition_history)
-            ''', (
-                user_id,
-                profile.get("language"),
-                profile.get("name"),
-                profile.get("gender"),
-                profile.get("age"),
-                profile.get("weight"),
-                profile.get("height"),
-                profile.get("goal"),
-                profile.get("activity"),
-                profile.get("diet"),
-                profile.get("health"),
-                profile.get("equipment"),
-                profile.get("target_metric"),
-                profile.get("unique_facts"),
-                profile.get("timezone"),
-                profile.get("wakeup_time"),
-                profile.get("sleep_time"),
-                profile.get("water_reminders", 1),
-                profile.get("water_drunk_today", 0),
-                profile.get("last_water_notification", ""),
-                profile.get("calories_today", 0),
-                profile.get("proteins_today", 0),
-                profile.get("fats_today", 0),
-                profile.get("carbs_today", 0),
-                profile.get("last_nutrition_update", date.today().isoformat()),
-                reminders,
-                nutrition_history
-            ))
+            # First check if nutrition_history column exists
+            cursor.execute("""
+                SELECT COLUMN_NAME 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'user_profiles'
+                AND COLUMN_NAME = 'nutrition_history'
+            """)
+            has_nutrition_history = cursor.fetchone() is not None
+            
+            if has_nutrition_history:
+                cursor.execute('''
+                INSERT INTO user_profiles (
+                    user_id, language, name, gender, age, weight, height, goal, activity, diet, 
+                    health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
+                    water_reminders, water_drunk_today, last_water_notification,
+                    calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
+                    reminders, nutrition_history
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                    %s, %s, %s, %s, %s, %s, %s, 
+                    %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s
+                )
+                ON DUPLICATE KEY UPDATE
+                    language = VALUES(language),
+                    name = VALUES(name),
+                    gender = VALUES(gender),
+                    age = VALUES(age),
+                    weight = VALUES(weight),
+                    height = VALUES(height),
+                    goal = VALUES(goal),
+                    activity = VALUES(activity),
+                    diet = VALUES(diet),
+                    health = VALUES(health),
+                    equipment = VALUES(equipment),
+                    target_metric = VALUES(target_metric),
+                    unique_facts = VALUES(unique_facts),
+                    timezone = VALUES(timezone),
+                    wakeup_time = VALUES(wakeup_time),
+                    sleep_time = VALUES(sleep_time),
+                    water_reminders = VALUES(water_reminders),
+                    water_drunk_today = VALUES(water_drunk_today),
+                    last_water_notification = VALUES(last_water_notification),
+                    calories_today = VALUES(calories_today),
+                    proteins_today = VALUES(proteins_today),
+                    fats_today = VALUES(fats_today),
+                    carbs_today = VALUES(carbs_today),
+                    last_nutrition_update = VALUES(last_nutrition_update),
+                    reminders = VALUES(reminders),
+                    nutrition_history = VALUES(nutrition_history)
+                ''', (
+                    user_id,
+                    profile.get("language"),
+                    profile.get("name"),
+                    profile.get("gender"),
+                    profile.get("age"),
+                    profile.get("weight"),
+                    profile.get("height"),
+                    profile.get("goal"),
+                    profile.get("activity"),
+                    profile.get("diet"),
+                    profile.get("health"),
+                    profile.get("equipment"),
+                    profile.get("target_metric"),
+                    profile.get("unique_facts"),
+                    profile.get("timezone"),
+                    profile.get("wakeup_time"),
+                    profile.get("sleep_time"),
+                    profile.get("water_reminders", 1),
+                    profile.get("water_drunk_today", 0),
+                    profile.get("last_water_notification", ""),
+                    profile.get("calories_today", 0),
+                    profile.get("proteins_today", 0),
+                    profile.get("fats_today", 0),
+                    profile.get("carbs_today", 0),
+                    profile.get("last_nutrition_update", date.today().isoformat()),
+                    reminders,
+                    nutrition_history
+                ))
+            else:
+                # Fallback without nutrition_history column
+                cursor.execute('''
+                INSERT INTO user_profiles (
+                    user_id, language, name, gender, age, weight, height, goal, activity, diet, 
+                    health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
+                    water_reminders, water_drunk_today, last_water_notification,
+                    calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
+                    reminders
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                    %s, %s, %s, %s, %s, %s, %s, 
+                    %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s
+                )
+                ON DUPLICATE KEY UPDATE
+                    language = VALUES(language),
+                    name = VALUES(name),
+                    gender = VALUES(gender),
+                    age = VALUES(age),
+                    weight = VALUES(weight),
+                    height = VALUES(height),
+                    goal = VALUES(goal),
+                    activity = VALUES(activity),
+                    diet = VALUES(diet),
+                    health = VALUES(health),
+                    equipment = VALUES(equipment),
+                    target_metric = VALUES(target_metric),
+                    unique_facts = VALUES(unique_facts),
+                    timezone = VALUES(timezone),
+                    wakeup_time = VALUES(wakeup_time),
+                    sleep_time = VALUES(sleep_time),
+                    water_reminders = VALUES(water_reminders),
+                    water_drunk_today = VALUES(water_drunk_today),
+                    last_water_notification = VALUES(last_water_notification),
+                    calories_today = VALUES(calories_today),
+                    proteins_today = VALUES(proteins_today),
+                    fats_today = VALUES(fats_today),
+                    carbs_today = VALUES(carbs_today),
+                    last_nutrition_update = VALUES(last_nutrition_update),
+                    reminders = VALUES(reminders)
+                ''', (
+                    user_id,
+                    profile.get("language"),
+                    profile.get("name"),
+                    profile.get("gender"),
+                    profile.get("age"),
+                    profile.get("weight"),
+                    profile.get("height"),
+                    profile.get("goal"),
+                    profile.get("activity"),
+                    profile.get("diet"),
+                    profile.get("health"),
+                    profile.get("equipment"),
+                    profile.get("target_metric"),
+                    profile.get("unique_facts"),
+                    profile.get("timezone"),
+                    profile.get("wakeup_time"),
+                    profile.get("sleep_time"),
+                    profile.get("water_reminders", 1),
+                    profile.get("water_drunk_today", 0),
+                    profile.get("last_water_notification", ""),
+                    profile.get("calories_today", 0),
+                    profile.get("proteins_today", 0),
+                    profile.get("fats_today", 0),
+                    profile.get("carbs_today", 0),
+                    profile.get("last_nutrition_update", date.today().isoformat()),
+                    reminders
+                ))
+                
+                # Try to add the column if it doesn't exist
+                try:
+                    cursor.execute("ALTER TABLE user_profiles ADD COLUMN nutrition_history JSON DEFAULT NULL")
+                    conn.commit()
+                    print("Added nutrition_history column to user_profiles table")
+                except Exception as e:
+                    print(f"Failed to add nutrition_history column: {e}")
+                
         conn.commit()
     except Exception as e:
         print(f"Ошибка при сохранении профиля: {e}")
         raise
     finally:
         conn.close()
-
 
 async def add_meal_to_history(user_id: int, meal_type: str, meal_data: dict):
     """Добавляет запись о приеме пищи в историю"""
