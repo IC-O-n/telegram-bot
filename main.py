@@ -972,7 +972,8 @@ async def reset(update: Update, context: CallbackContext) -> None:
                     fats_today = 0,
                     carbs_today = 0,
                     last_nutrition_update = NULL,
-                    reminders = NULL
+                    reminders = NULL,
+                    meal_history = 0
                 WHERE user_id = %s
             """, (user_id,))
         conn.commit()
