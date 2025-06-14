@@ -81,7 +81,7 @@ def init_db():
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
                     reminders TEXT,
-                    nutrition_history TEXT
+                    nutrition_history JSON
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -1381,7 +1381,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - carbs_today INTEGER
 - last_nutrition_update DATE
 - reminders TEXT
-- nutrition_history TEXT
+- nutrition_history JSON
 
 Твоя задача:
 
@@ -1555,34 +1555,32 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
            - [текст напоминания 1] в [время]
            - [текст напоминания 2] в [время]"
 
-22. При анализе приема пищи (фото/текст):
-    - Если это явно еда (по контексту или описанию), сохрани данные:
-      SQL:
-      UPDATE user_profiles 
-      SET nutrition_history = CONCAT(
-          IFNULL(nutrition_history, '{}'),
-          JSON_OBJECT(
-              DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
-              JSON_OBJECT(
-                  CASE 
-                      WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
-                      WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
-                      WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
-                      ELSE 'snack'
-                  END,
-                  JSON_OBJECT(
-                      'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-                      'food', %s,
-                      'calories', %s,
-                      'proteins', %s,
-                      'fats', %s,
-                      'carbs', %s
-                  )
-              )
-          )
-      )
-      WHERE user_id = %s;
-      Параметры: [описание, калории, белки, жиры, углеводы, user_id]
+22. При анализе приема пищи:
+    SQL:
+    UPDATE user_profiles 
+    SET nutrition_history = CONCAT(
+        IFNULL(nutrition_history, '{}'),
+        JSON_OBJECT(
+            DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
+            JSON_OBJECT(
+                CASE 
+                    WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
+                    WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
+                    WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
+                    ELSE 'snack'
+                END,
+                JSON_OBJECT(
+                    'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
+                    'food', '[описание блюда]',
+                    'calories', [калории],
+                    'proteins', [белки],
+                    'fats', [жиры],
+                    'carbs', [углеводы]
+                )
+            )
+        )
+    )
+    WHERE user_id = %s;
 
 23. При исправлении информации о еде:
     - Если пользователь явно исправляет предыдущий анализ (например: "нет, там было 200г гречки"):
@@ -1679,11 +1677,9 @@ TEXT: ...
 
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
 
-    try:
+                try:
         response = model.generate_content(contents)
         response_text = response.text.strip()
-
-        # Сохраняем последний ответ бота в контексте
         context.user_data['last_bot_reply'] = response_text
 
         # Разделяем SQL и TEXT части ответа
@@ -1705,25 +1701,61 @@ TEXT: ...
                 )
                 cursor = conn.cursor()
 
-                # Дополнительная обработка SQL-запроса
-                sql_part = sql_part.replace('?', '%s')
+                # Обработка параметров для разных типов запросов
+                if "nutrition_history" in sql_part:
+                    # Для запроса с nutrition_history
+                    food_desc = re.search(r"'food',\s*'([^']*)'", sql_part)
+                    calories = re.search(r"'calories',\s*(\d+)", sql_part)
+                    proteins = re.search(r"'proteins',\s*(\d+)", sql_part)
+                    fats = re.search(r"'fats',\s*(\d+)", sql_part)
+                    carbs = re.search(r"'carbs',\s*(\d+)", sql_part)
+                    
+                    if all([food_desc, calories, proteins, fats, carbs]):
+                        # Создаем параметризованный запрос
+                        param_sql = re.sub(r"'food',\s*'[^']*'", "%s", sql_part)
+                        param_sql = re.sub(r"'calories',\s*\d+", "%s", param_sql)
+                        param_sql = re.sub(r"'proteins',\s*\d+", "%s", param_sql)
+                        param_sql = re.sub(r"'fats',\s*\d+", "%s", param_sql)
+                        param_sql = re.sub(r"'carbs',\s*\d+", "%s", param_sql)
+                        param_sql = re.sub(r'%%s', "%s", param_sql)  # Заменяем %%s на %s
+                        
+                        params = (
+                            food_desc.group(1),
+                            int(calories.group(1)),
+                            int(proteins.group(1)),
+                            int(fats.group(1)),
+                            int(carbs.group(1)),
+                            user_id
+                        )
+                        cursor.execute(param_sql, params)
                 
-                # Заменяем одиночные % на %% для MySQL функций типа DATE_FORMAT
-                sql_part = re.sub(r'(?<!%)%(?!%)', '%%', sql_part)
+                elif "reminders" in sql_part:
+                    # Для запроса с reminders
+                    reminder_text = re.search(r'"text":\s*"([^"]*)"', sql_part)
+                    reminder_time = re.search(r'"time":\s*"([^"]*)"', sql_part)
+                    
+                    if all([reminder_text, reminder_time]):
+                        reminders_json = json.dumps([{
+                            "text": reminder_text.group(1),
+                            "time": reminder_time.group(1),
+                            "last_sent": None
+                        }])
+                        
+                        param_sql = "UPDATE user_profiles SET reminders = %s WHERE user_id = %s"
+                        cursor.execute(param_sql, (reminders_json, user_id))
                 
-                # Проверяем, содержит ли SQL-запрос параметры
-                if "%s" in sql_part:
-                    # Для запросов с параметрами
-                    cursor.execute(sql_part, (user_id,))
                 else:
-                    # Для запросов без параметров
-                    cursor.execute(sql_part)
+                    # Для других запросов
+                    sql_part = re.sub(r'%%s', "%s", sql_part)
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
 
                 conn.commit()
                 conn.close()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
-                # Логируем ошибку, но не показываем пользователю
                 print(f"SQL запрос: {sql_part}")
                 # Можно добавить логирование ошибки, но не показываем пользователю
 
