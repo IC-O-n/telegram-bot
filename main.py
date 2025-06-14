@@ -929,7 +929,8 @@ async def reset(update: Update, context: CallbackContext) -> None:
                     fats_today = 0,
                     carbs_today = 0,
                     last_nutrition_update = NULL,
-                    reminders = NULL
+                    reminders = NULL,
+                    nutrition_history = NULL
                 WHERE user_id = %s
             """, (user_id,))
         conn.commit()
@@ -1607,31 +1608,51 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
            - [текст напоминания 2] в [время]"
 
 22. При анализе приема пищи:
-    SQL:
-    UPDATE user_profiles 
-    SET nutrition_history = CONCAT(
-        IFNULL(nutrition_history, '{}'),
-        JSON_OBJECT(
-            DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
-            JSON_OBJECT(
-                CASE 
-                    WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
-                    WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
-                    WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
-                    ELSE 'snack'
-                END,
-                JSON_OBJECT(
-                    'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-                    'food', '[описание блюда]',
-                    'calories', [калории],
-                    'proteins', [белки],
-                    'fats', [жиры],
-                    'carbs', [углеводы]
-                )
-            )
-        )
-    )
-    WHERE user_id = %s;
+    - Всегда определяй тип приема пищи по времени пользователя с учетом его часового пояса:
+      * Завтрак: 5:00-10:59 (по времени пользователя)
+      * Обед: 11:00-15:59
+      * Ужин: 16:00-21:59
+      * Перекус: в остальное время
+    - Формат хранения в nutrition_history:
+      {
+        "дата": {
+          "breakfast/lunch/dinner/snack": {
+            "time": "ЧЧ:ММ",
+            "food": "описание",
+            "calories": X,
+            "proteins": X,
+            "fats": X,
+            "carbs": X
+          }
+        }
+      }
+    - SQL для добавления:
+      SQL:
+      UPDATE user_profiles 
+      SET 
+          nutrition_history = JSON_MERGE_PATCH(
+              IFNULL(nutrition_history, '{}'),
+              JSON_OBJECT(
+                  %s,  -- дата
+                  JSON_OBJECT(
+                      %s,  -- тип приема пищи (определяется по времени)
+                      JSON_OBJECT(
+                          'time', %s,  -- время (по часовому поясу пользователя)
+                          'food', %s,  -- описание
+                          'calories', %s,
+                          'proteins', %s,
+                          'fats', %s,
+                          'carbs', %s
+                      )
+                  )
+              )
+          ),
+          calories_today = calories_today + %s,
+          proteins_today = proteins_today + %s,
+          fats_today = fats_today + %s,
+          carbs_today = carbs_today + %s,
+          last_nutrition_update = %s
+      WHERE user_id = %s
 
 23. При исправлении информации о еде:
     - Если пользователь явно исправляет предыдущий анализ (например: "нет, там было 200г гречки"):
@@ -1757,8 +1778,14 @@ TEXT: ...
         
                 # Обработка запросов с nutrition_history
                 if "nutrition_history" in sql_part:
-                    # Определяем тип приема пищи
-                    current_hour = datetime.now().hour
+                    # Получаем часовой пояс пользователя
+                    cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
+                    tz_result = cursor.fetchone()
+                    tz = pytz.timezone(tz_result['timezone']) if tz_result and tz_result['timezone'] else pytz.UTC
+                    user_time = datetime.now(tz)
+                    
+                    # Определяем тип приема пищи по времени пользователя
+                    current_hour = user_time.hour
                     if 5 <= current_hour <= 10:
                         meal_type = 'breakfast'
                     elif 11 <= current_hour <= 15:
@@ -1767,7 +1794,7 @@ TEXT: ...
                         meal_type = 'dinner'
                     else:
                         meal_type = 'snack'
-            
+                    
                     # Извлекаем данные из запроса
                     food_match = re.search(r"'food',\s*'([^']*)'", sql_part)
                     calories_match = re.search(r"'calories',\s*(\d+)", sql_part)
@@ -1776,25 +1803,33 @@ TEXT: ...
                     carbs_match = re.search(r"'carbs',\s*(\d+)", sql_part)
             
                     if all([food_match, calories_match, proteins_match, fats_match, carbs_match]):
+                        # Формируем данные для вставки
+                        today = user_time.date().isoformat()
+                        meal_time = user_time.strftime("%H:%M")
+                        food_desc = food_match.group(1)
+                        calories = int(calories_match.group(1))
+                        proteins = int(proteins_match.group(1))
+                        fats = int(fats_match.group(1))
+                        carbs = int(carbs_match.group(1))
+                        
                         # Получаем текущую историю питания
                         cursor.execute("SELECT nutrition_history FROM user_profiles WHERE user_id = %s", (user_id,))
                         result = cursor.fetchone()
                         current_history = json.loads(result['nutrition_history']) if result and result['nutrition_history'] else {}
-                
-                        # Обновляем историю для текущей даты
-                        today = date.today().isoformat()
+                        
+                        # Обновляем историю
                         if today not in current_history:
                             current_history[today] = {}
-                
+                        
                         current_history[today][meal_type] = {
-                            'time': datetime.now().strftime("%H:%M"),
-                            'food': food_match.group(1),
-                            'calories': int(calories_match.group(1)),
-                            'proteins': int(proteins_match.group(1)),
-                            'fats': int(fats_match.group(1)),
-                            'carbs': int(carbs_match.group(1))
+                            'time': meal_time,
+                            'food': food_desc,
+                            'calories': calories,
+                            'proteins': proteins,
+                            'fats': fats,
+                            'carbs': carbs
                         }
-                
+                        
                         # Обновляем базу данных
                         update_sql = """
                         UPDATE user_profiles 
@@ -1804,15 +1839,16 @@ TEXT: ...
                             proteins_today = proteins_today + %s,
                             fats_today = fats_today + %s,
                             carbs_today = carbs_today + %s,
-                            last_nutrition_update = CURRENT_DATE
+                            last_nutrition_update = %s
                         WHERE user_id = %s
                         """
                         cursor.execute(update_sql, (
                             json.dumps(current_history),
-                            int(calories_match.group(1)),
-                            int(proteins_match.group(1)),
-                            int(fats_match.group(1)),
-                            int(carbs_match.group(1)),
+                            calories,
+                            proteins,
+                            fats,
+                            carbs,
+                            today,
                             user_id
                         ))
                 else:
@@ -1827,7 +1863,6 @@ TEXT: ...
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
                 print(f"SQL запрос: {sql_part}")
-                # Можно добавить логирование ошибки, но не показываем пользователю
 
         # Остальная часть функции остается без изменений
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
