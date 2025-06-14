@@ -1683,43 +1683,93 @@ TEXT: ...
 
         # Execute SQL queries if any
         if sql_queries:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            )
-            
-            try:
-                with conn.cursor() as cursor:
-                    for sql in sql_queries:
-                        try:
-                            # Clean up the SQL query
-                            sql = sql.strip()
-                            if not sql:
-                                continue
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    
+    try:
+        with conn.cursor() as cursor:
+            for sql in sql_queries:
+                try:
+                    # Clean up the SQL query
+                    sql = sql.strip()
+                    if not sql:
+                        continue
+                        
+                    # Replace JSON_MERGE_PATCH with compatible approach
+                    if 'JSON_MERGE_PATCH' in sql:
+                        # First get current nutrition_history
+                        cursor.execute("SELECT nutrition_history FROM user_profiles WHERE user_id = %s", 
+                                     (update.message.from_user.id,))
+                        result = cursor.fetchone()
+                        current_history = json.loads(result['nutrition_history']) if result and result['nutrition_history'] else {}
+                        
+                        # Parse the new meal data from the SQL
+                        date_match = re.search(r"DATE_FORMAT\(CURRENT_DATE, '%Y-%m-%d'\)", sql)
+                        meal_match = re.search(r"'(\w+)', JSON_OBJECT\(([^)]+)", sql)
+                        
+                        if date_match and meal_match:
+                            meal_type = meal_match.group(1)
+                            meal_data = meal_match.group(2)
+                            
+                            # Parse meal details
+                            time_match = re.search(r"'time', '?([^',]+)'?", meal_data)
+                            food_match = re.search(r"'food', '?([^',]+)'?", meal_data)
+                            calories_match = re.search(r"'calories', (\d+)", meal_data)
+                            proteins_match = re.search(r"'proteins', (\d+)", meal_data)
+                            fats_match = re.search(r"'fats', (\d+)", meal_data)
+                            carbs_match = re.search(r"'carbs', (\d+)", meal_data)
+                            
+                            if all([time_match, food_match, calories_match, proteins_match, fats_match, carbs_match]):
+                                today = date.today().isoformat()
+                                if today not in current_history:
+                                    current_history[today] = {}
                                 
-                            # Remove any non-SQL parts that might have been included
-                            sql = re.sub(r'TEXT:.*', '', sql, flags=re.DOTALL).strip()
-                            
-                            # Replace SQLite placeholders with MySQL placeholders
-                            sql = sql.replace('?', '%s')
-                            
-                            # Execute the query
-                            if '%s' in sql:
-                                cursor.execute(sql, (update.message.from_user.id,))
-                            else:
-                                cursor.execute(sql)
-                            
-                            conn.commit()
-                        except Exception as e:
-                            print(f"Error executing SQL: {e}")
-                            print(f"Problematic SQL: {sql}")
-                            continue
-            finally:
-                conn.close()
+                                current_history[today][meal_type] = {
+                                    'time': time_match.group(1),
+                                    'food': food_match.group(1),
+                                    'calories': int(calories_match.group(1)),
+                                    'proteins': int(proteins_match.group(1)),
+                                    'fats': int(fats_match.group(1)),
+                                    'carbs': int(carbs_match.group(1))
+                                }
+                                
+                                # Update nutrition_history
+                                cursor.execute("""
+                                    UPDATE user_profiles 
+                                    SET nutrition_history = %s 
+                                    WHERE user_id = %s
+                                """, (json.dumps(current_history, ensure_ascii=False), update.message.from_user.id))
+                                
+                                # Execute the nutrition update part separately
+                                nutrition_update = re.search(r"UPDATE.*?WHERE user_id = \d+", sql, re.DOTALL)
+                                if nutrition_update:
+                                    nutrition_sql = nutrition_update.group(0).replace('?', '%s')
+                                    cursor.execute(nutrition_sql, (update.message.from_user.id,))
+                                
+                                conn.commit()
+                                continue
+                    
+                    # For regular SQL queries
+                    sql = sql.replace('?', '%s')
+                    
+                    if '%s' in sql:
+                        cursor.execute(sql, (update.message.from_user.id,))
+                    else:
+                        cursor.execute(sql)
+                    
+                    conn.commit()
+                except Exception as e:
+                    print(f"Error executing SQL: {e}")
+                    print(f"Problematic SQL: {sql}")
+                    continue
+    finally:
+        conn.close()
 
         # Prepare the text response
         if text_parts:
