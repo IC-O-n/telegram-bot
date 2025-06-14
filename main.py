@@ -1663,12 +1663,12 @@ TEXT: ...
         for part in parts:
             if part == 'SQL:':
                 if current_type == 'TEXT' and current_content:
-                    text_parts.append(''.join(current_content).strip()
+                    text_parts.append(''.join(current_content).strip())
                     current_content = []
                 current_type = 'SQL'
             elif part == 'TEXT:':
                 if current_type == 'SQL' and current_content:
-                    sql_queries.append(''.join(current_content).strip()
+                    sql_queries.append(''.join(current_content).strip())
                     current_content = []
                 current_type = 'TEXT'
             else:
