@@ -1161,7 +1161,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - сообщениями после изображения (например, "добавь это в инвентарь")
 - уникальными фактами о пользователе (например, "я люблю плавание", "у меня была травма колена", "я вегетарианец 5 лет", "люблю кофе по вечерам")
 
-В базе данных есть таблица user_profiles с колонками:
+В базе данных MySQL есть таблица user_profiles с колонками:
 - user_id INTEGER PRIMARY KEY
 - language TEXT
 - name TEXT
@@ -1333,7 +1333,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
    - Найди соответствующее напоминание в списке (поле reminders)
    - Удали его из списка
    - SQL для обновления:
-     SQL: UPDATE user_profiles SET reminders = %s WHERE user_id = %s
+     SQL: UPDATE user_profiles SET reminders = ? WHERE user_id = ?
    - Ответь пользователю:
      TEXT: [подтверждение удаления напоминания]
 
@@ -1483,6 +1483,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
 
 
 
