@@ -1120,10 +1120,6 @@ async def get_nutrition_history(user_id: int) -> dict:
 
 
 async def analyze_metabolism(user_id: int, language: str = "ru") -> str:
-    """
-    Анализирует метаболизм на основе истории питания за последние 3 дня
-    Возвращает готовый текстовый ответ для пользователя
-    """
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -1135,18 +1131,25 @@ async def analyze_metabolism(user_id: int, language: str = "ru") -> str:
     
     try:
         with conn.cursor() as cursor:
-            # Получаем историю питания
+            # Получаем данные за последние 3 дня
             cursor.execute("""
                 SELECT 
-                    JSON_EXTRACT(nutrition_history, '$') as history
+                    JSON_EXTRACT(
+                        nutrition_history,
+                        CONCAT(
+                            '$.\"', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '\",',
+                            '$.\"', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), '\",',
+                            '$.\"', DATE_FORMAT(CURDATE(), '\"')
+                    ) as history
                 FROM user_profiles 
                 WHERE user_id = %s
             """, (user_id,))
-            result = cursor.fetchone()
             
+            result = cursor.fetchone()
             if not result or not result['history']:
-                return "Недостаточно данных для анализа. Отправьте информацию о нескольких приемах пищи." if language == "ru" else "Not enough data for analysis."
-
+                return "Недостаточно данных" if language == "ru" else "Not enough data"
+            
+            # Дополнительная обработка JSON
             history = json.loads(result['history'])
             
             # Анализируем последние 3 дня
@@ -1547,109 +1550,86 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
            - [текст напоминания 1] в [время]
            - [текст напоминания 2] в [время]"
 
-22. При анализе приема пищи (фото/текст):
-    - Если это явно еда (по контексту или описанию), сохрани данные:
-      SQL:
-      SET @meal_data = JSON_OBJECT(
-          'time', DATE_FORMAT(NOW(), '%%H:%%i'),
-          'food', %s,
-          'calories', %s,
-          'proteins', %s,
-          'fats', %s,
-          'carbs', %s
-      );
-      
-      UPDATE user_profiles 
-      SET nutrition_history = JSON_MERGE_PATCH(
-          COALESCE(nutrition_history, '{}'),
-          JSON_OBJECT(
-              DATE_FORMAT(NOW(), '%%Y-%%m-%%d'),
-              JSON_OBJECT(
-                  CASE 
-                      WHEN HOUR(NOW()) BETWEEN 5 AND 10 THEN 'breakfast'
-                      WHEN HOUR(NOW()) BETWEEN 11 AND 15 THEN 'lunch'
-                      WHEN HOUR(NOW()) BETWEEN 16 AND 21 THEN 'dinner'
-                      ELSE 'snack'
-                  END,
-                  @meal_data
-              )
-          )
-      )
-      WHERE user_id = %s;
-      Параметры: [описание, калории, белки, жиры, углеводы, user_id]
+22. При анализе приема пищи:
+    SQL:
+    UPDATE user_profiles 
+    SET nutrition_history = 
+        JSON_MERGE_PATCH(
+            IFNULL(nutrition_history, JSON_OBJECT()),
+            JSON_OBJECT(
+                DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
+                JSON_OBJECT(
+                    CASE 
+                        WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
+                        WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
+                        WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
+                        ELSE 'snack'
+                    END,
+                    JSON_OBJECT(
+                        'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
+                        'food', %s,
+                        'calories', %s,
+                        'proteins', %s,
+                        'fats', %s,
+                        'carbs', %s
+                    )
+                )
+            )
+        )
+    WHERE user_id = %s;
+    Параметры: [описание, калории, белки, жиры, углеводы, user_id]
 
-23. При исправлении информации о еде:
-    - Если пользователь явно исправляет предыдущий анализ (например: "нет, там было 200г гречки"):
-      SQL:
-      SET @correction = JSON_OBJECT(
-          'time', DATE_FORMAT(NOW(), '%%H:%%i'),
-          'food', %s,
-          'calories', %s,
-          'proteins', %s,
-          'fats', %s,
-          'carbs', %s
-      );
-      
-      UPDATE user_profiles 
-      SET nutrition_history = JSON_REMOVE(
-          nutrition_history,
-          CONCAT('$."', DATE_FORMAT(NOW(), '%%Y-%%m-%%d'), '".', %s
-      ),
-      nutrition_history = JSON_MERGE_PATCH(
-          COALESCE(nutrition_history, '{}'),
-          JSON_OBJECT(
-              DATE_FORMAT(NOW(), '%%Y-%%m-%%d'),
-              JSON_OBJECT(%s, @correction)
-          )
-      )
-      WHERE user_id = %s;
-      Параметры: [новое описание, калории, белки, жиры, углеводы, старый_тип_приема, новый_тип_приема, user_id]
+23. При исправлении информации:
+    SQL:
+    UPDATE user_profiles 
+    SET nutrition_history = 
+        JSON_SET(
+            IFNULL(nutrition_history, JSON_OBJECT()),
+            CONCAT('$."', DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'), '".', %s),
+            JSON_OBJECT(
+                'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
+                'food', %s,
+                'calories', %s,
+                'proteins', %s,
+                'fats', %s,
+                'carbs', %s
+            )
+        )
+    WHERE user_id = %s;
+    Параметры: [тип_приема, описание, калории, белки, жиры, углеводы, user_id]
 
-24. При запросе анализа питания:
-    - Если вопрос касается усвоения пищи, метаболизма или паттернов питания:
-      1. Запроси данные за 3 дня:
-         SET @user_nutrition = (
-             SELECT nutrition_history 
-             FROM user_profiles 
-             WHERE user_id = %s
-         );
-         
-      2. Проанализируй:
-         - Временные интервалы между приемами пищи
-         - Баланс БЖУ
-         - Распределение калорий в течение дня
-         
-      3. Сформируй ответ в формате:
-         TEXT:
-         🔥 Метаболический профиль:
-         • Периодичность питания: X.X ч между приемами
-         • Суточные нормы: 
-           - Белки: XX% (рекомендуется YY%)
-           - Жиры: XX% (рекомендуется YY%)
-           - Углеводы: XX% (рекомендуется YY%)
-         • Пиковые периоды: [время] - [калорийность]
-         💡 Рекомендации: [персонализированные советы]
+24. При запросе анализа:
+    SQL:
+    SELECT 
+        JSON_EXTRACT(nutrition_history, '$."2023-11-20"') as day_data,
+        JSON_LENGTH(nutrition_history) as days_count
+    FROM user_profiles
+    WHERE user_id = %s;
 
-25. Автоматическая очистка данных:
-    - Ежедневно удаляй записи старше 7 дней:
-      SQL:
-      UPDATE user_profiles 
-      SET nutrition_history = (
-          SELECT JSON_OBJECT_AGG(dt, data)
-          FROM (
-              SELECT 
-                  jt.date AS dt,
-                  JSON_EXTRACT(nutrition_history, CONCAT('$."', jt.date, '"')) AS data
-              FROM 
-                  JSON_TABLE(
-                      JSON_KEYS(nutrition_history),
-                      '$[*]' COLUMNS(date VARCHAR(10) PATH '$'
-                  ) AS jt
-              WHERE 
-                  jt.date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 7 DAY), '%%Y-%%m-%%d')
-          ) AS recent_data
-      )
-      WHERE user_id = %s;
+25. Очистка старых данных:
+    SQL:
+    UPDATE user_profiles 
+    SET nutrition_history = (
+        SELECT JSON_OBJECTAGG(jt.date, jt.data)
+        FROM (
+            SELECT 
+                keys.date,
+                JSON_EXTRACT(up.nutrition_history, CONCAT('$."', keys.date, '"')) as data
+            FROM 
+                user_profiles up,
+                JSON_TABLE(
+                    JSON_KEYS(up.nutrition_history),
+                    '$[*]' COLUMNS(
+                        date VARCHAR(10) PATH '$'
+                    )
+                ) as keys
+            WHERE 
+                up.user_id = %s
+                AND STR_TO_DATE(keys.date, '%%Y-%%m-%%d') >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        ) as filtered_data
+    )
+    WHERE user_id = %s;
+
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
