@@ -81,7 +81,7 @@ def init_db():
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
                     reminders TEXT,
-                    meal_history JSON DEFAULT 0
+                    meal_history JSON
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -101,7 +101,7 @@ def init_db():
             if 'meal_history' not in existing_columns:
                 cursor.execute("""
                     ALTER TABLE user_profiles
-                    ADD COLUMN meal_history JSON DEFAULT 0
+                    ADD COLUMN meal_history JSON
                 """)
             
         conn.commit()
