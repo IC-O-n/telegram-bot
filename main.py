@@ -1118,6 +1118,7 @@ async def get_nutrition_history(user_id: int) -> dict:
     finally:
         conn.close()
 
+
 async def analyze_metabolism(user_id: int, language: str = "ru") -> str:
     """
     Анализирует метаболизм на основе истории питания за последние 3 дня
