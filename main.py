@@ -81,7 +81,7 @@ def init_db():
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
                     reminders TEXT,
-                    nutrition_history JSON
+                    nutrition_history JSON DEFAULT NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -97,6 +97,9 @@ def init_db():
             # Добавляем недостающие колонки
             if 'reminders' not in existing_columns:
                 cursor.execute("ALTER TABLE user_profiles ADD COLUMN reminders TEXT")
+            
+            if 'nutrition_history' not in existing_columns:
+                cursor.execute("ALTER TABLE user_profiles ADD COLUMN nutrition_history JSON DEFAULT NULL")
             
         conn.commit()
     except Exception as e:
@@ -1299,6 +1302,54 @@ def get_metabolism_advice(analysis: dict, language: str) -> str:
     return "\n".join(advice) if advice else ("Нет особых рекомендаций." if language == "ru" else "No special recommendations.")
 
 
+async def clean_old_nutrition_data():
+    """Очищает данные о питании старше 7 дней"""
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+
+    try:
+        with conn.cursor() as cursor:
+            # Получаем всех пользователей
+            cursor.execute("SELECT user_id, nutrition_history FROM user_profiles WHERE nutrition_history IS NOT NULL")
+            users = cursor.fetchall()
+
+            for user in users:
+                if not user['nutrition_history']:
+                    continue
+
+                try:
+                    history = json.loads(user['nutrition_history'])
+                    seven_days_ago = (date.today() - timedelta(days=7)).isoformat()
+
+                    # Фильтруем данные, оставляя только последние 7 дней
+                    filtered_history = {
+                        date: meals for date, meals in history.items()
+                        if date >= seven_days_ago
+                    }
+
+                    # Обновляем базу данных
+                    cursor.execute("""
+                        UPDATE user_profiles
+                        SET nutrition_history = %s
+                        WHERE user_id = %s
+                    """, (json.dumps(filtered_history), user['user_id']))
+
+                except json.JSONDecodeError:
+                    continue
+
+        conn.commit()
+    except Exception as e:
+        print(f"Ошибка при очистке старых данных о питании: {e}")
+    finally:
+        conn.close()
+
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
@@ -1701,57 +1752,54 @@ TEXT: ...
                 )
                 cursor = conn.cursor()
 
+                # Заменяем параметры с ? на %s для MySQL
+                sql_part = sql_part.replace('?', '%s')
+        
                 # Обработка запросов с nutrition_history
                 if "nutrition_history" in sql_part:
-                    # Извлекаем параметры из запроса
-                    food_desc = re.search(r"'food',\s*'([^']*)'", sql_part)
-                    calories = re.search(r"'calories',\s*(\d+)", sql_part)
-                    proteins = re.search(r"'proteins',\s*(\d+)", sql_part)
-                    fats = re.search(r"'fats',\s*(\d+)", sql_part)
-                    carbs = re.search(r"'carbs',\s*(\d+)", sql_part)
-                    
-                    if all([food_desc, calories, proteins, fats, carbs]):
-                        # Формируем безопасный запрос с параметрами
-                        safe_sql = """
-                        UPDATE user_profiles 
-                        SET nutrition_history = JSON_MERGE_PATCH(
-                            IFNULL(nutrition_history, '{}'),
-                            JSON_OBJECT(
-                                DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
-                                JSON_OBJECT(
-                                    CASE 
-                                        WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
-                                        WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
-                                        WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
-                                        ELSE 'snack'
-                                    END,
-                                    JSON_OBJECT(
-                                        'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-                                        'food', %s,
-                                        'calories', %s,
-                                        'proteins', %s,
-                                        'fats', %s,
-                                        'carbs', %s
-                                    )
-                                )
-                            )
-                        )
-                        WHERE user_id = %s
-                        """
-                        params = (
-                            food_desc.group(1),
-                            int(calories.group(1)),
-                            int(proteins.group(1)),
-                            int(fats.group(1)),
-                            int(carbs.group(1)),
-                            user_id
-                        )
-                        cursor.execute(safe_sql, params)
-                        
-                        # Выполняем второй запрос для обновления дневных показателей
+                    # Определяем тип приема пищи
+                    current_hour = datetime.now().hour
+                    if 5 <= current_hour <= 10:
+                        meal_type = 'breakfast'
+                    elif 11 <= current_hour <= 15:
+                        meal_type = 'lunch'
+                    elif 16 <= current_hour <= 21:
+                        meal_type = 'dinner'
+                    else:
+                        meal_type = 'snack'
+            
+                    # Извлекаем данные из запроса
+                    food_match = re.search(r"'food',\s*'([^']*)'", sql_part)
+                    calories_match = re.search(r"'calories',\s*(\d+)", sql_part)
+                    proteins_match = re.search(r"'proteins',\s*(\d+)", sql_part)
+                    fats_match = re.search(r"'fats',\s*(\d+)", sql_part)
+                    carbs_match = re.search(r"'carbs',\s*(\d+)", sql_part)
+            
+                    if all([food_match, calories_match, proteins_match, fats_match, carbs_match]):
+                        # Получаем текущую историю питания
+                        cursor.execute("SELECT nutrition_history FROM user_profiles WHERE user_id = %s", (user_id,))
+                        result = cursor.fetchone()
+                        current_history = json.loads(result['nutrition_history']) if result and result['nutrition_history'] else {}
+                
+                        # Обновляем историю для текущей даты
+                        today = date.today().isoformat()
+                        if today not in current_history:
+                            current_history[today] = {}
+                
+                        current_history[today][meal_type] = {
+                            'time': datetime.now().strftime("%H:%M"),
+                            'food': food_match.group(1),
+                            'calories': int(calories_match.group(1)),
+                            'proteins': int(proteins_match.group(1)),
+                            'fats': int(fats_match.group(1)),
+                            'carbs': int(carbs_match.group(1))
+                        }
+                
+                        # Обновляем базу данных
                         update_sql = """
                         UPDATE user_profiles 
                         SET 
+                            nutrition_history = %s,
                             calories_today = calories_today + %s,
                             proteins_today = proteins_today + %s,
                             fats_today = fats_today + %s,
@@ -1760,16 +1808,20 @@ TEXT: ...
                         WHERE user_id = %s
                         """
                         cursor.execute(update_sql, (
-                            int(calories.group(1)),
-                            int(proteins.group(1)),
-                            int(fats.group(1)),
-                            int(carbs.group(1)),
+                            json.dumps(current_history),
+                            int(calories_match.group(1)),
+                            int(proteins_match.group(1)),
+                            int(fats_match.group(1)),
+                            int(carbs_match.group(1)),
                             user_id
                         ))
-                
-                # Обработка других типов запросов остается без изменений
-                # ...
-
+                else:
+                    # Обработка обычных запросов
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
+        
                 conn.commit()
                 conn.close()
             except Exception as e:
@@ -1807,6 +1859,13 @@ def main():
         check_reminders,
         interval=60,  # Проверяем каждую минуту
         first=10      # Первая проверка через 10 секунд
+    )
+
+    # Добавляем job для очистки старых данных о питании (раз в сутки)
+    app.job_queue.run_daily(
+        clean_old_nutrition_data,
+        time=time(3, 0),  # В 3:00 ночи
+        days=(0, 1, 2, 3, 4, 5, 6),  # Каждый день
     )
 
     conv_handler = ConversationHandler(
