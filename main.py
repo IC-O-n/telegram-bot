@@ -80,8 +80,9 @@ def init_db():
                     fats_today INT DEFAULT 0,
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
-                    reminders TEXT
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    reminders TEXT,
+                    meal_history TEXT
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
             # Проверяем существование колонок и добавляем их, если нужно
@@ -91,12 +92,16 @@ def init_db():
                 WHERE TABLE_SCHEMA = DATABASE() 
                 AND TABLE_NAME = 'user_profiles'
             """)
+
             existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
             
             # Добавляем недостающие колонки
             if 'reminders' not in existing_columns:
                 cursor.execute("ALTER TABLE user_profiles ADD COLUMN reminders TEXT")
             
+            if 'meal_history' not in existing_columns:
+                cursor.execute("ALTER TABLE user_profiles ADD COLUMN meal_history TEXT")
+
         conn.commit()
     except Exception as e:
         print(f"Ошибка при инициализации базы данных: {e}")
@@ -117,20 +122,21 @@ def save_user_profile(user_id: int, profile: dict):
     
     try:
         with conn.cursor() as cursor:
-            # Добавляем поле reminders в запрос и обработку
             reminders = json.dumps(profile.get("reminders", []))
+            meal_history = json.dumps(profile.get("meal_history", {}))
             
             cursor.execute('''
             INSERT INTO user_profiles (
                 user_id, language, name, gender, age, weight, height, goal, activity, diet, 
                 health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
                 water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, reminders
+                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
+                reminders, meal_history
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s,
-                %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s
             )
             ON DUPLICATE KEY UPDATE
                 language = VALUES(language),
@@ -157,7 +163,8 @@ def save_user_profile(user_id: int, profile: dict):
                 fats_today = VALUES(fats_today),
                 carbs_today = VALUES(carbs_today),
                 last_nutrition_update = VALUES(last_nutrition_update),
-                reminders = VALUES(reminders)
+                reminders = VALUES(reminders),
+                meal_history = VALUES(meal_history)
             ''', (
                 user_id,
                 profile.get("language"),
@@ -184,7 +191,8 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("fats_today", 0),
                 profile.get("carbs_today", 0),
                 profile.get("last_nutrition_update", date.today().isoformat()),
-                reminders
+                reminders,
+                meal_history
             ))
         conn.commit()
     except Exception as e:
@@ -206,21 +214,53 @@ async def reset_daily_nutrition_if_needed(user_id: int):
     
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s", (user_id,))
-            result = cursor.fetchone()
+            cursor.execute("""
+                SELECT last_nutrition_update, meal_history 
+                FROM user_profiles 
+                WHERE user_id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
             
-            if result and result['last_nutrition_update']:
-                last_update = result['last_nutrition_update']
-                if last_update < date.today():
-                    cursor.execute('''
+            if row:
+                # Сброс дневных показателей
+                if row['last_nutrition_update'] and row['last_nutrition_update'] < date.today():
+                    cursor.execute("""
                         UPDATE user_profiles 
-                        SET calories_today = 0, proteins_today = 0, fats_today = 0, carbs_today = 0,
-                            last_nutrition_update = %s, water_drunk_today = 0
+                        SET calories_today = 0, proteins_today = 0, 
+                            fats_today = 0, carbs_today = 0,
+                            last_nutrition_update = %s, 
+                            water_drunk_today = 0
                         WHERE user_id = %s
-                    ''', (date.today().isoformat(), user_id))
-                    conn.commit()
+                    """, (date.today().isoformat(), user_id))
+                
+                # Очистка старых записей о питании (старше 7 дней)
+                if row['meal_history']:
+                    try:
+                        meal_data = json.loads(row['meal_history'])
+                        cleaned_data = {}
+                        today = date.today()
+                        
+                        for meal_date, meals in meal_data.items():
+                            meal_date_obj = datetime.strptime(meal_date, "%Y-%m-%d").date()
+                            if (today - meal_date_obj).days <= 7:
+                                cleaned_data[meal_date] = meals
+                        
+                        if len(cleaned_data) < len(meal_data):
+                            cursor.execute("""
+                                UPDATE user_profiles 
+                                SET meal_history = %s 
+                                WHERE user_id = %s
+                            """, (json.dumps(cleaned_data), user_id))
+                    
+                    except json.JSONDecodeError:
+                        print(f"Ошибка парсинга meal_history для пользователя {user_id}")
+                
+                conn.commit()
     finally:
         conn.close()
+
+
+
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -1349,7 +1389,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
    - Найди соответствующее напоминание в списке (поле reminders)
    - Удали его из списка
    - SQL для обновления:
-     SQL: UPDATE user_profiles SET reminders = ? WHERE user_id = ?
+     SQL: UPDATE user_profiles SET reminders = %s WHERE user_id = %s
    - Ответь пользователю:
      TEXT: [подтверждение удаления напоминания]
 
@@ -1360,6 +1400,58 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
      TEXT: "📅 Ваши текущие напоминания:
            - [текст напоминания 1] в [время]
            - [текст напоминания 2] в [время]"
+
+22. Система учета питания (meal_history):
+   - Формат хранения в колонке meal_history (TEXT как JSON):
+     {
+       "дата": {
+         "тип_приема_пищи": {
+           "time": "ЧЧ:ММ",
+           "food": "описание блюда",
+           "calories": X,
+           "proteins": A,
+           "fats": B,
+           "carbs": C
+         },
+         ...
+       },
+       ...
+     }
+
+   - Правила обработки:
+     1. При любом упоминании приема пищи ("завтрак", "обед" и т.д.):
+        • Автоматически фиксировать текущее время
+        • Запрашивать состав блюда, если не указан
+        • Рассчитывать КБЖУ, если не предоставлено
+     2. Для фото еды:
+        • Требовать уточнение типа приема пищи
+        • Анализировать состав автоматически
+     3. Ограничивать историю 7 днями
+
+23. Метаболизм-хаки (анализ питания):
+   При запросах о питании/метаболизме:
+   1. Анализируй данные за 3 дня из meal_history
+   2. Выявляй паттерны:
+      - Интервалы между приемами пищи
+      - Баланс нутриентов по времени суток
+      - Соотношение БЖУ в разные периоды
+   3. Формируй персонализированные рекомендации:
+      TEXT:
+      🔬 Метаболический анализ:
+      • Оптимальное окно питания: 08:00-20:00 (сейчас: 09:00-21:30)
+      • Дефицит белка утром: -15г от нормы
+      • 68% углеводов потребляется после 18:00
+      
+      💡 Персональные хаки:
+      1. Перенесите углеводы на первую половину дня
+      2. Добавьте протеин на завтрак (творог/яйца)
+      3. Сократите интервал ужин-сон до 3 часов
+
+   Примеры триггеров:
+   - "Как ускорить метаболизм?"
+   - "Почему я не худею?"
+   - "Оптимальное время для ужина"
+   - "Анализ моего питания"
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
