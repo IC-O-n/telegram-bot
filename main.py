@@ -118,8 +118,9 @@ def save_user_profile(user_id: int, profile: dict):
     
     try:
         with conn.cursor() as cursor:
-            # Добавляем поле reminders в запрос и обработку
+            # Initialize reminders and nutrition_history with empty values if not present
             reminders = json.dumps(profile.get("reminders", []))
+            nutrition_history = json.dumps(profile.get("nutrition_history", {}))
             
             cursor.execute('''
             INSERT INTO user_profiles (
@@ -158,7 +159,7 @@ def save_user_profile(user_id: int, profile: dict):
                 fats_today = VALUES(fats_today),
                 carbs_today = VALUES(carbs_today),
                 last_nutrition_update = VALUES(last_nutrition_update),
-                reminders = VALUES(reminders)
+                reminders = VALUES(reminders),
                 nutrition_history = VALUES(nutrition_history)
             ''', (
                 user_id,
@@ -195,6 +196,7 @@ def save_user_profile(user_id: int, profile: dict):
         raise
     finally:
         conn.close()
+
 
 async def add_meal_to_history(user_id: int, meal_type: str, meal_data: dict):
     """Добавляет запись о приеме пищи в историю"""
