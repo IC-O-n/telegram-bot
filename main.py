@@ -245,9 +245,11 @@ async def update_meal_history(user_id: int, meal_type: str, food_desc: str, nutr
             cursor.execute(
                 "UPDATE user_profiles SET meal_history = %s WHERE user_id = %s",
                 (json.dumps(history), user_id)
+            )
             conn.commit()
     finally:
         conn.close()
+
 
 async def reset_daily_nutrition_if_needed(user_id: int):
     conn = pymysql.connect(
