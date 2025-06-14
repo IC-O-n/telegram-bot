@@ -1550,83 +1550,101 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
            - [текст напоминания 1] в [время]
            - [текст напоминания 2] в [время]"
 
-22. При анализе приема пищи:
-    SQL:
-    UPDATE user_profiles 
-    SET nutrition_history = 
-        JSON_MERGE_PATCH(
-            IFNULL(nutrition_history, JSON_OBJECT()),
-            JSON_OBJECT(
-                DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
-                JSON_OBJECT(
-                    CASE 
-                        WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
-                        WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
-                        WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
-                        ELSE 'snack'
-                    END,
-                    JSON_OBJECT(
-                        'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-                        'food', %s,
-                        'calories', %s,
-                        'proteins', %s,
-                        'fats', %s,
-                        'carbs', %s
-                    )
-                )
-            )
-        )
-    WHERE user_id = %s;
-    Параметры: [описание, калории, белки, жиры, углеводы, user_id]
+22. При анализе приема пищи (фото/текст):
+    - Если это явно еда (по контексту или описанию), сохрани данные:
+      SQL:
+      UPDATE user_profiles 
+      SET nutrition_history = 
+          JSON_MERGE_PATCH(
+              IFNULL(nutrition_history, JSON_OBJECT()),
+              JSON_OBJECT(
+                  DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
+                  JSON_OBJECT(
+                      CASE 
+                          WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
+                          WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
+                          WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
+                          ELSE 'snack'
+                      END,
+                      JSON_OBJECT(
+                          'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
+                          'food', %s,
+                          'calories', %s,
+                          'proteins', %s,
+                          'fats', %s,
+                          'carbs', %s
+                      )
+                  )
+              )
+          )
+      WHERE user_id = %s;
+      Параметры: [описание, калории, белки, жиры, углеводы, user_id]
 
-23. При исправлении информации:
-    SQL:
-    UPDATE user_profiles 
-    SET nutrition_history = 
-        JSON_SET(
-            IFNULL(nutrition_history, JSON_OBJECT()),
-            CONCAT('$."', DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'), '".', %s),
-            JSON_OBJECT(
-                'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-                'food', %s,
-                'calories', %s,
-                'proteins', %s,
-                'fats', %s,
-                'carbs', %s
-            )
-        )
-    WHERE user_id = %s;
-    Параметры: [тип_приема, описание, калории, белки, жиры, углеводы, user_id]
+23. При исправлении информации о еде:
+    - Если пользователь явно исправляет предыдущий анализ (например: "нет, там было 200г гречки"):
+      SQL:
+      UPDATE user_profiles 
+      SET nutrition_history = 
+          JSON_SET(
+              IFNULL(nutrition_history, JSON_OBJECT()),
+              CONCAT('$."', DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'), '".', %s),
+              JSON_OBJECT(
+                  'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
+                  'food', %s,
+                  'calories', %s,
+                  'proteins', %s,
+                  'fats', %s,
+                  'carbs', %s
+              )
+          )
+      WHERE user_id = %s;
+      Параметры: [тип_приема, новое_описание, калории, белки, жиры, углеводы, user_id]
 
-24. При запросе анализа:
-    SQL:
-    SELECT 
-        JSON_EXTRACT(nutrition_history, '$."2023-11-20"') as day_data,
-        JSON_LENGTH(nutrition_history) as days_count
-    FROM user_profiles
-    WHERE user_id = %s;
+24. При запросе анализа питания/метаболизма:
+    - Если вопрос касается усвоения пищи, метаболизма или паттернов питания:
+      1. Получить данные:
+         SELECT 
+             JSON_EXTRACT(nutrition_history, 
+                 CONCAT('$."', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '%%Y-%%m-%%d'), '"'),
+                 ',"$."', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), '%%Y-%%m-%%d'), '"',
+                 ',"$."', DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'), '"')
+             ) as nutrition_data
+         FROM user_profiles
+         WHERE user_id = %s;
 
-25. Очистка старых данных:
+      2. Проанализировать:
+         - Временные интервалы между приемами
+         - Баланс БЖУ за каждый день
+         - Распределение калорий в течение дня
+
+      3. Ответить в формате:
+         TEXT:
+         🔥 Метаболический анализ:
+         • Периодичность питания: X.X ч между приемами
+         • Среднесуточное потребление:
+           - Калории: XXXX ккал
+           - Белки: XXг (XX%)
+           - Жиры: XXг (XX%)
+           - Углеводы: XXг (XX%)
+         💡 Рекомендации: [персонализированные советы]
+
+25. Автоматическая очистка данных (раз в сутки):
     SQL:
     UPDATE user_profiles 
     SET nutrition_history = (
-        SELECT JSON_OBJECTAGG(jt.date, jt.data)
+        SELECT JSON_OBJECT_AGG(valid_dates.date_value, 
+            JSON_EXTRACT(nutrition_history, CONCAT('$."', valid_dates.date_value, '"')))
         FROM (
-            SELECT 
-                keys.date,
-                JSON_EXTRACT(up.nutrition_history, CONCAT('$."', keys.date, '"')) as data
-            FROM 
-                user_profiles up,
-                JSON_TABLE(
-                    JSON_KEYS(up.nutrition_history),
-                    '$[*]' COLUMNS(
-                        date VARCHAR(10) PATH '$'
-                    )
-                ) as keys
-            WHERE 
-                up.user_id = %s
-                AND STR_TO_DATE(keys.date, '%%Y-%%m-%%d') >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-        ) as filtered_data
+            SELECT DATE_FORMAT(date_range.date, '%%Y-%%m-%%d') as date_value
+            FROM (
+                SELECT CURDATE() - INTERVAL n DAY as date
+                FROM (
+                    SELECT 0 as n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
+                    UNION SELECT 4 UNION SELECT 5 UNION SELECT 6
+                ) as days
+            ) as date_range
+            WHERE date_range.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        ) as valid_dates
     )
     WHERE user_id = %s;
 
