@@ -1362,38 +1362,43 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
            - [текст напоминания 1] в [время]
            - [текст напоминания 2] в [время]"
 
-22. При анализе приема пищи (фото или текст):
-    - Определи тип приема (завтрак/обед/ужин/перекус) по времени:
-      * 05:00-10:00 → завтрак
-      * 10:01-15:00 → обед
-      * 15:01-20:00 → ужин
-      * остальное → перекус
-    - Создай JSON-запись в формате:
+22. При анализе приема пищи:
+    - Всегда используй текущую дату в формате YYYY-MM-DD
+    - Определи тип приема по местному времени пользователя:
+      * 05:00-10:59 → завтрак
+      * 11:00-15:59 → обед
+      * 16:00-21:59 → ужин
+      * иначе → перекус
+    - Формат JSON должен быть ВАЛИДНЫМ (без лишних запятых):
       {
-        "дата_в_формате_YYYY-MM-DD": {
-          "тип_приема_пищи": {
+        "дата": {
+          "тип_приема": {
             "time": "ЧЧ:ММ",
-            "food": "описание блюда",
-            "calories": X,
-            "proteins": A,
-            "fats": B,
-            "carbs": C
+            "food": "описание",
+            "calories": число,
+            "proteins": число,
+            "fats": число,
+            "carbs": число
           }
         }
       }
-    - Обнови поле nutrition_history:
-      SQL: UPDATE user_profiles SET nutrition_history = 
-           JSON_MERGE_PATCH(
-             COALESCE(nutrition_history, '{}'), 
-             %s
-           ) 
+    - SQL-запрос ДОЛЖЕН быть:
+      SQL: UPDATE user_profiles 
+           SET nutrition_history = 
+             CASE 
+               WHEN nutrition_history IS NULL THEN %s
+               ELSE JSON_MERGE_PATCH(nutrition_history, %s)
+             END
            WHERE user_id = %s
-    - В ответе добавь анализ метаболических эффектов:
-      TEXT: 
-      🔥 Метаболизм-хаки:
-      • Оптимальное время для этого приема: [рекомендация]
-      • Сочетаемость: [совет по комбинации продуктов]
-      • Влияние на цели: [анализ по цели пользователя]
+    - Параметры: [VALID_JSON_STRING], user_id
+    - Пример:
+      TEXT: Завтрак сохранен! 🍳
+      SQL: UPDATE user_profiles SET nutrition_history = 
+           CASE 
+             WHEN nutrition_history IS NULL THEN '{"2024-03-15":{"завтрак":{"time":"08:30","food":"омлет","calories":350,"proteins":25,"fats":20,"carbs":5}}}'
+             ELSE JSON_MERGE_PATCH(nutrition_history, '{"2024-03-15":{"завтрак":{"time":"08:30","food":"омлет","calories":350,"proteins":25,"fats":20,"carbs":5}}}')
+           END
+           WHERE user_id = 12345
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
@@ -1429,12 +1434,6 @@ TEXT: ...
         response = model.generate_content(contents)
         response_text = response.text.strip()
 
-        # Проверяем наличие nutrition_history в SQL-запросе
-        if "nutrition_history" in response_text:
-            # Логируем для отладки
-            print(f"Обновление истории питания для пользователя {user_id}")
-
-
         # Сохраняем последний ответ бота в контексте
         context.user_data['last_bot_reply'] = response_text
 
@@ -1447,31 +1446,45 @@ TEXT: ...
         if sql_match:
             sql_part = sql_match.group(1).strip()
             try:
-                # Заменяем SQLite на MySQL соединение
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
+                conn = pymysql.connect(...)
                 cursor = conn.cursor()
-
-                # Заменяем параметры с ? на %s для MySQL
-                sql_part = sql_part.replace('?', '%s')
+        
+                # Специальная обработка для nutrition_history
+                if "nutrition_history" in sql_part:
+                    # Извлекаем JSON-данные из запроса
+                    json_match = re.search(r"JSON_MERGE_PATCH\(.*?,\s*'({.*?})'\)", sql_part)
+                    if json_match:
+                        json_data = json_match.group(1)
+                        user_id_param = sql_part.split("WHERE user_id = ")[1].split()[0]
                 
-                # Проверяем, содержит ли SQL-запрос параметры
-                if "%s" in sql_part:
-                    cursor.execute(sql_part, (user_id,))
+                        # Выполняем безопасный запрос
+                        cursor.execute("""
+                            UPDATE user_profiles 
+                            SET nutrition_history = 
+                                CASE 
+                                    WHEN nutrition_history IS NULL THEN %s
+                                    ELSE JSON_MERGE_PATCH(nutrition_history, %s)
+                                END
+                            WHERE user_id = %s
+                        """, (json_data, json_data, user_id))
+                        print(f"Успешно обновлена история питания для {user_id}")
+        
+                # Обычные запросы
                 else:
-                    cursor.execute(sql_part)
-
+                    sql_part = sql_part.replace('?', '%s')
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
+        
                 conn.commit()
-                conn.close()
             except Exception as e:
-                print(f"Ошибка при выполнении SQL: {e}")
-                # Можно добавить логирование ошибки, но не показываем пользователю
+                print(f"Ошибка SQL (nutrition_history): {str(e)}")
+                # Логируем полный запрос для отладки
+                print(f"Полный SQL: {sql_part}")
+            finally:
+                conn.close()
+        # Можно добавить логирование ошибки, но не показываем пользователю
 
         # Остальная часть функции остается без изменений
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
