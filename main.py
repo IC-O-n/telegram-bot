@@ -80,8 +80,7 @@ def init_db():
                     fats_today INT DEFAULT 0,
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
-                    reminders TEXT,
-                    nutrition_history JSON DEFAULT NULL
+                    reminders TEXT
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -107,25 +106,31 @@ def init_db():
 
 
 def save_user_profile(user_id: int, profile: dict):
-    conn = pymysql.connect(...)
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
     
     try:
         with conn.cursor() as cursor:
+            # Добавляем поле reminders в запрос и обработку
             reminders = json.dumps(profile.get("reminders", []))
-            nutrition_history = profile.get("nutrition_history", "{}")  # Теперь храним как TEXT
             
             cursor.execute('''
             INSERT INTO user_profiles (
                 user_id, language, name, gender, age, weight, height, goal, activity, diet, 
                 health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
                 water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
-                reminders, nutrition_history
+                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, reminders
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s
             )
             ON DUPLICATE KEY UPDATE
                 language = VALUES(language),
@@ -152,8 +157,7 @@ def save_user_profile(user_id: int, profile: dict):
                 fats_today = VALUES(fats_today),
                 carbs_today = VALUES(carbs_today),
                 last_nutrition_update = VALUES(last_nutrition_update),
-                reminders = VALUES(reminders),
-                nutrition_history = VALUES(nutrition_history)
+                reminders = VALUES(reminders)
             ''', (
                 user_id,
                 profile.get("language"),
@@ -180,8 +184,7 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("fats_today", 0),
                 profile.get("carbs_today", 0),
                 profile.get("last_nutrition_update", date.today().isoformat()),
-                reminders,
-                nutrition_history
+                reminders
             ))
         conn.commit()
     except Exception as e:
@@ -1103,202 +1106,6 @@ def get_user_profile_text(user_id: int) -> str:
         conn.close()
 
 
-async def get_nutrition_history(user_id: int) -> dict:
-    """Получает историю питания пользователя"""
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT nutrition_history
-                FROM user_profiles
-                WHERE user_id = %s
-            """, (user_id,))
-            result = cursor.fetchone()
-            if result and result['nutrition_history']:
-                try:
-                    return json.loads(result['nutrition_history'])
-                except json.JSONDecodeError:
-                    return {}
-            return {}
-    finally:
-        conn.close()
-
-
-async def analyze_metabolism(user_id: int, language: str = "ru") -> str:
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
-    try:
-        with conn.cursor() as cursor:
-            # Получаем данные за последние 3 дня
-            cursor.execute("SELECT nutrition_history FROM user_profiles WHERE user_id = %s", (user_id,))
-            result = cursor.fetchone()
-            
-            if not result or not result['nutrition_history']:
-                return "Недостаточно данных" if language == "ru" else "Not enough data"
-            
-            try:
-                # Преобразуем TEXT в JSON
-                history = json.loads(result['nutrition_history'])
-            except json.JSONDecodeError:
-                return "Ошибка формата данных" if language == "ru" else "Data format error"
-            
-            # Анализируем последние 3 дня
-            analysis = {
-                "total_meals": 0,
-                "total_calories": 0,
-                "total_proteins": 0,
-                "total_fats": 0,
-                "total_carbs": 0,
-                "meal_times": [],
-                "meal_intervals": [],
-                "meal_types": defaultdict(int)
-            }
-            
-            previous_time = None
-            dates = sorted(history.keys(), reverse=True)[:3]  # Берем последние 3 дня
-            
-            for date in dates:
-                for meal_type, meal_data in history[date].items():
-                    analysis["total_meals"] += 1
-                    analysis["meal_types"][meal_type] += 1
-                    analysis["total_calories"] += meal_data.get("calories", 0)
-                    analysis["total_proteins"] += meal_data.get("proteins", 0)
-                    analysis["total_fats"] += meal_data.get("fats", 0)
-                    analysis["total_carbs"] += meal_data.get("carbs", 0)
-                    
-                    try:
-                        meal_time = datetime.strptime(f"{date} {meal_data['time']}", "%Y-%m-%d %H:%M")
-                        analysis["meal_times"].append(meal_time)
-                        if previous_time:
-                            interval = (previous_time - meal_time).total_seconds() / 3600
-                            analysis["meal_intervals"].append(interval)
-                        previous_time = meal_time
-                    except Exception as e:
-                        print(f"Ошибка парсинга времени: {e}")
-                        continue
-            
-            # Рассчитываем показатели
-            avg_interval = sum(analysis["meal_intervals"]) / len(analysis["meal_intervals"]) if analysis["meal_intervals"] else 0
-            total_energy = analysis["total_proteins"] * 4 + analysis["total_fats"] * 9 + analysis["total_carbs"] * 4
-            
-            protein_percent = (analysis["total_proteins"] * 4 / total_energy) * 100 if total_energy > 0 else 0
-            fat_percent = (analysis["total_fats"] * 9 / total_energy) * 100 if total_energy > 0 else 0
-            carb_percent = (analysis["total_carbs"] * 4 / total_energy) * 100 if total_energy > 0 else 0
-            
-            # Определяем самый калорийный прием пищи
-            max_cal_meal = max(
-                analysis["meal_types"].items(),
-                key=lambda x: analysis["total_calories"] / analysis["total_meals"]
-            )[0] if analysis["total_meals"] > 0 else None
-            
-            # Формируем рекомендации
-            recommendations = []
-            
-            if language == "ru":
-                # Анализ интервалов
-                if avg_interval > 4.5:
-                    recommendations.append("• Слишком большие перерывы между едой (>4.5ч). Оптимально 3-4 часа.")
-                elif avg_interval < 2.5:
-                    recommendations.append("• Слишком частые приемы пищи (<2.5ч). Дайте организму время на переваривание.")
-                
-                # Анализ баланса БЖУ
-                if protein_percent < 20:
-                    recommendations.append("• Недостаток белка (<20%). Добавьте яйца, рыбу или творог.")
-                elif protein_percent > 35:
-                    recommendations.append("• Избыток белка (>35%). Может создавать нагрузку на почки.")
-                
-                if fat_percent < 25:
-                    recommendations.append("• Недостаток жиров (<25%). Включите орехи, авокадо или оливковое масло.")
-                
-                # Анализ распределения по времени
-                if max_cal_meal == 'dinner':
-                    recommendations.append("• Основной прием пищи вечером. Попробуйте перенести калории на обед.")
-                
-                response = (
-                    "🔥 Метаболический анализ (последние 3 дня):\n"
-                    f"• Приемов пищи: {analysis['total_meals']}\n"
-                    f"• Средний интервал: {avg_interval:.1f} ч\n"
-                    f"• Баланс БЖУ:\n"
-                    f"  Белки: {protein_percent:.1f}% | Жиры: {fat_percent:.1f}% | Углеводы: {carb_percent:.1f}%\n"
-                    "💡 Рекомендации:\n" + 
-                    ("\n".join(recommendations) if recommendations else "• Паттерны питания в норме. Продолжайте в том же духе!")
-                )
-            else:
-                # English version
-                if avg_interval > 4.5:
-                    recommendations.append("• Too long between meals (>4.5h). Optimal is 3-4 hours.")
-                elif avg_interval < 2.5:
-                    recommendations.append("• Too frequent meals (<2.5h). Let your body digest properly.")
-                
-                if protein_percent < 20:
-                    recommendations.append("• Protein deficiency (<20%). Add eggs, fish or cottage cheese.")
-                elif protein_percent > 35:
-                    recommendations.append("• Excess protein (>35%). May stress your kidneys.")
-                
-                if fat_percent < 25:
-                    recommendations.append("• Low fat intake (<25%). Include nuts, avocado or olive oil.")
-                
-                if max_cal_meal == 'dinner':
-                    recommendations.append("• Main meal in the evening. Try shifting calories to lunch.")
-                
-                response = (
-                    "🔥 Metabolism analysis (last 3 days):\n"
-                    f"• Meals: {analysis['total_meals']}\n"
-                    f"• Average interval: {avg_interval:.1f} h\n"
-                    f"• Macronutrient ratio:\n"
-                    f"  Proteins: {protein_percent:.1f}% | Fats: {fat_percent:.1f}% | Carbs: {carb_percent:.1f}%\n"
-                    "💡 Recommendations:\n" + 
-                    ("\n".join(recommendations) if recommendations else "• Eating patterns are normal. Keep it up!")
-                )
-            
-            return response
-            
-    except Exception as e:
-        print(f"Ошибка при анализе метаболизма: {e}")
-        return "Сейчас не могу проанализировать данные. Попробуйте позже." if language == "ru" else "Can't analyze data now. Try again later."
-    finally:
-        conn.close()
-
-
-def get_metabolism_advice(analysis: dict, language: str) -> str:
-    """Генерирует персонализированные рекомендации"""
-    advice = []
-    avg_interval = sum(analysis["meal_intervals"]) / len(analysis["meal_intervals"]) if analysis["meal_intervals"] else 0
-
-    if language == "ru":
-        if avg_interval > 5:
-            advice.append("- Слишком большие перерывы между едой (>5ч). Старайтесь есть каждые 3-4 часа.")
-        elif avg_interval < 2:
-            advice.append("- Слишком частые приемы пищи. Давайте организму время на переваривание (2-3 часа).")
-
-        if analysis["total_proteins"] / analysis["total_meals"] < 20:
-            advice.append("- Недостаточно белка. Добавьте белковые продукты в каждый прием пищи.")
-    else:
-        if avg_interval > 5:
-            advice.append("- Too long between meals (>5h). Try to eat every 3-4 hours.")
-        elif avg_interval < 2:
-            advice.append("- Too frequent meals. Give your body time to digest (2-3 hours).")
-
-        if analysis["total_proteins"] / analysis["total_meals"] < 20:
-            advice.append("- Not enough protein. Add protein sources to each meal.")
-
-    return "\n".join(advice) if advice else ("Нет особых рекомендаций." if language == "ru" else "No special recommendations.")
-
-
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
@@ -1554,75 +1361,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
            - [текст напоминания 1] в [время]
            - [текст напоминания 2] в [время]"
 
-22. При анализе приема пищи (фото/текст):
-    - Если это явно еда (по контексту или описанию), сохрани данные:
-      SQL:
-      UPDATE user_profiles 
-      SET nutrition_history = CONCAT(
-          IFNULL(nutrition_history, '{}'),
-          JSON_OBJECT(
-              DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
-              JSON_OBJECT(
-                  CASE 
-                      WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
-                      WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
-                      WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
-                      ELSE 'snack'
-                  END,
-                  JSON_OBJECT(
-                      'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-                      'food', %s,
-                      'calories', %s,
-                      'proteins', %s,
-                      'fats', %s,
-                      'carbs', %s
-                  )
-              )
-          )
-      )
-      WHERE user_id = %s;
-      Параметры: [описание, калории, белки, жиры, углеводы, user_id]
-
-23. При исправлении информации о еде:
-    - Если пользователь явно исправляет предыдущий анализ (например: "нет, там было 200г гречки"):
-      SQL:
-      UPDATE user_profiles 
-      SET nutrition_history = JSON_SET(
-          IFNULL(JSON_MERGE_PATCH('{}', nutrition_history), '{}'),
-          CONCAT('$."', DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'), '".', %s),
-          JSON_OBJECT(
-              'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-              'food', %s,
-              'calories', %s,
-              'proteins', %s,
-              'fats', %s,
-              'carbs', %s
-          )
-      )
-      WHERE user_id = %s;
-      Параметры: [тип_приема, новое_описание, калории, белки, жиры, углеводы, user_id]
-
-25. Автоматическая очистка данных (раз в сутки):
-    SQL:
-    UPDATE user_profiles 
-    SET nutrition_history = (
-        SELECT JSON_OBJECT_AGG(valid_dates.date_value, 
-            JSON_EXTRACT(JSON_MERGE_PATCH('{}', nutrition_history), CONCAT('$."', valid_dates.date_value, '"')))
-        FROM (
-            SELECT DATE_FORMAT(date_range.date, '%%Y-%%m-%%d') as date_value
-            FROM (
-                SELECT CURDATE() - INTERVAL n DAY as date
-                FROM (
-                    SELECT 0 as n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 
-                    UNION SELECT 4 UNION SELECT 5 UNION SELECT 6
-                ) as days
-            ) as date_range
-            WHERE date_range.date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-        ) as valid_dates
-    )
-    WHERE user_id = %s;
-
-
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
 ⚠️ Всегда строго учитывай известные факты о пользователе из его профиля И контекст текущего диалога.
@@ -1669,6 +1407,7 @@ TEXT: ...
         if sql_match:
             sql_part = sql_match.group(1).strip()
             try:
+                # Заменяем SQLite на MySQL соединение
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
                     user='x91345bo_nutrbot',
@@ -1679,26 +1418,20 @@ TEXT: ...
                 )
                 cursor = conn.cursor()
 
-                # Дополнительная обработка SQL-запроса
+                # Заменяем параметры с ? на %s для MySQL
                 sql_part = sql_part.replace('?', '%s')
-                
-                # Заменяем одиночные % на %% для MySQL функций типа DATE_FORMAT
-                sql_part = re.sub(r'(?<!%)%(?!%)', '%%', sql_part)
                 
                 # Проверяем, содержит ли SQL-запрос параметры
                 if "%s" in sql_part:
-                    # Для запросов с параметрами
                     cursor.execute(sql_part, (user_id,))
                 else:
-                    # Для запросов без параметров
                     cursor.execute(sql_part)
 
                 conn.commit()
                 conn.close()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
-                # Логируем ошибку, но не показываем пользователю
-                print(f"SQL запрос: {sql_part}")                # Можно добавить логирование ошибки, но не показываем пользователю
+                # Можно добавить логирование ошибки, но не показываем пользователю
 
         # Остальная часть функции остается без изменений
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
@@ -1766,7 +1499,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 
