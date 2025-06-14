@@ -81,7 +81,7 @@ def init_db():
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
                     reminders TEXT,
-                    nutrition_history JSON DEFAULT 0
+                    nutrition_history JSON DEFAULT NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -126,12 +126,12 @@ def save_user_profile(user_id: int, profile: dict):
                 user_id, language, name, gender, age, weight, height, goal, activity, diet, 
                 health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
                 water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, reminders
+                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, reminders, nutrition_history
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s,
-                %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s
             )
             ON DUPLICATE KEY UPDATE
                 language = VALUES(language),
@@ -159,6 +159,7 @@ def save_user_profile(user_id: int, profile: dict):
                 carbs_today = VALUES(carbs_today),
                 last_nutrition_update = VALUES(last_nutrition_update),
                 reminders = VALUES(reminders)
+                nutrition_history = VALUES(nutrition_history)
             ''', (
                 user_id,
                 profile.get("language"),
@@ -185,7 +186,8 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("fats_today", 0),
                 profile.get("carbs_today", 0),
                 profile.get("last_nutrition_update", date.today().isoformat()),
-                reminders
+                reminders,
+                nutrition_history
             ))
         conn.commit()
     except Exception as e:
@@ -1011,7 +1013,8 @@ async def reset(update: Update, context: CallbackContext) -> None:
                     fats_today = 0,
                     carbs_today = 0,
                     last_nutrition_update = NULL,
-                    reminders = NULL
+                    reminders = NULL,
+                    nutrition_history = NULL
                 WHERE user_id = %s
             """, (user_id,))
         conn.commit()
@@ -1286,6 +1289,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - carbs_today INTEGER
 - last_nutrition_update DATE
 - reminders TEXT
+- nutrition_history JSON
 
 Твоя задача:
 
