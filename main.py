@@ -1532,39 +1532,34 @@ TEXT: ...
                     cursorclass=pymysql.cursors.DictCursor
                 )
                 cursor = conn.cursor()
-                
-                # Если это запрос для meal_history, выполняем как есть
+
+                # === НАЧАЛО ЗАМЕНЯЕМОГО КОДА ===
+                # Если это запрос для meal_history, извлекаем данные из ответа Gemini
                 if "meal_history" in sql_part.lower():
                     # Парсим данные из ответа Gemini
                     try:
-                        meal_type_match = re.search(r'Тип:\s*([^\n]+)', response_text)
-                        time_match = re.search(r'Время:\s*([^\n]+)', response_text)
-                        desc_match = re.search(r'Описание:\s*([^\n]+)', response_text)
-                        calories_match = re.search(r'Калории:\s*(\d+)', response_text)
-                        proteins_match = re.search(r'Белки:\s*(\d+)', response_text)
-                        fats_match = re.search(r'Жиры:\s*(\d+)', response_text)
-                        carbs_match = re.search(r'Углеводы:\s*(\d+)', response_text)
-                        
-                        meal_type = meal_type_match.group(1).strip() if meal_type_match else "unknown"
-                        meal_time = time_match.group(1).strip() if time_match else datetime.now().strftime("%H:%M")
-                        description = desc_match.group(1).strip() if desc_match else "Фото еды"
-                        calories = int(calories_match.group(1)) if calories_match else 0
-                        proteins = int(proteins_match.group(1)) if proteins_match else 0
-                        fats = int(fats_match.group(1)) if fats_match else 0
-                        carbs = int(carbs_match.group(1)) if carbs_match else 0
-                        
-                        cursor.execute(sql_part, (
-                            meal_type.lower(),
-                            meal_time,
-                            description,
-                            calories,
-                            proteins,
-                            fats,
-                            carbs,
-                            user_id
-                        ))
-                    except Exception as parse_error:
-                        print(f"Ошибка парсинга данных о еде: {parse_error}")
+                        meal_type_match = re.search(r'Тип: (.*?)\n', response_text)
+                        time_match = re.search(r'Время: (.*?)\n', response_text)
+                        description_match = re.search(r'Описание: (.*?)\n', response_text)
+                        calories_match = re.search(r'Калории: (\d+)', response_text)
+                        proteins_match = re.search(r'Белки: (\d+)', response_text)
+                        fats_match = re.search(r'Жиры: (\d+)', response_text)
+                        carbs_match = re.search(r'Углеводы: (\d+)', response_text)
+
+                        meal_data = {
+                            'type': meal_type_match.group(1).strip() if meal_type_match else 'meal',
+                            'time': time_match.group(1).strip() if time_match else datetime.now().strftime("%H:%M"),
+                            'description': description_match.group(1).strip() if description_match else (user_text if user_text else "Фото еды"),
+                            'calories': int(calories_match.group(1)) if calories_match else 0,
+                            'proteins': int(proteins_match.group(1)) if proteins_match else 0,
+                            'fats': int(fats_match.group(1)) if fats_match else 0,
+                            'carbs': int(carbs_match.group(1)) if carbs_match else 0
+                        }
+
+                        # Обновляем историю питания
+                        await update_meal_history(user_id, meal_data)
+                    except Exception as e:
+                        print(f"Ошибка при парсинге данных о питании: {e}")
                 else:
                     # Обычные SQL-запросы
                     sql_part = sql_part.replace('?', '%s')
@@ -1572,7 +1567,8 @@ TEXT: ...
                         cursor.execute(sql_part, (user_id,))
                     else:
                         cursor.execute(sql_part)
-                
+                # === КОНЕЦ ЗАМЕНЯЕМОГО КОДА ===
+
                 conn.commit()
                 conn.close()
             except Exception as e:
