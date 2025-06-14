@@ -1677,7 +1677,7 @@ TEXT: ...
 
     contents.insert(0, {"text": GEMINI_SYSTEM_PROMPT})
 
-                try:
+    try:
         response = model.generate_content(contents)
         response_text = response.text.strip()
         context.user_data['last_bot_reply'] = response_text
