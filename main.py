@@ -1701,6 +1701,9 @@ TEXT: ...
                 )
                 cursor = conn.cursor()
 
+                # Заменяем двойные %% на одинарные % для MySQL
+                sql_part = sql_part.replace('%%', '%')
+
                 # Обработка параметров для разных типов запросов
                 if "nutrition_history" in sql_part:
                     # Для запроса с nutrition_history
@@ -1717,7 +1720,6 @@ TEXT: ...
                         param_sql = re.sub(r"'proteins',\s*\d+", "%s", param_sql)
                         param_sql = re.sub(r"'fats',\s*\d+", "%s", param_sql)
                         param_sql = re.sub(r"'carbs',\s*\d+", "%s", param_sql)
-                        param_sql = re.sub(r'%%s', "%s", param_sql)  # Заменяем %%s на %s
                         
                         params = (
                             food_desc.group(1),
@@ -1744,9 +1746,16 @@ TEXT: ...
                         param_sql = "UPDATE user_profiles SET reminders = %s WHERE user_id = %s"
                         cursor.execute(param_sql, (reminders_json, user_id))
                 
+                elif "water_drunk_today" in sql_part:
+                    # Для запроса с водой
+                    water_match = re.search(r'water_drunk_today\s*\+\s*(\d+)', sql_part)
+                    if water_match:
+                        water_amount = int(water_match.group(1))
+                        cursor.execute("UPDATE user_profiles SET water_drunk_today = water_drunk_today + %s WHERE user_id = %s", 
+                                     (water_amount, user_id))
+                
                 else:
                     # Для других запросов
-                    sql_part = re.sub(r'%%s', "%s", sql_part)
                     if "%s" in sql_part:
                         cursor.execute(sql_part, (user_id,))
                     else:
