@@ -112,7 +112,7 @@ def save_user_profile(user_id: int, profile: dict):
     try:
         with conn.cursor() as cursor:
             reminders = json.dumps(profile.get("reminders", []))
-            nutrition_history = json.dumps(profile.get("nutrition_history", {}))
+            nutrition_history = profile.get("nutrition_history", "{}")  # Теперь храним как TEXT
             
             cursor.execute('''
             INSERT INTO user_profiles (
@@ -1105,7 +1105,14 @@ def get_user_profile_text(user_id: int) -> str:
 
 async def get_nutrition_history(user_id: int) -> dict:
     """Получает историю питания пользователя"""
-    conn = pymysql.connect(...)
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
@@ -1114,7 +1121,12 @@ async def get_nutrition_history(user_id: int) -> dict:
                 WHERE user_id = %s
             """, (user_id,))
             result = cursor.fetchone()
-            return json.loads(result['nutrition_history']) if result and result['nutrition_history'] else {}
+            if result and result['nutrition_history']:
+                try:
+                    return json.loads(result['nutrition_history'])
+                except json.JSONDecodeError:
+                    return {}
+            return {}
     finally:
         conn.close()
 
@@ -1132,25 +1144,17 @@ async def analyze_metabolism(user_id: int, language: str = "ru") -> str:
     try:
         with conn.cursor() as cursor:
             # Получаем данные за последние 3 дня
-            cursor.execute("""
-                SELECT 
-                    JSON_EXTRACT(
-                        nutrition_history,
-                        CONCAT(
-                            '$.\"', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '\",',
-                            '$.\"', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), '\",',
-                            '$.\"', DATE_FORMAT(CURDATE(), '\"')
-                    ) as history
-                FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            
+            cursor.execute("SELECT nutrition_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
-            if not result or not result['history']:
+            
+            if not result or not result['nutrition_history']:
                 return "Недостаточно данных" if language == "ru" else "Not enough data"
             
-            # Дополнительная обработка JSON
-            history = json.loads(result['history'])
+            try:
+                # Преобразуем TEXT в JSON
+                history = json.loads(result['nutrition_history'])
+            except json.JSONDecodeError:
+                return "Ошибка формата данных" if language == "ru" else "Data format error"
             
             # Анализируем последние 3 дня
             analysis = {
@@ -1554,29 +1558,28 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     - Если это явно еда (по контексту или описанию), сохрани данные:
       SQL:
       UPDATE user_profiles 
-      SET nutrition_history = 
-          JSON_MERGE_PATCH(
-              IFNULL(nutrition_history, JSON_OBJECT()),
+      SET nutrition_history = CONCAT(
+          IFNULL(nutrition_history, '{}'),
+          JSON_OBJECT(
+              DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
               JSON_OBJECT(
-                  DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'),
+                  CASE 
+                      WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
+                      WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
+                      WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
+                      ELSE 'snack'
+                  END,
                   JSON_OBJECT(
-                      CASE 
-                          WHEN HOUR(CURRENT_TIME()) BETWEEN 5 AND 10 THEN 'breakfast'
-                          WHEN HOUR(CURRENT_TIME()) BETWEEN 11 AND 15 THEN 'lunch'
-                          WHEN HOUR(CURRENT_TIME()) BETWEEN 16 AND 21 THEN 'dinner'
-                          ELSE 'snack'
-                      END,
-                      JSON_OBJECT(
-                          'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-                          'food', %s,
-                          'calories', %s,
-                          'proteins', %s,
-                          'fats', %s,
-                          'carbs', %s
-                      )
+                      'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
+                      'food', %s,
+                      'calories', %s,
+                      'proteins', %s,
+                      'fats', %s,
+                      'carbs', %s
                   )
               )
           )
+      )
       WHERE user_id = %s;
       Параметры: [описание, калории, белки, жиры, углеводы, user_id]
 
@@ -1584,19 +1587,18 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     - Если пользователь явно исправляет предыдущий анализ (например: "нет, там было 200г гречки"):
       SQL:
       UPDATE user_profiles 
-      SET nutrition_history = 
-          JSON_SET(
-              IFNULL(nutrition_history, JSON_OBJECT()),
-              CONCAT('$."', DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'), '".', %s),
-              JSON_OBJECT(
-                  'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
-                  'food', %s,
-                  'calories', %s,
-                  'proteins', %s,
-                  'fats', %s,
-                  'carbs', %s
-              )
+      SET nutrition_history = JSON_SET(
+          IFNULL(JSON_MERGE_PATCH('{}', nutrition_history), '{}'),
+          CONCAT('$."', DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'), '".', %s),
+          JSON_OBJECT(
+              'time', DATE_FORMAT(CURRENT_TIME(), '%%H:%%i'),
+              'food', %s,
+              'calories', %s,
+              'proteins', %s,
+              'fats', %s,
+              'carbs', %s
           )
+      )
       WHERE user_id = %s;
       Параметры: [тип_приема, новое_описание, калории, белки, жиры, углеводы, user_id]
 
@@ -1604,15 +1606,12 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     - Если вопрос касается усвоения пищи, метаболизма или паттернов питания:
       1. Получить данные:
          SELECT 
-             JSON_EXTRACT(nutrition_history, 
-                 CONCAT('$."', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '%%Y-%%m-%%d'), '"'),
-                 ',"$."', DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), '%%Y-%%m-%%d'), '"',
-                 ',"$."', DATE_FORMAT(CURDATE(), '%%Y-%%m-%%d'), '"')
-             ) as nutrition_data
+             nutrition_history
          FROM user_profiles
          WHERE user_id = %s;
 
       2. Проанализировать:
+         - Преобразовать TEXT в JSON
          - Временные интервалы между приемами
          - Баланс БЖУ за каждый день
          - Распределение калорий в течение дня
@@ -1633,7 +1632,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     UPDATE user_profiles 
     SET nutrition_history = (
         SELECT JSON_OBJECT_AGG(valid_dates.date_value, 
-            JSON_EXTRACT(nutrition_history, CONCAT('$."', valid_dates.date_value, '"')))
+            JSON_EXTRACT(JSON_MERGE_PATCH('{}', nutrition_history), CONCAT('$."', valid_dates.date_value, '"')))
         FROM (
             SELECT DATE_FORMAT(date_range.date, '%%Y-%%m-%%d') as date_value
             FROM (
@@ -1707,14 +1706,8 @@ TEXT: ...
                 cursor = conn.cursor()
 
                 # Заменяем параметры с ? на %s для MySQL
-                sql_part = sql_part.replace('%%', '%%%%')  # Escape % for MySQL
-
-                # Then execute with parameters
-                if "%s" in sql_part:
-                    cursor.execute(sql_part, (user_id,))
-                else:
-                    cursor.execute(sql_part)
-                 
+                sql_part = sql_part.replace('?', '%s')
+                
                 # Проверяем, содержит ли SQL-запрос параметры
                 if "%s" in sql_part:
                     cursor.execute(sql_part, (user_id,))
@@ -1793,6 +1786,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
