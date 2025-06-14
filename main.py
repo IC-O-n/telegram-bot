@@ -244,9 +244,12 @@ async def update_meal_history(user_id: int, meal_type: str, food_desc: str, nutr
             # Обновляем в базе
             cursor.execute(
                 "UPDATE user_profiles SET meal_history = %s WHERE user_id = %s",
-                (json.dumps(history), user_id)
+                (json.dumps(history, ensure_ascii=False), user_id)
             )
             conn.commit()
+    except Exception as e:
+        print(f"Ошибка при обновлении истории питания: {e}")
+        raise
     finally:
         conn.close()
 
@@ -1553,7 +1556,7 @@ TEXT: ...
                 cursor = conn.cursor()
 
                 # Автоматическое сохранение питания (для фото и текста)
-                if "meal_history" in sql_part:
+                if "meal_history" in sql_part.lower():
                     # Определяем тип приема пищи по времени
                     now = datetime.now()
                     if 5 <= now.hour < 11:
@@ -1588,27 +1591,34 @@ TEXT: ...
                         except:
                             nutrition = {'calories': 0, 'proteins': 0, 'fats': 0, 'carbs': 0}
 
-                    # Заменяем плейсхолдеры на реальные значения
-                    sql_part = sql_part.replace('%s', '%s')  # Экранирование для MySQL
-                    cursor.execute(sql_part, (
-                        meal_type,
-                        food_desc,
-                        nutrition['calories'],
-                        nutrition['proteins'],
-                        nutrition['fats'],
-                        nutrition['carbs'],
-                        user_id
-                    ))
+                    # Обновляем историю питания через отдельную функцию
+                    await update_meal_history(
+                        user_id=user_id,
+                        meal_type=meal_type,
+                        food_desc=food_desc,
+                        nutrition=nutrition
+                    )
                 else:
                     # Обычные SQL-запросы
+                    conn = pymysql.connect(
+                        host='x91345bo.beget.tech',
+                        user='x91345bo_nutrbot',
+                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                        database='x91345bo_nutrbot',
+                        charset='utf8mb4',
+                        cursorclass=pymysql.cursors.DictCursor
+                    )
+                    cursor = conn.cursor()
+                    
                     sql_part = sql_part.replace('?', '%s')
                     if "%s" in sql_part:
                         cursor.execute(sql_part, (user_id,))
                     else:
                         cursor.execute(sql_part)
+                    
+                    conn.commit()
+                    conn.close()
 
-                conn.commit()
-                conn.close()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
 
