@@ -1714,7 +1714,7 @@ TEXT: ...
                     cursor.execute(sql_part, (user_id,))
                 else:
                     cursor.execute(sql_part)
-                
+                 
                 # Проверяем, содержит ли SQL-запрос параметры
                 if "%s" in sql_part:
                     cursor.execute(sql_part, (user_id,))
