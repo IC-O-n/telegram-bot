@@ -1433,58 +1433,57 @@ TEXT: ...
     try:
         response = model.generate_content(contents)
         response_text = response.text.strip()
-
-        # Сохраняем последний ответ бота в контексте
         context.user_data['last_bot_reply'] = response_text
 
-        # Разделяем SQL и TEXT части ответа
-        sql_part = None
-        text_part = None
-
-        # Ищем SQL часть
+        # Обработка SQL-запросов
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
+            
+            # Создаем новое подключение для каждого запроса
             try:
-                conn = pymysql.connect(...)
-                cursor = conn.cursor()
-        
-                # Специальная обработка для nutrition_history
-                if "nutrition_history" in sql_part:
-                    # Извлекаем JSON-данные из запроса
-                    json_match = re.search(r"JSON_MERGE_PATCH\(.*?,\s*'({.*?})'\)", sql_part)
-                    if json_match:
-                        json_data = json_match.group(1)
-                        user_id_param = sql_part.split("WHERE user_id = ")[1].split()[0]
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
                 
-                        # Выполняем безопасный запрос
-                        cursor.execute("""
-                            UPDATE user_profiles 
-                            SET nutrition_history = 
-                                CASE 
-                                    WHEN nutrition_history IS NULL THEN %s
-                                    ELSE JSON_MERGE_PATCH(nutrition_history, %s)
-                                END
-                            WHERE user_id = %s
-                        """, (json_data, json_data, user_id))
-                        print(f"Успешно обновлена история питания для {user_id}")
-        
-                # Обычные запросы
-                else:
-                    sql_part = sql_part.replace('?', '%s')
-                    if "%s" in sql_part:
-                        cursor.execute(sql_part, (user_id,))
+                with conn.cursor() as cursor:
+                    # Обработка nutrition_history
+                    if "nutrition_history" in sql_part:
+                        json_match = re.search(r"JSON_MERGE_PATCH\(.*?,\s*'({.*?})'\)", sql_part)
+                        if json_match:
+                            json_data = json_match.group(1)
+                            cursor.execute("""
+                                UPDATE user_profiles 
+                                SET nutrition_history = 
+                                    CASE 
+                                        WHEN nutrition_history IS NULL THEN %s
+                                        ELSE JSON_MERGE_PATCH(nutrition_history, %s)
+                                    END
+                                WHERE user_id = %s
+                            """, (json_data, json_data, user_id))
+                            print(f"Nutrition history updated for {user_id}")
+                    
+                    # Обычные запросы
                     else:
-                        cursor.execute(sql_part)
-        
-                conn.commit()
+                        sql_part = sql_part.replace('?', '%s')
+                        if "%s" in sql_part:
+                            cursor.execute(sql_part, (user_id,))
+                        else:
+                            cursor.execute(sql_part)
+                    
+                    conn.commit()
             except Exception as e:
-                print(f"Ошибка SQL (nutrition_history): {str(e)}")
-                # Логируем полный запрос для отладки
-                print(f"Полный SQL: {sql_part}")
+                print(f"SQL Error: {str(e)}")
+                print(f"Full SQL: {sql_part}")
             finally:
-                conn.close()
-        # Можно добавить логирование ошибки, но не показываем пользователю
+                if 'conn' in locals() and conn.open:
+                    conn.close()
+                    # Можно добавить логирование ошибки, но не показываем пользователю
 
         # Остальная часть функции остается без изменений
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
