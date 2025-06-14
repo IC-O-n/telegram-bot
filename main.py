@@ -901,11 +901,56 @@ async def reset(update: Update, context: CallbackContext) -> None:
             cursorclass=pymysql.cursors.DictCursor
         )
         with conn.cursor() as cursor:
-            cursor.execute("DELETE FROM user_profiles WHERE user_id = %s", (user_id,))
+            # Вместо DELETE используем UPDATE для сброса полей к значениям по умолчанию
+            cursor.execute("""
+                UPDATE user_profiles 
+                SET 
+                    language = NULL,
+                    name = NULL,
+                    gender = NULL,
+                    age = NULL,
+                    weight = NULL,
+                    height = NULL,
+                    goal = NULL,
+                    activity = NULL,
+                    diet = NULL,
+                    health = NULL,
+                    equipment = NULL,
+                    target_metric = NULL,
+                    unique_facts = NULL,
+                    timezone = NULL,
+                    wakeup_time = NULL,
+                    sleep_time = NULL,
+                    water_reminders = 1,
+                    water_drunk_today = 0,
+                    last_water_notification = NULL,
+                    calories_today = 0,
+                    proteins_today = 0,
+                    fats_today = 0,
+                    carbs_today = 0,
+                    last_nutrition_update = NULL,
+                    reminders = NULL
+                WHERE user_id = %s
+            """, (user_id,))
         conn.commit()
-        await update.message.reply_text("Все данные успешно сброшены! Начнем с чистого листа 🧼\nAll data has been reset! Let's start fresh 🧼")
+        
+        # Получаем язык из базы данных для ответа
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+        
+        language = row['language'] if row and row['language'] else "ru"
+        
+        if language == "ru":
+            await update.message.reply_text("Все данные успешно сброшены! Начнем с чистого листа 🧼")
+        else:
+            await update.message.reply_text("All data has been reset! Let's start fresh 🧼")
+            
     except Exception as e:
-        await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}\nAn error occurred while resetting data: {e}")
+        if language == "ru":
+            await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}")
+        else:
+            await update.message.reply_text(f"An error occurred while resetting data: {e}")
     finally:
         conn.close()
 
@@ -1116,7 +1161,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 - сообщениями после изображения (например, "добавь это в инвентарь")
 - уникальными фактами о пользователе (например, "я люблю плавание", "у меня была травма колена", "я вегетарианец 5 лет", "люблю кофе по вечерам")
 
-В базе данных MySQL есть таблица user_profiles с колонками:
+В базе данных есть таблица user_profiles с колонками:
 - user_id INTEGER PRIMARY KEY
 - language TEXT
 - name TEXT
@@ -1288,7 +1333,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
    - Найди соответствующее напоминание в списке (поле reminders)
    - Удали его из списка
    - SQL для обновления:
-     SQL: UPDATE user_profiles SET reminders = ? WHERE user_id = ?
+     SQL: UPDATE user_profiles SET reminders = %s WHERE user_id = %s
    - Ответь пользователю:
      TEXT: [подтверждение удаления напоминания]
 
@@ -1438,7 +1483,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 
