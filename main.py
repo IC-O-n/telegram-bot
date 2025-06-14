@@ -1707,7 +1707,13 @@ TEXT: ...
                 cursor = conn.cursor()
 
                 # Заменяем параметры с ? на %s для MySQL
-                sql_part = sql_part.replace('?', '%s')
+                sql_part = sql_part.replace('%%', '%%%%')  # Escape % for MySQL
+
+                # Then execute with parameters
+                if "%s" in sql_part:
+                    cursor.execute(sql_part, (user_id,))
+                else:
+                    cursor.execute(sql_part)
                 
                 # Проверяем, содержит ли SQL-запрос параметры
                 if "%s" in sql_part:
