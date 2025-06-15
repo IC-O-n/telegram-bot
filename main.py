@@ -1335,6 +1335,24 @@ async def delete_meal(user_id: int, meal_type: str, language: str):
         )
 
 
+async def get_user_timezone(user_id: int) -> str:
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            return row['timezone'] if row and row['timezone'] else "UTC"
+    finally:
+        conn.close()
+
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
@@ -1812,6 +1830,9 @@ TEXT: ...
                 food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
     
             if calories_match and proteins_match and fats_match and carbs_match:
+                user_timezone = await get_user_timezone(user_id)
+                tz = pytz.timezone(user_timezone)
+                user_now = datetime.now(tz)
                 meal_data = {
                     "time": datetime.now().strftime("%H:%M"),
                     "food": food_description or user_text,  # Используем анализ бота или, если его нет, исходный текст
