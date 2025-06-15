@@ -1943,34 +1943,75 @@ TEXT: ...
             fats_match = re.search(r'Жиры:\s*(\d+)', response_text) or re.search(r'Fats:\s*(\d+)', response_text)
             carbs_match = re.search(r'Углеводы:\s*(\d+)', response_text) or re.search(r'Carbs:\s*(\d+)', response_text)
     
-            # Извлекаем описание еды из анализа бота
-            food_description = None
-            analysis_match = re.search(r'🔍 Анализ блюда:\s*(.*?)(?=\n\n|$)', response_text, re.DOTALL)
-            if analysis_match:
-                food_description = analysis_match.group(1).strip()
-            else:
-                food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
-    
             if calories_match and proteins_match and fats_match and carbs_match:
                 try:
+                    calories = int(calories_match.group(1))
+                    proteins = int(proteins_match.group(1))
+                    fats = int(fats_match.group(1))
+                    carbs = int(carbs_match.group(1))
+                    
+                    # Получаем описание еды
+                    food_description = None
+                    analysis_match = re.search(r'🔍 Анализ блюда:\s*(.*?)(?=\n\n|$)', response_text, re.DOTALL)
+                    if analysis_match:
+                        food_description = analysis_match.group(1).strip()
+                    else:
+                        food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
+                    
+                    # Получаем текущее время пользователя
                     user_timezone = await get_user_timezone(user_id)
                     current_time = datetime.now(user_timezone).strftime("%H:%M")
-            
+                    
+                    # Обновляем meal_history
+                    date_str = date.today().isoformat()
                     meal_data = {
                         "time": current_time,
                         "food": food_description or user_text,
-                        "calories": int(calories_match.group(1)),
-                        "proteins": int(proteins_match.group(1)),
-                        "fats": int(fats_match.group(1)),
-                        "carbs": int(carbs_match.group(1))
+                        "calories": calories,
+                        "proteins": proteins,
+                        "fats": fats,
+                        "carbs": carbs
                     }
-            
-                    date_str = date.today().isoformat()
+                    
                     await update_meal_history(user_id, {
                         date_str: {
                             meal_type: meal_data
                         }
                     })
+                    
+                    # ОБНОВЛЯЕМ КБЖУ В ОСНОВНОЙ ТАБЛИЦЕ
+                    conn = pymysql.connect(
+                        host='x91345bo.beget.tech',
+                        user='x91345bo_nutrbot',
+                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                        database='x91345bo_nutrbot',
+                        charset='utf8mb4',
+                        cursorclass=pymysql.cursors.DictCursor
+                    )
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE user_profiles 
+                                SET 
+                                    calories_today = calories_today + %s,
+                                    proteins_today = proteins_today + %s,
+                                    fats_today = fats_today + %s,
+                                    carbs_today = carbs_today + %s,
+                                    last_nutrition_update = %s
+                                WHERE user_id = %s
+                            """, (
+                                calories,
+                                proteins,
+                                fats,
+                                carbs,
+                                date_str,
+                                user_id
+                            ))
+                            conn.commit()
+                            print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
+                    finally:
+                        conn.close()
+                        
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
@@ -1980,7 +2021,7 @@ TEXT: ...
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
         if language == "en":
             error_message = "An error occurred while processing your request. Please try again."
-        await message.reply_text(error_message)
+        await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
 
 
