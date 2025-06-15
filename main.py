@@ -1109,7 +1109,7 @@ def get_user_profile_text(user_id: int) -> str:
         conn.close()
 
 async def update_meal_history(user_id: int, meal_data: dict):
-    """Обновляет историю питания пользователя"""
+    """Обновляет историю питания пользователя с учетом timezone"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -1127,7 +1127,13 @@ async def update_meal_history(user_id: int, meal_data: dict):
             current_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
             
             # Обновляем историю
-            current_history.update(meal_data)
+            for date_key, meals in meal_data.items():
+                if date_key not in current_history:
+                    current_history[date_key] = {}
+                
+                for meal_type, meal_info in meals.items():
+                    # Обновляем существующую запись или добавляем новую
+                    current_history[date_key][meal_type] = meal_info
             
             # Сохраняем обновленную историю
             cursor.execute("""
@@ -1137,6 +1143,9 @@ async def update_meal_history(user_id: int, meal_data: dict):
             """, (json.dumps(current_history), user_id))
             
             conn.commit()
+    except Exception as e:
+        print(f"Ошибка при обновлении истории питания: {e}")
+        raise
     finally:
         conn.close()
 
@@ -1335,7 +1344,8 @@ async def delete_meal(user_id: int, meal_type: str, language: str):
         )
 
 
-async def get_user_timezone(user_id: int) -> str:
+async def get_user_timezone(user_id: int) -> pytz.timezone:
+    """Возвращает timezone пользователя"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -1344,11 +1354,15 @@ async def get_user_timezone(user_id: int) -> str:
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
+    
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
-            return row['timezone'] if row and row['timezone'] else "UTC"
+            
+        if row and row['timezone']:
+            return pytz.timezone(row['timezone'])
+        return pytz.UTC  # fallback
     finally:
         conn.close()
 
@@ -1826,16 +1840,16 @@ TEXT: ...
             if analysis_match:
                 food_description = analysis_match.group(1).strip()
             else:
-                # Альтернативный вариант, если формат ответа другой
                 food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
     
             if calories_match and proteins_match and fats_match and carbs_match:
+                # Получаем текущее время с учетом timezone пользователя
                 user_timezone = await get_user_timezone(user_id)
-                tz = pytz.timezone(user_timezone)
-                user_now = datetime.now(tz)
+                current_time = datetime.now(user_timezone).strftime("%H:%M")
+        
                 meal_data = {
-                    "time": datetime.now().strftime("%H:%M"),
-                    "food": food_description or user_text,  # Используем анализ бота или, если его нет, исходный текст
+                    "time": current_time,  # Используем время с учетом timezone
+                    "food": food_description or user_text,
                     "calories": int(calories_match.group(1)),
                     "proteins": int(proteins_match.group(1)),
                     "fats": int(fats_match.group(1)),
@@ -1848,7 +1862,6 @@ TEXT: ...
                         meal_type: meal_data
                     }
                 })
-
         await message.reply_text(text_part)
 
     except Exception as e:
