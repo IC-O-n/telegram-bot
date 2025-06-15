@@ -1150,7 +1150,6 @@ async def update_meal_history(user_id: int, meal_data: dict):
         if conn:
             conn.close()
 
-
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя"""
     conn = pymysql.connect(
@@ -1425,29 +1424,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
 
-    # Получаем язык пользователя
-    language = "ru"  # дефолтное значение
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
-    except Exception as e:
-        print(f"Ошибка при получении языка пользователя: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-    # Обработка фото/документов
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
@@ -1466,69 +1442,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.\nPlease send text, image or document.")
         return
 
-    # Определяем тип приема пищи если это фото еды
-    meal_type = None
-    meal_keywords = {
-        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч", "ужин"],
-        "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
-    }
-    
-    # Проверяем текст на указание типа приема пищи
-    for word in meal_keywords[language]:
-        if word in user_text.lower():
-            meal_type = word
-            break
-    
-    # Если тип не указан, определяем по времени
-    if not meal_type and (message.photo or ("калории" in user_text.lower())):
-        user_timezone = "UTC"
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            )
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
-                row = cursor.fetchone()
-                if row and row['timezone']:
-                    user_timezone = row['timezone']
-        except Exception as e:
-            print(f"Ошибка при получении часового пояса: {e}")
-        finally:
-            if conn:
-                conn.close()
-        
-        tz = pytz.timezone(user_timezone)
-        now = datetime.now(tz)
-        current_hour = now.hour
-        
-        if 5 <= current_hour < 11:
-            meal_type = "завтрак" if language == "ru" else "breakfast"
-        elif 11 <= current_hour < 16:
-            meal_type = "обед" if language == "ru" else "lunch"
-        elif 16 <= current_hour < 21:
-            meal_type = "ужин" if language == "ru" else "dinner"
-        else:
-            meal_type = "перекус" if language == "ru" else "snack"
-
-    # Добавляем информацию о приеме пищи в контекст
-    if meal_type:
-        contents.insert(0, {"text": f"Прием пищи: {meal_type}"})
-
-    # Профиль пользователя и история
+    # Профиль пользователя
     profile_info = get_user_profile_text(user_id)
     if profile_info and "не найден" not in profile_info and "not found" not in profile_info:
         contents.insert(0, {"text": f"Информация о пользователе / User information:\n{profile_info}"})
 
-    # История диалога
+    # История - увеличиваем размер очереди до 10 сообщений
     if user_id not in user_histories:
         user_histories[user_id] = deque(maxlen=10)
     user_histories[user_id].append(f"Пользователь / User: {user_text}")
     
+    # Добавляем предыдущие ответы бота в историю
     if 'last_bot_reply' in context.user_data:
         user_histories[user_id].append(f"Бот / Bot: {context.user_data['last_bot_reply']}")
     
@@ -1848,17 +1772,20 @@ TEXT: ...
     try:
         response = model.generate_content(contents)
         response_text = response.text.strip()
+
+        # Сохраняем последний ответ бота в контексте
         context.user_data['last_bot_reply'] = response_text
 
-        # Обработка SQL команд
+        # Разделяем SQL и TEXT части ответа
         sql_part = None
         text_part = None
 
+        # Ищем SQL часть
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
-            conn = None
             try:
+                # Заменяем SQLite на MySQL соединение
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
                     user='x91345bo_nutrbot',
@@ -1867,22 +1794,24 @@ TEXT: ...
                     charset='utf8mb4',
                     cursorclass=pymysql.cursors.DictCursor
                 )
-                with conn.cursor() as cursor:
-                    sql_part = sql_part.replace('?', '%s')
-            
-                    if "%s" in sql_part:
-                        cursor.execute(sql_part, (user_id,))
-                    else:
-                        cursor.execute(sql_part)
+                cursor = conn.cursor()
 
-                    conn.commit()
+                # Заменяем параметры с ? на %s для MySQL
+                sql_part = sql_part.replace('?', '%s')
+                
+                # Проверяем, содержит ли SQL-запрос параметры
+                if "%s" in sql_part:
+                    cursor.execute(sql_part, (user_id,))
+                else:
+                    cursor.execute(sql_part)
+
+                conn.commit()
+                conn.close()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
-            finally:
-                if conn:
-                    conn.close()
+                # Можно добавить логирование ошибки, но не показываем пользователю
 
-        # Извлекаем текст для пользователя
+        # Остальная часть функции остается без изменений
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
         if text_matches:
             text_part = text_matches[-1].strip()
@@ -1892,48 +1821,32 @@ TEXT: ...
         if not text_part:
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
-        # Обработка запросов на удаление приемов пищи
-        delete_keywords = {
-            "ru": ["удали", "забудь", "ошибся", "неправильно"],
-            "en": ["delete", "remove", "forget", "wrong"]
+        # Если это был прием пищи, сохраняем данные (новая часть)
+        meal_type = None
+        meal_keywords = {
+            "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч", "ужин"],
+            "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
         }
         
-        food_keywords = {
-            "ru": ["миндаль", "халва", "кофе"],
-            "en": ["almond", "halva", "coffee"]
-        }
+        # Проверяем, есть ли указание на тип приема пищи
+        for word in meal_keywords["ru"] + meal_keywords["en"]:
+            if word in user_text.lower():
+                meal_type = word
+                break
         
-        # Проверяем, есть ли запрос на удаление
-        should_delete = any(word in text_part.lower() for word in delete_keywords[language])
-        contains_food = any(word in text_part.lower() for word in food_keywords[language])
-        
-        if should_delete:
-            date_str = date.today().isoformat()
-            deleted = False
+        # Если тип не указан, но есть фото еды, определяем по времени
+        if not meal_type and (message.photo or ("калории" in user_text.lower())):
+            user_timezone = await get_user_timezone(user_id)
+            current_time = datetime.now(user_timezone).time()
             
-            # Если указана конкретная еда
-            if contains_food:
-                food_desc = next((word for word in food_keywords[language] if word in text_part.lower()), None)
-                if food_desc:
-                    deleted = await delete_meal_entry(user_id, date_str, food_description=food_desc)
-            
-            # Если не указана конкретная еда, удаляем последний прием пищи
-            if not deleted:
-                meal_history = await get_meal_history(user_id)
-                if date_str in meal_history and meal_history[date_str]:
-                    last_meal_type = list(meal_history[date_str].keys())[-1]
-                    deleted = await delete_meal_entry(user_id, date_str, meal_type=last_meal_type)
-            
-            if deleted:
-                if language == "ru":
-                    text_part = "✅ Удалил указанный прием пищи из вашей истории."
-                else:
-                    text_part = "✅ Deleted the specified meal from your history."
+            if 5 <= current_time.hour < 11:
+                meal_type = "завтрак" if user_profiles.get(user_id, {}).get("language", "ru") == "ru" else "breakfast"
+            elif 11 <= current_time.hour < 16:
+                meal_type = "обед" if user_profiles.get(user_id, {}).get("language", "ru") == "ru" else "lunch"
+            elif 16 <= current_time.hour < 21:
+                meal_type = "ужин" if user_profiles.get(user_id, {}).get("language", "ru") == "ru" else "dinner"
             else:
-                if language == "ru":
-                    text_part = "Не нашел указанный прием пищи для удаления."
-                else:
-                    text_part = "Could not find the specified meal to delete."
+                meal_type = "перекус" if user_profiles.get(user_id, {}).get("language", "ru") == "ru" else "snack"
 
         # Если это был прием пищи, сохраняем данные
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
@@ -2015,15 +1928,14 @@ TEXT: ...
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
-        await update.message.reply_text(text_part)
+        await message.reply_text(text_part)
 
     except Exception as e:
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
-        if language == "en":
+        if user_profiles.get(user_id, {}).get("language", "ru") == "en":
             error_message = "An error occurred while processing your request. Please try again."
-        await update.message.reply_text(error_message)
+        await message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 
 def main():
