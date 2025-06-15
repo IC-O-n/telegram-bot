@@ -602,70 +602,68 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
 
 
 async def check_reminders(context: CallbackContext):
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    
     try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    SELECT user_id, reminders, timezone, language 
-                    FROM user_profiles 
-                    WHERE reminders != '[]' AND reminders IS NOT NULL
-                """)
-                users = cursor.fetchall()
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT user_id, reminders, timezone, language 
+                FROM user_profiles 
+                WHERE reminders != '[]' AND reminders IS NOT NULL
+            """)
+            users = cursor.fetchall()
 
-            for user in users:
-                try:
-                    if not user['reminders'] or user['reminders'] == '[]':
-                        continue
-                        
-                    reminders = json.loads(user['reminders'])
-                    tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
-                    now = datetime.now(tz)
-                    current_time = now.strftime("%H:%M")
+        for user in users:
+            try:
+                if not user['reminders'] or user['reminders'] == '[]':
+                    continue
+                    
+                reminders = json.loads(user['reminders'])
+                tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
+                now = datetime.now(tz)
+                current_time = now.strftime("%H:%M")
 
-                    for reminder in reminders:
-                        if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
-                            try:
-                                if user['language'] == "ru":
-                                    message = (
-                                        f"⏰ Напоминание: {reminder['text']}\n\n"
-                                        f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
-                                    )
-                                else:
-                                    message = (
-                                        f"⏰ Reminder: {reminder['text']}\n\n"
-                                        f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
-                                    )
-
-                                await context.bot.send_message(chat_id=user['user_id'], text=message)
-
-                                # Обновляем дату последней отправки
-                                reminder["last_sent"] = now.date().isoformat()
-                                with conn.cursor() as update_cursor:
-                                    update_cursor.execute(
-                                        "UPDATE user_profiles SET reminders = %s WHERE user_id = %s",
-                                        (json.dumps(reminders), user['user_id'])
+                for reminder in reminders:
+                    if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
+                        try:
+                            if user['language'] == "ru":
+                                message = (
+                                    f"⏰ Напоминание: {reminder['text']}\n\n"
+                                    f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
                                 )
-                                conn.commit()
-                                
-                            except Exception as e:
-                                print(f"Ошибка при отправке напоминания пользователю {user['user_id']}: {e}")
-                except Exception as e:
-                    print(f"Ошибка при обработке напоминаний для пользователя {user['user_id']}: {e}")
-                    print(f"Reminders JSON: {user['reminders']}")
-                    print(f"Error details: {str(e)}")
-        finally:
-            conn.close()
-    except Exception as e:
-        print(f"Общая ошибка в check_reminders: {e}")
+                            else:
+                                message = (
+                                    f"⏰ Reminder: {reminder['text']}\n\n"
+                                    f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
+                                )
+
+                            await context.bot.send_message(chat_id=user['user_id'], text=message)
+
+                            # Обновляем дату последней отправки
+                            reminder["last_sent"] = now.date().isoformat()
+                            with conn.cursor() as update_cursor:
+                                update_cursor.execute(
+                                    "UPDATE user_profiles SET reminders = %s WHERE user_id = %s",
+                                    (json.dumps(reminders), user['user_id'])
+                                )
+                            conn.commit()
+                            
+                        except Exception as e:
+                            print(f"Ошибка при отправке напоминания пользователю {user['user_id']}: {e}")
+            except Exception as e:
+                print(f"Ошибка при обработке напоминаний для пользователя {user['user_id']}: {e}")
+                print(f"Reminders JSON: {user['reminders']}")
+                print(f"Error details: {str(e)}")
+    finally:
+        conn.close()
+
 
 async def check_water_reminder_time(context: CallbackContext):
     job = context.job
@@ -1226,8 +1224,7 @@ async def delete_meal_entry(user_id: int, date_str: str, meal_type: str):
     finally:
         conn.close()
 
-
-async def update_meal_calories(user_id: int, meal_type: str, new_calories: int, language: str):
+async def update_meal_calories(user_id: int, meal_type: str, new_calories: int, language: str, context: CallbackContext):
     """Обновляет калорийность приема пищи"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
@@ -1281,7 +1278,7 @@ async def update_meal_calories(user_id: int, meal_type: str, new_calories: int, 
     finally:
         conn.close()
 
-async def change_meal_type(user_id: int, old_type: str, new_type: str, language: str):
+async def change_meal_type(user_id: int, old_type: str, new_type: str, language: str, context: CallbackContext):
     """Изменяет тип приема пищи"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
@@ -1332,7 +1329,7 @@ async def change_meal_type(user_id: int, old_type: str, new_type: str, language:
     finally:
         conn.close()
 
-async def delete_meal(user_id: int, meal_type: str, language: str):
+async def delete_meal(user_id: int, meal_type: str, language: str, context: CallbackContext):
     """Удаляет прием пищи"""
     await delete_meal_entry(user_id, date.today().isoformat(), meal_type)
     
@@ -1346,7 +1343,6 @@ async def delete_meal(user_id: int, meal_type: str, language: str):
             chat_id=user_id,
             text=f"✅ Deleted {meal_type} from your meal history"
         )
-
 
 async def get_user_timezone(user_id: int) -> pytz.timezone:
     """Возвращает timezone пользователя"""
@@ -1900,16 +1896,16 @@ TEXT: ...
         print(f"Ошибка при генерации ответа: {e}")
 
 
+
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
-    # Добавляем job для проверки напоминаний с учетом возможных задержек
+    # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
-        callback=check_reminders,
+        check_reminders,
         interval=60,  # Проверяем каждую минуту
-        first=20,     # Первая проверка через 20 секунд (даем больше времени на запуск)
-        misfire_grace_time=30  # Разрешаем задержку до 30 секунд
+        first=10      # Первая проверка через 10 секунд
     )
 
     conv_handler = ConversationHandler(
@@ -1946,6 +1942,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
