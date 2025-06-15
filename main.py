@@ -1384,22 +1384,25 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # Получаем язык пользователя
     language = "ru"  # дефолтное значение
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
     try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
         with conn.cursor() as cursor:
             cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
             if row and row['language']:
                 language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка пользователя: {e}")
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
     # Обработка фото/документов
     media_files = message.photo or []
@@ -1437,13 +1440,24 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if not meal_type and (message.photo or ("калории" in user_text.lower())):
         user_timezone = "UTC"
         try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
             with conn.cursor() as cursor:
                 cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
                 row = cursor.fetchone()
                 if row and row['timezone']:
                     user_timezone = row['timezone']
+        except Exception as e:
+            print(f"Ошибка при получении часового пояса: {e}")
         finally:
-            conn.close()
+            if conn:
+                conn.close()
         
         tz = pytz.timezone(user_timezone)
         now = datetime.now(tz)
@@ -1810,15 +1824,15 @@ TEXT: ...
                     charset='utf8mb4',
                     cursorclass=pymysql.cursors.DictCursor
                 )
-                cursor = conn.cursor()
-                sql_part = sql_part.replace('?', '%s')
-        
-                if "%s" in sql_part:
-                    cursor.execute(sql_part, (user_id,))
-                else:
-                    cursor.execute(sql_part)
+                with conn.cursor() as cursor:
+                    sql_part = sql_part.replace('?', '%s')
+            
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
 
-                conn.commit()
+                    conn.commit()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
             finally:
@@ -1873,6 +1887,7 @@ TEXT: ...
                     })
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
+
         await message.reply_text(text_part)
 
     except Exception as e:
