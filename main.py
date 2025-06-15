@@ -1170,8 +1170,8 @@ async def get_meal_history(user_id: int) -> dict:
     finally:
         conn.close()
 
-async def delete_meal_entry(user_id: int, date_str: str, meal_type: str):
-    """Удаляет запись о приеме пищи и корректирует КБЖУ"""
+async def delete_meal_entry(user_id: int, date_str: str, meal_type: str = None, food_description: str = None):
+    """Удаляет запись о приеме пищи по типу или описанию еды"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -1188,51 +1188,83 @@ async def delete_meal_entry(user_id: int, date_str: str, meal_type: str):
             result = cursor.fetchone()
             
             if not result or not result['meal_history']:
-                return
+                print("История питания пуста")
+                return False
                 
             history = json.loads(result['meal_history'])
             
-            # Проверяем, есть ли запись для удаления
-            if date_str in history and meal_type in history[date_str]:
-                meal_data = history[date_str][meal_type]
+            if date_str not in history:
+                print(f"Нет записей за {date_str}")
+                return False
                 
-                # Вычитаем КБЖУ из дневных показателей
-                cursor.execute("""
-                    UPDATE user_profiles 
-                    SET 
-                        calories_today = GREATEST(0, calories_today - %s),
-                        proteins_today = GREATEST(0, proteins_today - %s),
-                        fats_today = GREATEST(0, fats_today - %s),
-                        carbs_today = GREATEST(0, carbs_today - %s)
-                    WHERE user_id = %s
-                """, (
-                    meal_data.get('calories', 0),
-                    meal_data.get('proteins', 0),
-                    meal_data.get('fats', 0),
-                    meal_data.get('carbs', 0),
-                    user_id
-                ))
+            deleted = False
+            
+            # Если указан тип приема пищи
+            if meal_type:
+                if meal_type in history[date_str]:
+                    meal_data = history[date_str][meal_type]
+                    # Вычитаем КБЖУ
+                    cursor.execute("""
+                        UPDATE user_profiles 
+                        SET 
+                            calories_today = GREATEST(0, calories_today - %s),
+                            proteins_today = GREATEST(0, proteins_today - %s),
+                            fats_today = GREATEST(0, fats_today - %s),
+                            carbs_today = GREATEST(0, carbs_today - %s)
+                        WHERE user_id = %s
+                    """, (
+                        meal_data.get('calories', 0),
+                        meal_data.get('proteins', 0),
+                        meal_data.get('fats', 0),
+                        meal_data.get('carbs', 0),
+                        user_id
+                    ))
+                    # Удаляем запись
+                    del history[date_str][meal_type]
+                    deleted = True
+                    print(f"Удален {meal_type} за {date_str}")
+            # Если указано описание еды
+            elif food_description:
+                for m_type, meal_data in list(history[date_str].items()):
+                    if food_description.lower() in meal_data.get('food', '').lower():
+                        # Вычитаем КБЖУ
+                        cursor.execute("""
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = GREATEST(0, calories_today - %s),
+                                proteins_today = GREATEST(0, proteins_today - %s),
+                                fats_today = GREATEST(0, fats_today - %s),
+                                carbs_today = GREATEST(0, carbs_today - %s)
+                            WHERE user_id = %s
+                        """, (
+                            meal_data.get('calories', 0),
+                            meal_data.get('proteins', 0),
+                            meal_data.get('fats', 0),
+                            meal_data.get('carbs', 0),
+                            user_id
+                        ))
+                        # Удаляем запись
+                        del history[date_str][m_type]
+                        deleted = True
+                        print(f"Удален прием пищи с '{food_description}' за {date_str}")
+                        break
+            
+            # Если дата пустая, удаляем её полностью
+            if date_str in history and not history[date_str]:
+                del history[date_str]
                 
-                # Удаляем запись из истории
-                del history[date_str][meal_type]
-                
-                # Если дата пустая, удаляем её полностью
-                if not history[date_str]:
-                    del history[date_str]
-                
-                # Сохраняем обновленную историю
-                cursor.execute("""
-                    UPDATE user_profiles 
-                    SET meal_history = %s 
-                    WHERE user_id = %s
-                """, (json.dumps(history), user_id))
-                
-                conn.commit()
-                print(f"Удалена запись о приеме пищи {meal_type} за {date_str} для пользователя {user_id}")
-            else:
-                print(f"Запись о приеме пищи {meal_type} за {date_str} не найдена для пользователя {user_id}")
+            # Сохраняем обновленную историю
+            cursor.execute("""
+                UPDATE user_profiles 
+                SET meal_history = %s 
+                WHERE user_id = %s
+            """, (json.dumps(history), user_id))
+            
+            conn.commit()
+            return deleted
+            
     except Exception as e:
-        print(f"Ошибка при удалении записи о приеме пищи: {e}")
+        print(f"Ошибка при удалении записи: {e}")
         raise
     finally:
         conn.close()
@@ -1860,20 +1892,48 @@ TEXT: ...
         if not text_part:
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
-        # Если пользователь просит удалить последний прием пищи
-        if "удалить последний прием пищи" in text_part.lower() or "forget last meal" in text_part.lower():
+        # Обработка запросов на удаление приемов пищи
+        delete_keywords = {
+            "ru": ["удали", "забудь", "ошибся", "неправильно"],
+            "en": ["delete", "remove", "forget", "wrong"]
+        }
+        
+        food_keywords = {
+            "ru": ["миндаль", "халва", "кофе"],
+            "en": ["almond", "halva", "coffee"]
+        }
+        
+        # Проверяем, есть ли запрос на удаление
+        should_delete = any(word in text_part.lower() for word in delete_keywords[language])
+        contains_food = any(word in text_part.lower() for word in food_keywords[language])
+        
+        if should_delete:
             date_str = date.today().isoformat()
-            meal_history = await get_meal_history(user_id)
+            deleted = False
             
-            if date_str in meal_history and meal_history[date_str]:
-                # Получаем последний тип приема пищи
-                last_meal_type = list(meal_history[date_str].keys())[-1]
-                await delete_meal_entry(user_id, date_str, last_meal_type)
-                
+            # Если указана конкретная еда
+            if contains_food:
+                food_desc = next((word for word in food_keywords[language] if word in text_part.lower()), None)
+                if food_desc:
+                    deleted = await delete_meal_entry(user_id, date_str, food_description=food_desc)
+            
+            # Если не указана конкретная еда, удаляем последний прием пищи
+            if not deleted:
+                meal_history = await get_meal_history(user_id)
+                if date_str in meal_history and meal_history[date_str]:
+                    last_meal_type = list(meal_history[date_str].keys())[-1]
+                    deleted = await delete_meal_entry(user_id, date_str, meal_type=last_meal_type)
+            
+            if deleted:
                 if language == "ru":
-                    text_part = f"✅ Удалил последний прием пищи ({last_meal_type}) из вашей истории."
+                    text_part = "✅ Удалил указанный прием пищи из вашей истории."
                 else:
-                    text_part = f"✅ Deleted last meal ({last_meal_type}) from your history."
+                    text_part = "✅ Deleted the specified meal from your history."
+            else:
+                if language == "ru":
+                    text_part = "Не нашел указанный прием пищи для удаления."
+                else:
+                    text_part = "Could not find the specified meal to delete."
 
         # Если это был прием пищи, сохраняем данные
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
