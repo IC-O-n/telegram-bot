@@ -1171,7 +1171,7 @@ async def get_meal_history(user_id: int) -> dict:
         conn.close()
 
 async def delete_meal_entry(user_id: int, date_str: str, meal_type: str):
-    """Удаляет запись о приеме пищи"""
+    """Удаляет запись о приеме пищи и корректирует КБЖУ"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -1183,15 +1183,20 @@ async def delete_meal_entry(user_id: int, date_str: str, meal_type: str):
     
     try:
         with conn.cursor() as cursor:
+            # Получаем текущую историю питания
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
+            
             if not result or not result['meal_history']:
                 return
                 
             history = json.loads(result['meal_history'])
+            
+            # Проверяем, есть ли запись для удаления
             if date_str in history and meal_type in history[date_str]:
+                meal_data = history[date_str][meal_type]
+                
                 # Вычитаем КБЖУ из дневных показателей
-                meal = history[date_str][meal_type]
                 cursor.execute("""
                     UPDATE user_profiles 
                     SET 
@@ -1201,16 +1206,18 @@ async def delete_meal_entry(user_id: int, date_str: str, meal_type: str):
                         carbs_today = GREATEST(0, carbs_today - %s)
                     WHERE user_id = %s
                 """, (
-                    meal.get('calories', 0),
-                    meal.get('proteins', 0),
-                    meal.get('fats', 0),
-                    meal.get('carbs', 0),
+                    meal_data.get('calories', 0),
+                    meal_data.get('proteins', 0),
+                    meal_data.get('fats', 0),
+                    meal_data.get('carbs', 0),
                     user_id
                 ))
                 
-                # Удаляем запись
+                # Удаляем запись из истории
                 del history[date_str][meal_type]
-                if not history[date_str]:  # Если дата пустая, удаляем её
+                
+                # Если дата пустая, удаляем её полностью
+                if not history[date_str]:
                     del history[date_str]
                 
                 # Сохраняем обновленную историю
@@ -1221,6 +1228,12 @@ async def delete_meal_entry(user_id: int, date_str: str, meal_type: str):
                 """, (json.dumps(history), user_id))
                 
                 conn.commit()
+                print(f"Удалена запись о приеме пищи {meal_type} за {date_str} для пользователя {user_id}")
+            else:
+                print(f"Запись о приеме пищи {meal_type} за {date_str} не найдена для пользователя {user_id}")
+    except Exception as e:
+        print(f"Ошибка при удалении записи о приеме пищи: {e}")
+        raise
     finally:
         conn.close()
 
@@ -1847,6 +1860,21 @@ TEXT: ...
         if not text_part:
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
+        # Если пользователь просит удалить последний прием пищи
+        if "удалить последний прием пищи" in text_part.lower() or "forget last meal" in text_part.lower():
+            date_str = date.today().isoformat()
+            meal_history = await get_meal_history(user_id)
+            
+            if date_str in meal_history and meal_history[date_str]:
+                # Получаем последний тип приема пищи
+                last_meal_type = list(meal_history[date_str].keys())[-1]
+                await delete_meal_entry(user_id, date_str, last_meal_type)
+                
+                if language == "ru":
+                    text_part = f"✅ Удалил последний прием пищи ({last_meal_type}) из вашей истории."
+                else:
+                    text_part = f"✅ Deleted last meal ({last_meal_type}) from your history."
+
         # Если это был прием пищи, сохраняем данные
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
             # Парсим КБЖУ из ответа
@@ -1886,7 +1914,7 @@ TEXT: ...
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
-        await message.reply_text(text_part)
+        await update.message.reply_text(text_part)
 
     except Exception as e:
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
