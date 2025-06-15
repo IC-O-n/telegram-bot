@@ -1796,28 +1796,35 @@ TEXT: ...
 
         # Если это был прием пищи, сохраняем данные
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
+            # Ищем описание еды в ответе бота
+            food_desc_match = re.search(r'🔍 Анализ блюда:\n(.*?)\n\n🍽|🔍 Dish analysis:\n(.*?)\n\n🍽', response_text, re.DOTALL)
+            food_desc = food_desc_match.group(1) if food_desc_match and food_desc_match.group(1) else (
+                food_desc_match.group(2) if food_desc_match else "Не указано / Not specified"
+            )
+    
             # Парсим КБЖУ из ответа
             calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
             proteins_match = re.search(r'Белки:\s*(\d+)', response_text) or re.search(r'Proteins:\s*(\d+)', response_text)
             fats_match = re.search(r'Жиры:\s*(\d+)', response_text) or re.search(r'Fats:\s*(\d+)', response_text)
             carbs_match = re.search(r'Углеводы:\s*(\d+)', response_text) or re.search(r'Carbs:\s*(\d+)', response_text)
-            
+    
             if calories_match and proteins_match and fats_match and carbs_match:
                 meal_data = {
                     "time": datetime.now().strftime("%H:%M"),
-                    "food": user_text,
+                    "food": food_desc.strip(),  # Используем описание от бота, а не текст пользователя
                     "calories": int(calories_match.group(1)),
                     "proteins": int(proteins_match.group(1)),
                     "fats": int(fats_match.group(1)),
                     "carbs": int(carbs_match.group(1))
                 }
-                
+        
                 date_str = date.today().isoformat()
                 await update_meal_history(user_id, {
                     date_str: {
                         meal_type: meal_data
-                    }
+                    }       
                 })
+
 
         await message.reply_text(text_part)
 
