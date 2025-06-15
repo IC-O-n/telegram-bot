@@ -1110,16 +1110,17 @@ def get_user_profile_text(user_id: int) -> str:
 
 async def update_meal_history(user_id: int, meal_data: dict):
     """Обновляет историю питания пользователя с учетом timezone"""
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
+    conn = None
     try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
         with conn.cursor() as cursor:
             # Получаем текущую историю
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
@@ -1132,7 +1133,6 @@ async def update_meal_history(user_id: int, meal_data: dict):
                     current_history[date_key] = {}
                 
                 for meal_type, meal_info in meals.items():
-                    # Обновляем существующую запись или добавляем новую
                     current_history[date_key][meal_type] = meal_info
             
             # Сохраняем обновленную историю
@@ -1147,7 +1147,9 @@ async def update_meal_history(user_id: int, meal_data: dict):
         print(f"Ошибка при обновлении истории питания: {e}")
         raise
     finally:
-        conn.close()
+        if conn:
+            conn.close()
+
 
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя"""
@@ -1346,16 +1348,17 @@ async def delete_meal(user_id: int, meal_type: str, language: str):
 
 async def get_user_timezone(user_id: int) -> pytz.timezone:
     """Возвращает timezone пользователя"""
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
+    conn = None
     try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
         with conn.cursor() as cursor:
             cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
@@ -1363,9 +1366,12 @@ async def get_user_timezone(user_id: int) -> pytz.timezone:
         if row and row['timezone']:
             return pytz.timezone(row['timezone'])
         return pytz.UTC  # fallback
+    except Exception as e:
+        print(f"Ошибка при получении timezone: {e}")
+        return pytz.UTC
     finally:
-        conn.close()
-
+        if conn:
+            conn.close()
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
@@ -1794,6 +1800,7 @@ TEXT: ...
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
+            conn = None
             try:
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
@@ -1805,16 +1812,18 @@ TEXT: ...
                 )
                 cursor = conn.cursor()
                 sql_part = sql_part.replace('?', '%s')
-                
+        
                 if "%s" in sql_part:
                     cursor.execute(sql_part, (user_id,))
                 else:
                     cursor.execute(sql_part)
 
                 conn.commit()
-                conn.close()
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
+            finally:
+                if conn:
+                    conn.close()
 
         # Извлекаем текст для пользователя
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
@@ -1843,25 +1852,27 @@ TEXT: ...
                 food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
     
             if calories_match and proteins_match and fats_match and carbs_match:
-                # Получаем текущее время с учетом timezone пользователя
-                user_timezone = await get_user_timezone(user_id)
-                current_time = datetime.now(user_timezone).strftime("%H:%M")
-        
-                meal_data = {
-                    "time": current_time,  # Используем время с учетом timezone
-                    "food": food_description or user_text,
-                    "calories": int(calories_match.group(1)),
-                    "proteins": int(proteins_match.group(1)),
-                    "fats": int(fats_match.group(1)),
-                    "carbs": int(carbs_match.group(1))
-                }
-        
-                date_str = date.today().isoformat()
-                await update_meal_history(user_id, {
-                    date_str: {
-                        meal_type: meal_data
+                try:
+                    user_timezone = await get_user_timezone(user_id)
+                    current_time = datetime.now(user_timezone).strftime("%H:%M")
+            
+                    meal_data = {
+                        "time": current_time,
+                        "food": food_description or user_text,
+                        "calories": int(calories_match.group(1)),
+                        "proteins": int(proteins_match.group(1)),
+                        "fats": int(fats_match.group(1)),
+                        "carbs": int(carbs_match.group(1))
                     }
-                })
+            
+                    date_str = date.today().isoformat()
+                    await update_meal_history(user_id, {
+                        date_str: {
+                            meal_type: meal_data
+                        }
+                    })
+                except Exception as e:
+                    print(f"Ошибка при сохранении данных о приеме пищи: {e}")
         await message.reply_text(text_part)
 
     except Exception as e:
