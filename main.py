@@ -1173,6 +1173,7 @@ async def update_meal_history(user_id: int, meal_data: dict):
         if conn:
             conn.close()
 
+
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя с проверкой данных"""
     conn = None
@@ -1204,73 +1205,6 @@ async def get_meal_history(user_id: int) -> dict:
                 
                 return structured_history
             return {}
-    except Exception as e:
-        print(f"Ошибка при получении истории питания: {e}")
-        return {}
-    finally:
-        if conn:
-            conn.close()
-
-
-async def get_meal_history(user_id: int) -> dict:
-    """Возвращает историю питания пользователя с проверкой данных"""
-    conn = None
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
-            result = cursor.fetchone()
-            
-            if not result or not result['meal_history']:
-                return {}
-
-            try:
-                history = json.loads(result['meal_history'])
-                if not isinstance(history, dict):
-                    return {}
-
-                # Преобразуем структуру данных (на случай старого формата)
-                structured_history = {}
-                today = date.today().isoformat()
-                
-                for date_str, meals in history.items():
-                    if not isinstance(meals, dict):
-                        continue
-                        
-                    structured_meals = {}
-                    for meal_key, meal_data in meals.items():
-                        if not isinstance(meal_data, dict):
-                            continue
-                            
-                        # Для старого формата (где meal_key = "тип_время")
-                        if '_' in meal_key:
-                            meal_type = meal_key.split('_')[0]
-                        else:
-                            meal_type = meal_key
-                            
-                        # Проверяем обязательные поля
-                        required_fields = ['food', 'calories', 'proteins', 'fats', 'carbs']
-                        if not all(field in meal_data for field in required_fields):
-                            continue
-                            
-                        structured_meals[meal_type] = meal_data
-                    
-                    if structured_meals:
-                        structured_history[date_str] = structured_meals
-                
-                return structured_history
-                
-            except json.JSONDecodeError as e:
-                print(f"Ошибка декодирования meal_history: {e}")
-                return {}
     except Exception as e:
         print(f"Ошибка при получении истории питания: {e}")
         return {}
@@ -1625,26 +1559,22 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # Получаем историю питания за последнюю неделю
     meal_history = await get_meal_history(user_id)
-    today = date.today().isoformat()
-
-    if meal_history and today in meal_history and meal_history[today]:
-        meals_text = "🍽 Ваши приемы пищи сегодня:\n" if language == "ru" else "🍽 Your meals today:\n"
+    if meal_history:
+        meals_text = "🍽 История вашего питания / Your meal history:\n"
     
-        for meal_type, meal_data in meal_history[today].items():
-            if isinstance(meal_data, dict):
-                meals_text += f"\n- {meal_type.capitalize()} в {meal_data.get('time', '?')}:\n"
-                meals_text += f"  🍴 {meal_data.get('food', '')}\n"
-                meals_text += f"  🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
+        # Сортируем даты по убыванию (новые сверху)
+        sorted_dates = sorted(meal_history.keys(), reverse=True)
+    
+        for day in sorted_dates[:7]:  # Последние 7 дней
+            meals_text += f"\n📅 {day}:\n"
+            for meal_type, meal_data in meal_history[day].items():
+                meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
                 meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
                 meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
                 meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
     
         contents.insert(0, {"text": meals_text})
-    else:
-        if language == "ru":
-            contents.insert(0, {"text": "Вы пока не добавляли приемы пищи сегодня. Хотите добавить сейчас?"})
-        else:
-            contents.insert(0, {"text": "You haven't added any meals today. Would you like to add one now?"})
 
     # История диалога
     if user_id not in user_histories:
@@ -1966,11 +1896,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
      * "Рекомендую добавить 🍗 куриную грудку и 🥦 брокколи"
      * "На десерт можно 🍎 яблоко или 🍌 банан"
 
-26. ⚠️ ВАЖНО: 
-   - Если в meal_history нет записей о питании - НИКОГДА не выдумывай данные!
-   - Если пользователь спрашивает "что я сегодня ел", а в базе нет записей - отвечай: "Вы пока не добавляли приемы пищи сегодня. Хотите добавить сейчас?"
-   - Всегда проверяй реальные данные в meal_history перед ответом.
-   - Если данных нет - предлагай добавить их, но никогда не придумывай.
+26. ⚠️ ВАЖНО: У тебя есть полная история питания пользователя (meal_history), содержащая:
+- Даты и время всех приемов пищи
+- Конкретные названия блюд
+- Подробный состав КБЖУ для каждого приема пищи
+- Тип приема пищи (завтрак/обед/ужин/перекус)
+
+Всегда используй эту информацию при ответах на вопросы о:
+- Что пользователь ел в конкретный день
+- В какое время обычно ест
+- Какие продукты преобладают в рационе
+- Анализе пищевых привычек
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
@@ -2229,6 +2165,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
