@@ -9,3 +9,4 @@ pytz
 python-telegram-bot[job-queue]
 timezonefinder
 pymysql
+asyncio

@@ -7,6 +7,7 @@ import pytz
 import telegram
 import json
 import pymysql
+import asyncio
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
@@ -602,68 +603,88 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
 
 
 async def check_reminders(context: CallbackContext):
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    max_retries = 3
+    retry_delay = 2  # начальная задержка в секундах
     
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT user_id, reminders, timezone, language 
-                FROM user_profiles 
-                WHERE reminders != '[]' AND reminders IS NOT NULL
-            """)
-            users = cursor.fetchall()
+    for attempt in range(max_retries):
+        conn = None
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor,
+                connect_timeout=10  # уменьшаем таймаут подключения
+            )
+            
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT user_id, reminders, timezone, language 
+                    FROM user_profiles 
+                    WHERE reminders != '[]' AND reminders IS NOT NULL
+                """)
+                users = cursor.fetchall()
 
-        for user in users:
-            try:
-                if not user['reminders'] or user['reminders'] == '[]':
-                    continue
-                    
-                reminders = json.loads(user['reminders'])
-                tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
-                now = datetime.now(tz)
-                current_time = now.strftime("%H:%M")
+            for user in users:
+                try:
+                    if not user['reminders'] or user['reminders'] == '[]':
+                        continue
+                        
+                    reminders = json.loads(user['reminders'])
+                    tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
+                    now = datetime.now(tz)
+                    current_time = now.strftime("%H:%M")
 
-                for reminder in reminders:
-                    if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
-                        try:
-                            if user['language'] == "ru":
-                                message = (
-                                    f"⏰ Напоминание: {reminder['text']}\n\n"
-                                    f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
-                                )
-                            else:
-                                message = (
-                                    f"⏰ Reminder: {reminder['text']}\n\n"
-                                    f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
-                                )
+                    for reminder in reminders:
+                        if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
+                            try:
+                                if user['language'] == "ru":
+                                    message = (
+                                        f"⏰ Напоминание: {reminder['text']}\n\n"
+                                        f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
+                                    )
+                                else:
+                                    message = (
+                                        f"⏰ Reminder: {reminder['text']}\n\n"
+                                        f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
+                                    )
 
-                            await context.bot.send_message(chat_id=user['user_id'], text=message)
+                                await context.bot.send_message(chat_id=user['user_id'], text=message)
 
-                            # Обновляем дату последней отправки
-                            reminder["last_sent"] = now.date().isoformat()
-                            with conn.cursor() as update_cursor:
-                                update_cursor.execute(
-                                    "UPDATE user_profiles SET reminders = %s WHERE user_id = %s",
-                                    (json.dumps(reminders), user['user_id'])
-                                )
-                            conn.commit()
-                            
-                        except Exception as e:
-                            print(f"Ошибка при отправке напоминания пользователю {user['user_id']}: {e}")
-            except Exception as e:
-                print(f"Ошибка при обработке напоминаний для пользователя {user['user_id']}: {e}")
-                print(f"Reminders JSON: {user['reminders']}")
-                print(f"Error details: {str(e)}")
-    finally:
-        conn.close()
-
+                                # Обновляем дату последней отправки
+                                reminder["last_sent"] = now.date().isoformat()
+                                with conn.cursor() as update_cursor:
+                                    update_cursor.execute(
+                                        "UPDATE user_profiles SET reminders = %s WHERE user_id = %s",
+                                        (json.dumps(reminders), user['user_id'])
+                                    )
+                                conn.commit()
+                                
+                            except Exception as e:
+                                print(f"Ошибка при отправке напоминания пользователю {user['user_id']}: {e}")
+                except Exception as e:
+                    print(f"Ошибка при обработке напоминаний для пользователя {user['user_id']}: {e}")
+                    print(f"Reminders JSON: {user['reminders']}")
+                    print(f"Error details: {str(e)}")
+            
+            # Если успешно выполнили, выходим из цикла повторных попыток
+            break
+            
+        except pymysql.err.OperationalError as e:
+            print(f"Ошибка подключения к MySQL (попытка {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay * (attempt + 1))  # экспоненциальная задержка
+                continue
+            else:
+                print("Не удалось подключиться к MySQL после нескольких попыток")
+        except Exception as e:
+            print(f"Неожиданная ошибка в check_reminders: {e}")
+            break
+        finally:
+            if conn:
+                conn.close()
 
 async def check_water_reminder_time(context: CallbackContext):
     job = context.job
