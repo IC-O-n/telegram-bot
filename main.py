@@ -1153,7 +1153,14 @@ async def update_meal_history(user_id: int, meal_data: dict):
 
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя с проверкой данных"""
-    conn = pymysql.connect(...)
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
@@ -1530,10 +1537,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     meal_history = await get_meal_history(user_id)
     if meal_history:
         meals_text = "🍽 История вашего питания / Your meal history:\n"
-        
+    
         # Сортируем даты по убыванию (новые сверху)
         sorted_dates = sorted(meal_history.keys(), reverse=True)
-        
+    
         for day in sorted_dates[:7]:  # Последние 7 дней
             meals_text += f"\n📅 {day}:\n"
             for meal_type, meal_data in meal_history[day].items():
@@ -1542,7 +1549,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                 meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
                 meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
                 meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
-        
+    
         contents.insert(0, {"text": meals_text})
 
 
