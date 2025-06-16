@@ -899,7 +899,6 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         if conn:
             conn.close()
 
-
 async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     user_histories.pop(user_id, None)
@@ -969,7 +968,6 @@ async def reset(update: Update, context: CallbackContext) -> None:
     finally:
         if conn:
             conn.close()
-
 
 async def toggle_water_reminders(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
