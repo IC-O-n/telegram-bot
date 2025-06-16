@@ -1230,18 +1230,31 @@ async def get_meal_history(user_id: int) -> dict:
             result = cursor.fetchone()
             
             if result and result['meal_history']:
-                history = json.loads(result['meal_history'])
-                # Реструктурируем данные для удобства использования
-                structured_history = {}
-                
-                for date_str, meals in history.items():
-                    structured_history[date_str] = {}
-                    for meal_key, meal_data in meals.items():
-                        # Извлекаем тип приема пищи из ключа
-                        meal_type = meal_key.split('_')[0]
-                        structured_history[date_str][meal_type] = meal_data
-                
-                return structured_history
+                try:
+                    history = json.loads(result['meal_history'])
+                    # Проверяем и очищаем данные
+                    cleaned_history = {}
+                    for date_str, meals in history.items():
+                        if not isinstance(meals, dict):
+                            continue
+                            
+                        cleaned_meals = {}
+                        for meal_key, meal_data in meals.items():
+                            if not isinstance(meal_data, dict):
+                                continue
+                                
+                            # Проверяем обязательные поля
+                            if not all(k in meal_data for k in ['food', 'calories', 'proteins', 'fats', 'carbs']):
+                                continue
+                                
+                            cleaned_meals[meal_key] = meal_data
+                        
+                        if cleaned_meals:
+                            cleaned_history[date_str] = cleaned_meals
+                    
+                    return cleaned_history
+                except json.JSONDecodeError:
+                    return {}
             return {}
     except Exception as e:
         print(f"Ошибка при получении истории питания: {e}")
@@ -1604,15 +1617,24 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         sorted_dates = sorted(meal_history.keys(), reverse=True)
     
         for day in sorted_dates[:7]:  # Последние 7 дней
-            meals_text += f"\n📅 {day}:\n"
-            for meal_type, meal_data in meal_history[day].items():
-                meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
-                meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
-                meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
-                meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
-                meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
+            if day in meal_history and meal_history[day]:  # Проверяем, что есть данные за этот день
+                meals_text += f"\n📅 {day}:\n"
+                for meal_type, meal_data in meal_history[day].items():
+                    if isinstance(meal_data, dict):  # Проверяем, что это словарь с данными
+                        meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                        meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
+                        meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
+                        meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
+                        meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
     
-        contents.insert(0, {"text": meals_text})
+        # Добавляем историю только если есть реальные данные
+        if len(sorted_dates) > 0 and meals_text.count("📅") > 0:
+            contents.insert(0, {"text": meals_text})
+        else:
+            if language == "ru":
+                contents.insert(0, {"text": "История питания пока пуста. Вы можете добавить приемы пищи, отправив фото еды или описав, что вы съели."})
+            else:
+                contents.insert(0, {"text": "Meal history is empty. You can add meals by sending photos of food or describing what you ate."})
 
     # История диалога
     if user_id not in user_histories:
@@ -1934,17 +1956,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
      * "Рекомендую добавить 🍗 куриную грудку и 🥦 брокколи"
      * "На десерт можно 🍎 яблоко или 🍌 банан"
 
-26. ⚠️ ВАЖНО: У тебя есть полная история питания пользователя (meal_history), содержащая:
-- Даты и время всех приемов пищи
-- Конкретные названия блюд
-- Подробный состав КБЖУ для каждого приема пищи
-- Тип приема пищи (завтрак/обед/ужин/перекус)
-
-Всегда используй эту информацию при ответах на вопросы о:
-- Что пользователь ел в конкретный день
-- В какое время обычно ест
-- Какие продукты преобладают в рационе
-- Анализе пищевых привычек
+26. ⚠️ ВАЖНО: 
+   - Если в meal_history нет записей о питании - НИКОГДА не выдумывай данные!
+   - Если пользователь спрашивает "что я сегодня ел", а в базе нет записей - отвечай: "Вы пока не добавляли приемы пищи сегодня. Хотите добавить сейчас?"
+   - Всегда проверяй реальные данные в meal_history перед ответом.
+   - Если данных нет - предлагай добавить их, но никогда не придумывай.
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
