@@ -1152,21 +1152,22 @@ async def update_meal_history(user_id: int, meal_data: dict):
 
 
 async def get_meal_history(user_id: int) -> dict:
-    """Возвращает историю питания пользователя"""
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
+    """Возвращает историю питания пользователя с проверкой данных"""
+    conn = pymysql.connect(...)
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
-            return json.loads(result['meal_history']) if result and result['meal_history'] else {}
+            if result and result['meal_history']:
+                history = json.loads(result['meal_history'])
+                # Очищаем от пустых/неполных записей
+                return {
+                    date: {m_type: m_data for m_type, m_data in meals.items() 
+                          if m_data and isinstance(m_data, dict)}
+                    for date, meals in history.items()
+                    if meals and isinstance(meals, dict)
+                }
+            return {}
     finally:
         conn.close()
 
@@ -1524,35 +1525,27 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if profile_info and "не найден" not in profile_info and "not found" not in profile_info:
         contents.insert(0, {"text": f"Информация о пользователе / User information:\n{profile_info}"})
 
+
     # Получаем историю питания за последнюю неделю
     meal_history = await get_meal_history(user_id)
     if meal_history:
-        # Формируем аналитику по дням
-        weekly_stats = []
-        today = date.today()
+        meals_text = "🍽 История вашего питания / Your meal history:\n"
         
-        for i in range(7):
-            day = today - timedelta(days=i)
-            day_str = day.isoformat()
-            
-            if day_str in meal_history:
-                day_data = meal_history[day_str]
-                day_stats = {
-                    "date": day_str,
-                    "calories": sum(m.get('calories', 0) for m in day_data.values()),
-                    "proteins": sum(m.get('proteins', 0) for m in day_data.values()),
-                    "fats": sum(m.get('fats', 0) for m in day_data.values()),
-                    "carbs": sum(m.get('carbs', 0) for m in day_data.values())
-                }
-                weekly_stats.append(day_stats)
+        # Сортируем даты по убыванию (новые сверху)
+        sorted_dates = sorted(meal_history.keys(), reverse=True)
         
-        if weekly_stats:
-            weekly_stats_text = "📆 Недельная статистика питания / Weekly nutrition stats:\n"
-            weekly_stats_text += "\n".join(
-                f"{s['date']}: {s['calories']} ккал | Б: {s['proteins']}г | Ж: {s['fats']}г | У: {s['carbs']}г"
-                for s in weekly_stats
-            )
-            contents.insert(0, {"text": weekly_stats_text})
+        for day in sorted_dates[:7]:  # Последние 7 дней
+            meals_text += f"\n📅 {day}:\n"
+            for meal_type, meal_data in meal_history[day].items():
+                meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
+                meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
+                meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
+                meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
+        
+        contents.insert(0, {"text": meals_text})
+
+
     # История диалога
     if user_id not in user_histories:
         user_histories[user_id] = deque(maxlen=10)
@@ -1873,38 +1866,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
      * "Рекомендую добавить 🍗 куриную грудку и 🥦 брокколи"
      * "На десерт можно 🍎 яблоко или 🍌 банан"
 
-26. При анализе питания всегда проверяй данные из meal_history, которые содержат:
-   - Даты и время приемов пищи
-   - Конкретные блюда и их состав
-   - КБЖУ каждого приема пищи
-   - Тип приема пищи (завтрак/обед/ужин/перекус)
+26. ⚠️ ВАЖНО: У тебя есть полная история питания пользователя (meal_history), содержащая:
+- Даты и время всех приемов пищи
+- Конкретные названия блюд
+- Подробный состав КБЖУ для каждого приема пищи
+- Тип приема пищи (завтрак/обед/ужин/перекус)
 
-27. При анализе прогресса пользователя:
-   - Всегда сравнивай текущий день с предыдущими днями за последнюю неделю
-   - Формируй сводку по дням в формате:
-     * Дата: [дата]
-     * Калории: [X] ккал (дефицит/профицит: [Y] ккал)
-     * Белки: [A] г (норма: [B] г)
-     * Жиры: [C] г (норма: [D] г)
-     * Углеводы: [E] г (норма: [F] г)
-     * Тренд: ↑/→/↓ (по сравнению с предыдущим днем)
-   - Выявляй закономерности:
-     * Дни с наибольшим дефицитом/профицитом
-     * Дни с лучшим балансом БЖУ
-     * Проблемные дни (например, слишком много углеводов вечером)
-   - Формируй персонализированные выводы:
-     TEXT:
-     📈 Ваш недельный прогресс:
-     [График/анализ изменений]
-     
-     🔍 Основные наблюдения:
-     1. [Наблюдение 1]
-     2. [Наблюдение 2]
-     3. [Наблюдение 3]
-     
-     💡 Рекомендации:
-     - [Рекомендация 1]
-     - [Рекомендация 2]
+Всегда используй эту информацию при ответах на вопросы о:
+- Что пользователь ел в конкретный день
+- В какое время обычно ест
+- Какие продукты преобладают в рационе
+- Анализе пищевых привычек
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
