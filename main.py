@@ -1540,17 +1540,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Определяем тип приема пищи если это фото еды
     meal_type = None
     meal_keywords = {
-        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч"],
+        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч", "ужин"],
         "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
     }
-
-    # 1. Сначала проверяем, указал ли пользователь тип приема пищи в тексте
+    
+    # Проверяем текст на указание типа приема пищи
     for word in meal_keywords[language]:
         if word in user_text.lower():
             meal_type = word
             break
-
-    # 2. Если тип не указан и это фото еды или сообщение о калориях, определяем по времени
+    
+    # Если тип не указан, определяем по времени
     if not meal_type and (message.photo or ("калории" in user_text.lower())):
         user_timezone = "UTC"
         try:
@@ -1572,11 +1572,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         finally:
             if conn:
                 conn.close()
-    
+        
         tz = pytz.timezone(user_timezone)
         now = datetime.now(tz)
         current_hour = now.hour
-    
+        
         if 5 <= current_hour < 11:
             meal_type = "завтрак" if language == "ru" else "breakfast"
         elif 11 <= current_hour < 16:
