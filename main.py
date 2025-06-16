@@ -7,7 +7,6 @@ import pytz
 import telegram
 import json
 import pymysql
-import asyncio
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
@@ -603,90 +602,67 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
 
 
 async def check_reminders(context: CallbackContext):
-    max_retries = 3
-    retry_delay = 5  # секунды между попытками
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
     
-    for attempt in range(max_retries):
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor,
-                connect_timeout=20
-            )
-            
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT user_id, reminders, timezone, language 
+                FROM user_profiles 
+                WHERE reminders != '[]' AND reminders IS NOT NULL
+            """)
+            users = cursor.fetchall()
+
+        for user in users:
             try:
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT user_id, reminders, timezone, language 
-                        FROM user_profiles 
-                        WHERE reminders != '[]' AND reminders IS NOT NULL
-                    """)
-                    users = cursor.fetchall()
+                if not user['reminders'] or user['reminders'] == '[]':
+                    continue
+                    
+                reminders = json.loads(user['reminders'])
+                tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
+                now = datetime.now(tz)
+                current_time = now.strftime("%H:%M")
 
-                for user in users:
-                    try:
-                        if not user['reminders'] or user['reminders'] == '[]':
-                            continue
+                for reminder in reminders:
+                    if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
+                        try:
+                            if user['language'] == "ru":
+                                message = (
+                                    f"⏰ Напоминание: {reminder['text']}\n\n"
+                                    f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
+                                )
+                            else:
+                                message = (
+                                    f"⏰ Reminder: {reminder['text']}\n\n"
+                                    f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
+                                )
+
+                            await context.bot.send_message(chat_id=user['user_id'], text=message)
+
+                            # Обновляем дату последней отправки
+                            reminder["last_sent"] = now.date().isoformat()
+                            with conn.cursor() as update_cursor:
+                                update_cursor.execute(
+                                    "UPDATE user_profiles SET reminders = %s WHERE user_id = %s",
+                                    (json.dumps(reminders), user['user_id'])
+                                )
+                            conn.commit()
                             
-                        reminders = json.loads(user['reminders'])
-                        tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
-                        now = datetime.now(tz)
-                        current_time = now.strftime("%H:%M")
-
-                        for reminder in reminders:
-                            if reminder["time"] == current_time and reminder.get("last_sent") != now.date().isoformat():
-                                try:
-                                    if user['language'] == "ru":
-                                        message = (
-                                            f"⏰ Напоминание: {reminder['text']}\n\n"
-                                            f"(Отправьте 'хватит напоминать мне {reminder['text']}' чтобы отключить это напоминание)"
-                                        )
-                                    else:
-                                        message = (
-                                            f"⏰ Reminder: {reminder['text']}\n\n"
-                                            f"(Send 'stop reminding me {reminder['text']}' to disable this reminder)"
-                                        )
-
-                                    await context.bot.send_message(chat_id=user['user_id'], text=message)
-
-                                    # Обновляем дату последней отправки
-                                    reminder["last_sent"] = now.date().isoformat()
-                                    with conn.cursor() as update_cursor:
-                                        update_cursor.execute(
-                                            "UPDATE user_profiles SET reminders = %s WHERE user_id = %s",
-                                            (json.dumps(reminders), user['user_id'])
-                                        )
-                                    conn.commit()
-                                    
-                                except Exception as e:
-                                    print(f"Ошибка при отправке напоминания пользователю {user['user_id']}: {e}")
-                    except Exception as e:
-                        print(f"Ошибка при обработке напоминаний для пользователя {user['user_id']}: {e}")
-                        print(f"Reminders JSON: {user['reminders']}")
-                        print(f"Error details: {str(e)}")
-            finally:
-                conn.close()
-            break  # если подключение успешно, выходим из цикла
-            
-        except pymysql.err.OperationalError as e:
-            print(f"Попытка {attempt + 1} из {max_retries} не удалась: {e}")
-            if attempt == max_retries - 1:
-                print("Не удалось подключиться к БД после нескольких попыток")
-                return
-            await asyncio.sleep(retry_delay)
-        except Exception as e:
-            print(f"Неожиданная ошибка при проверке напоминаний: {str(e)}")
-            print(f"Тип ошибки: {type(e).__name__}")
-            if isinstance(e, pymysql.err.OperationalError):
-                print(f"Код ошибки MySQL: {e.args[0]}")
-                print(f"Сообщение ошибки: {e.args[1]}")
-            return
-
-
+                        except Exception as e:
+                            print(f"Ошибка при отправке напоминания пользователю {user['user_id']}: {e}")
+            except Exception as e:
+                print(f"Ошибка при обработке напоминаний для пользователя {user['user_id']}: {e}")
+                print(f"Reminders JSON: {user['reminders']}")
+                print(f"Error details: {str(e)}")
+    finally:
+        conn.close()
 
 
 async def check_water_reminder_time(context: CallbackContext):
@@ -694,138 +670,121 @@ async def check_water_reminder_time(context: CallbackContext):
     user_id = job.user_id
     chat_id = job.chat_id
     
-    max_retries = 3
-    retry_delay = 5
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
     
-    for attempt in range(max_retries):
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor,
-                connect_timeout=20
-            )
-            
-            try:
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT timezone, wakeup_time, sleep_time, water_reminders, language, 
-                               water_drunk_today, last_water_notification, weight 
-                        FROM user_profiles 
-                        WHERE user_id = %s
-                    """, (user_id,))
-                    row = cursor.fetchone()
-                
-                if not row:
-                    print(f"Профиль пользователя {user_id} не найден")
-                    return
-                
-                if not row['water_reminders']:
-                    print(f"Напоминания отключены для пользователя {user_id}")
-                    return
-                
-                recommended_water = int(row['weight'] * 30)
-                
-                if row['water_drunk_today'] >= recommended_water:
-                    print(f"Пользователь {user_id} уже выпил достаточное количество воды")
-                    return  
-
-                try:
-                    tz = pytz.timezone(row['timezone']) if row['timezone'] else pytz.UTC
-                    now = datetime.now(tz)
-                    current_time = now.time()
-                    today = now.date()
-                    
-                    if row['last_water_notification']:
-                        try:
-                            last_notif_datetime = datetime.strptime(row['last_water_notification'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
-                            time_since_last = now - last_notif_datetime
-                            if time_since_last.total_seconds() < 3600:
-                                print(f"Слишком рано для нового напоминания пользователю {user_id}")
-                                return
-                        except ValueError as e:
-                            print(f"Ошибка парсинга времени последнего уведомления: {e}")
-                    
-                    wakeup_time = datetime.strptime(row['wakeup_time'], "%H:%M").time()
-                    sleep_time = datetime.strptime(row['sleep_time'], "%H:%M").time()
-                    
-                    wakeup_dt = datetime.combine(today, wakeup_time).astimezone(tz)
-                    sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
-                    current_dt = datetime.combine(today, current_time).astimezone(tz)
-                    
-                    if sleep_time < wakeup_time:
-                        sleep_dt += timedelta(days=1)
-                    
-                    is_active_time = wakeup_dt <= current_dt <= sleep_dt
-                    
-                    if not is_active_time:
-                        print(f"Текущее время {current_time} вне периода активности пользователя {user_id} ({wakeup_time}-{sleep_time})")
-                        return
-                    
-                    remaining_water = max(0, recommended_water - row['water_drunk_today'])
-                    time_since_wakeup = current_dt - wakeup_dt
-                    hours_since_wakeup = time_since_wakeup.total_seconds() / 3600
-                    
-                    reminder_interval = 2
-                    if hours_since_wakeup >= 0 and hours_since_wakeup % reminder_interval <= 0.1:
-                        last_notif_hour = None
-                        if row['last_water_notification']:
-                            try:
-                                last_notif_datetime = datetime.strptime(row['last_water_notification'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
-                                last_notif_since_wakeup = last_notif_datetime - wakeup_dt
-                                last_notif_hour = last_notif_since_wakeup.total_seconds() / 3600
-                            except ValueError as e:
-                                print(f"Ошибка парсинга времени последнего уведомления: {e}")
-                        
-                        if last_notif_hour is None or (hours_since_wakeup - last_notif_hour) >= (reminder_interval - 0.1):
-                            with conn.cursor() as update_cursor:
-                                update_cursor.execute("""
-                                    UPDATE user_profiles 
-                                    SET last_water_notification = %s 
-                                    WHERE user_id = %s
-                                """, (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
-                            conn.commit()
-                            
-                            water_to_drink_now = min(250, max(150, recommended_water // 8))
-                            
-                            if row['language'] == "ru":
-                                message = (
-                                    f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
-                                    f"📊 Сегодня выпито: {row['water_drunk_today']} мл из {recommended_water} мл\n"
-                                    f"🚰 Осталось выпить: {remaining_water} мл\n\n"
-                                    f"После того как выпьешь воду, отправь мне сообщение в формате:\n"
-                                    f"'Выпил 250 мл' или 'Drank 300 ml'"
-                                )
-                            else:
-                                message = (
-                                    f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
-                                    f"📊 Today drunk: {row['water_drunk_today']} ml of {recommended_water} ml\n"
-                                    f"🚰 Remaining: {remaining_water} ml\n\n"
-                                    f"After drinking water, send me a message in the format:\n"
-                                    f"'Drank 300 ml' or 'Выпил 250 мл'"
-                                )
-                            
-                            await context.bot.send_message(chat_id=chat_id, text=message)
-                            print(f"Напоминание отправлено пользователю {user_id} в {now}")
-                
-                except Exception as e:
-                    print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
-            finally:
-                conn.close()
-            break
-                
-        except pymysql.err.OperationalError as e:
-            print(f"Попытка {attempt + 1} из {max_retries} не удалась (water reminder): {e}")
-            if attempt == max_retries - 1:
-                print("Не удалось подключиться к БД для water reminder")
-                return
-            await asyncio.sleep(retry_delay)
-        except Exception as e:
-            print(f"Неожиданная ошибка в check_water_reminder_time: {str(e)}")
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT timezone, wakeup_time, sleep_time, water_reminders, language, 
+                       water_drunk_today, last_water_notification, weight 
+                FROM user_profiles 
+                WHERE user_id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
+        
+        if not row:
+            print(f"Профиль пользователя {user_id} не найден")
             return
+        
+        if not row['water_reminders']:
+            print(f"Напоминания отключены для пользователя {user_id}")
+            return
+        
+        recommended_water = int(row['weight'] * 30)
+        
+        if row['water_drunk_today'] >= recommended_water:
+            print(f"Пользователь {user_id} уже выпил достаточное количество воды")
+            return  
+
+        try:
+            tz = pytz.timezone(row['timezone']) if row['timezone'] else pytz.UTC
+            now = datetime.now(tz)
+            current_time = now.time()
+            today = now.date()
+            
+            if row['last_water_notification']:
+                try:
+                    last_notif_datetime = datetime.strptime(row['last_water_notification'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+                    time_since_last = now - last_notif_datetime
+                    if time_since_last.total_seconds() < 3600:
+                        print(f"Слишком рано для нового напоминания пользователю {user_id}")
+                        return
+                except ValueError as e:
+                    print(f"Ошибка парсинга времени последнего уведомления: {e}")
+            
+            wakeup_time = datetime.strptime(row['wakeup_time'], "%H:%M").time()
+            sleep_time = datetime.strptime(row['sleep_time'], "%H:%M").time()
+            
+            wakeup_dt = datetime.combine(today, wakeup_time).astimezone(tz)
+            sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
+            current_dt = datetime.combine(today, current_time).astimezone(tz)
+            
+            if sleep_time < wakeup_time:
+                sleep_dt += timedelta(days=1)
+            
+            is_active_time = wakeup_dt <= current_dt <= sleep_dt
+            
+            if not is_active_time:
+                print(f"Текущее время {current_time} вне периода активности пользователя {user_id} ({wakeup_time}-{sleep_time})")
+                return
+            
+            remaining_water = max(0, recommended_water - row['water_drunk_today'])
+            time_since_wakeup = current_dt - wakeup_dt
+            hours_since_wakeup = time_since_wakeup.total_seconds() / 3600
+            
+            reminder_interval = 2
+            if hours_since_wakeup >= 0 and hours_since_wakeup % reminder_interval <= 0.1:
+                last_notif_hour = None
+                if row['last_water_notification']:
+                    try:
+                        last_notif_datetime = datetime.strptime(row['last_water_notification'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
+                        last_notif_since_wakeup = last_notif_datetime - wakeup_dt
+                        last_notif_hour = last_notif_since_wakeup.total_seconds() / 3600
+                    except ValueError as e:
+                        print(f"Ошибка парсинга времени последнего уведомления: {e}")
+                
+                if last_notif_hour is None or (hours_since_wakeup - last_notif_hour) >= (reminder_interval - 0.1):
+                    with conn.cursor() as update_cursor:
+                        update_cursor.execute("""
+                            UPDATE user_profiles 
+                            SET last_water_notification = %s 
+                            WHERE user_id = %s
+                        """, (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
+                    conn.commit()
+                    
+                    water_to_drink_now = min(250, max(150, recommended_water // 8))
+                    
+                    if row['language'] == "ru":
+                        message = (
+                            f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
+                            f"📊 Сегодня выпито: {row['water_drunk_today']} мл из {recommended_water} мл\n"
+                            f"🚰 Осталось выпить: {remaining_water} мл\n\n"
+                            f"После того как выпьешь воду, отправь мне сообщение в формате:\n"
+                            f"'Выпил 250 мл' или 'Drank 300 ml'"
+                        )
+                    else:
+                        message = (
+                            f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
+                            f"📊 Today drunk: {row['water_drunk_today']} ml of {recommended_water} ml\n"
+                            f"🚰 Remaining: {remaining_water} ml\n\n"
+                            f"After drinking water, send me a message in the format:\n"
+                            f"'Drank 300 ml' or 'Выпил 250 мл'"
+                        )
+                    
+                    await context.bot.send_message(chat_id=chat_id, text=message)
+                    print(f"Напоминание отправлено пользователю {user_id} в {now}")
+        
+        except Exception as e:
+            print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
+    finally:
+        conn.close()
 
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
@@ -2079,16 +2038,7 @@ def main():
     app.job_queue.run_repeating(
         check_reminders,
         interval=60,  # Проверяем каждую минуту
-        first=10,     # Первая проверка через 10 секунд
-        job_kwargs={'misfire_grace_time': 60}  # разрешаем выполнение с задержкой
-    )
-
-    # Добавляем job для проверки напоминаний о воде
-    app.job_queue.run_repeating(
-        check_water_reminder_time,
-        interval=300,
-        first=10,
-        job_kwargs={'misfire_grace_time': 120}
+        first=10      # Первая проверка через 10 секунд
     )
 
     conv_handler = ConversationHandler(
@@ -2125,6 +2075,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
