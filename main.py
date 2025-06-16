@@ -1154,9 +1154,9 @@ async def update_meal_history(user_id: int, meal_data: dict):
             
             # Добавляем все новые приемы пищи
             for meal_type, meal_info in meal_data.items():
-                # Генерируем уникальный ключ для приема пищи (timestamp)
-                meal_key = datetime.now(user_timezone).strftime('%H%M%S')
-                current_history[current_date][f"{meal_type}_{meal_key}"] = meal_info
+                # Генерируем уникальный ключ для приема пищи (тип + timestamp)
+                meal_key = f"{meal_type}_{datetime.now(user_timezone).strftime('%H%M%S')}"
+                current_history[current_date][meal_key] = meal_info
             
             # Сохраняем обновленную историю
             cursor.execute("""
@@ -1169,6 +1169,44 @@ async def update_meal_history(user_id: int, meal_data: dict):
     except Exception as e:
         print(f"Ошибка при обновлении истории питания: {e}")
         raise
+    finally:
+        if conn:
+            conn.close()
+
+async def get_meal_history(user_id: int) -> dict:
+    """Возвращает историю питания пользователя с проверкой данных"""
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            
+            if result and result['meal_history']:
+                history = json.loads(result['meal_history'])
+                # Реструктурируем данные для удобства использования
+                structured_history = {}
+                
+                for date_str, meals in history.items():
+                    structured_history[date_str] = {}
+                    for meal_key, meal_data in meals.items():
+                        # Извлекаем тип приема пищи из ключа
+                        meal_type = meal_key.split('_')[0]
+                        structured_history[date_str][meal_type] = meal_data
+                
+                return structured_history
+            return {}
+    except Exception as e:
+        print(f"Ошибка при получении истории питания: {e}")
+        return {}
     finally:
         if conn:
             conn.close()
