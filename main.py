@@ -1453,6 +1453,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
     contents = []
+    response_text = ""  # Инициализируем переменную заранее
 
     # Проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
@@ -1556,85 +1557,24 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if profile_info and "не найден" not in profile_info and "not found" not in profile_info:
         contents.insert(0, {"text": f"Информация о пользователе / User information:\n{profile_info}"})
 
-
     # Получаем историю питания за последнюю неделю
-    if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
-        # Парсим КБЖУ из ответа
-        calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
-        proteins_match = re.search(r'Белки:\s*(\d+)', response_text) or re.search(r'Proteins:\s*(\d+)', response_text)
-        fats_match = re.search(r'Жиры:\s*(\d+)', response_text) or re.search(r'Fats:\s*(\d+)', response_text)
-        carbs_match = re.search(r'Углеводы:\s*(\d+)', response_text) or re.search(r'Carbs:\s*(\d+)', response_text)
-
-        if calories_match and proteins_match and fats_match and carbs_match:
-            try:
-                calories = int(calories_match.group(1))
-                proteins = int(proteins_match.group(1))
-                fats = int(fats_match.group(1))
-                carbs = int(carbs_match.group(1))
-            
-                # Получаем описание еды
-                food_description = None
-                analysis_match = re.search(r'🔍 Анализ блюда:\s*(.*?)(?=\n\n|$)', response_text, re.DOTALL)
-                if analysis_match:
-                    food_description = analysis_match.group(1).strip()
-                else:
-                    food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
-            
-                # Получаем текущее время пользователя
-                user_timezone = await get_user_timezone(user_id)
-                current_time = datetime.now(user_timezone).strftime("%H:%M")
-            
-                # 1. Обновляем meal_history
-                meal_data = {
-                    "time": current_time,
-                    "food": food_description or user_text,
-                    "calories": calories,
-                    "proteins": proteins,
-                    "fats": fats,
-                    "carbs": carbs
-                }
-            
-                await update_meal_history(user_id, {
-                    meal_type: meal_data  # Теперь это добавит новую запись, а не перезапишет существующую
-                })
-            
-                # 2. Обновляем основные поля КБЖУ
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("""
-                        UPDATE user_profiles 
-                        SET 
-                            calories_today = calories_today + %s,
-                            proteins_today = proteins_today + %s,
-                            fats_today = fats_today + %s,
-                            carbs_today = carbs_today + %s,
-                            last_nutrition_update = %s
-                        WHERE user_id = %s
-                        """, (
-                            calories,
-                            proteins,
-                            fats,
-                            carbs,
-                            date.today().isoformat(),
-                            user_id
-                        ))
-                        conn.commit()
-                        print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
-                finally:
-                    if conn:
-                        conn.close()
-                    
-            except Exception as e:
-                print(f"Ошибка при сохранении данных о приеме пищи: {e}")
-
+    meal_history = await get_meal_history(user_id)
+    if meal_history:
+        meals_text = "🍽 История вашего питания / Your meal history:\n"
+    
+        # Сортируем даты по убыванию (новые сверху)
+        sorted_dates = sorted(meal_history.keys(), reverse=True)
+    
+        for day in sorted_dates[:7]:  # Последние 7 дней
+            meals_text += f"\n📅 {day}:\n"
+            for meal_type, meal_data in meal_history[day].items():
+                meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
+                meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
+                meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
+                meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
+    
+        contents.insert(0, {"text": meals_text})
 
     # История диалога
     if user_id not in user_histories:
@@ -2130,9 +2070,7 @@ TEXT: ...
                     }
                     
                     await update_meal_history(user_id, {
-                        date_str: {
-                            meal_type: meal_data
-                        }
+                        meal_type: meal_data
                     })
                     
                     # 2. Обновляем основные поля КБЖУ
@@ -2180,7 +2118,6 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 
 def main():
