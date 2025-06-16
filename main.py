@@ -1512,7 +1512,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             meal_type = word
             break
     
-    # Если тип не указан, определяем по времени
+    # ТОЛЬКО если тип не указан в тексте, определяем по времени
     if not meal_type and (message.photo or ("калории" in user_text.lower())):
         user_timezone = "UTC"
         try:
@@ -1547,7 +1547,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             meal_type = "ужин" if language == "ru" else "dinner"
         else:
             meal_type = "перекус" if language == "ru" else "snack"
-
     # Добавляем информацию о приеме пищи в контекст
     if meal_type:
         contents.insert(0, {"text": f"Прием пищи: {meal_type}"})
