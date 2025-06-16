@@ -1154,9 +1154,9 @@ async def update_meal_history(user_id: int, meal_data: dict):
             
             # Добавляем все новые приемы пищи
             for meal_type, meal_info in meal_data.items():
-                # Генерируем уникальный ключ для приема пищи (тип + timestamp)
-                meal_key = f"{meal_type}_{datetime.now(user_timezone).strftime('%H%M%S')}"
-                current_history[current_date][meal_key] = meal_info
+                # Генерируем уникальный ключ для приема пищи (timestamp)
+                meal_key = datetime.now(user_timezone).strftime('%H%M%S')
+                current_history[current_date][f"{meal_type}_{meal_key}"] = meal_info
             
             # Сохраняем обновленную историю
             cursor.execute("""
