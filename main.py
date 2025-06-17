@@ -1479,7 +1479,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             meal_type = word
             break
     
-    # Если тип не указан, определяем по времени (только для фото еды)
+    # Если тип не указан, определяем по времени
     if not meal_type and (message.photo or ("калории" in user_text.lower())):
         user_timezone = await get_user_timezone(user_id)
         now = datetime.now(user_timezone)
@@ -1838,14 +1838,6 @@ TEXT: ...
         if sql_match:
             sql_part = sql_match.group(1).strip()
             
-            # Удаляем возможные дублирующие UPDATE для КБЖУ, если это прием пищи
-            if meal_type and ("calories_today" in sql_part or "proteins_today" in sql_part or 
-                            "fats_today" in sql_part or "carbs_today" in sql_part):
-                # Мы будем обрабатывать КБЖУ отдельно через meal_history
-                sql_part = None
-
-        # Если есть SQL для выполнения (не связанный с КБЖУ)
-        if sql_part:
             try:
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
@@ -1886,24 +1878,12 @@ TEXT: ...
             "en": ["delete", "remove", "forget", "wrong"]
         }
         
-        food_keywords = {
-            "ru": ["миндаль", "халва", "кофе"],
-            "en": ["almond", "halva", "coffee"]
-        }
-        
         # Проверяем, есть ли запрос на удаление
         should_delete = any(word in text_part.lower() for word in delete_keywords[language])
-        contains_food = any(word in text_part.lower() for word in food_keywords[language])
         
         if should_delete:
             date_str = date.today().isoformat()
             deleted = False
-            
-            # Если указана конкретная еда
-            if contains_food:
-                food_desc = next((word for word in food_keywords[language] if word in text_part.lower()), None)
-                if food_desc:
-                    deleted = await delete_meal_entry(user_id, date_str, food_description=food_desc)
             
             # Если не указана конкретная еда, удаляем последний прием пищи
             if not deleted:
@@ -1923,8 +1903,8 @@ TEXT: ...
                 else:
                     text_part = "Could not find the specified meal to delete."
 
-        # Обработка приема пищи (только если это фото еды или явное указание)
-        if meal_type and (message.photo or ("калории" in response_text.lower() or "calories" in response_text.lower())):
+        # Если это был прием пищи, сохраняем данные (и в meal_history, и в основные поля)
+        if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
             # Парсим КБЖУ из ответа
             calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
             proteins_match = re.search(r'Белки:\s*(\d+)', response_text) or re.search(r'Proteins:\s*(\d+)', response_text)
@@ -1967,7 +1947,7 @@ TEXT: ...
                         }
                     })
                     
-                    # 2. Обновляем основные поля КБЖУ (только если их еще нет в SQL-запросе)
+                    # 2. Обновляем основные поля КБЖУ
                     conn = pymysql.connect(
                         host='x91345bo.beget.tech',
                         user='x91345bo_nutrbot',
