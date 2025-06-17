@@ -1610,7 +1610,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         * Несовместимые продукты (если есть)
         * Риски для здоровья (если выявлены)
    - Обнови соответствующие поля в базе данных:
-     SQL: UPDATE user_profiles SET calories_today = calories_today + [калории], proteins_today = proteins_today + [белки], fats_today = fats_today + [жиры], carbs_today = carbs_today + [углеводы], last_nutrition_update = CURRENT_DATE WHERE user_id = %s
    - Ответь в формате:
      TEXT: 
      🔍 Анализ блюда:
