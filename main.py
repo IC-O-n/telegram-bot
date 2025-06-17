@@ -1446,18 +1446,34 @@ async def get_user_timezone(user_id: int) -> pytz.timezone:
         if conn:
             conn.close()
 
+
+def needs_meal_history_analysis(text: str, language: str) -> bool:
+    """Определяет, нужно ли анализировать историю питания"""
+    nutrition_keywords = {
+        "ru": ["история питания", "анализ питания", "что я ел", "мое питание", "за неделю", "за месяц"],
+        "en": ["meal history", "nutrition analysis", "what I ate", "my meals", "last week", "last month"]
+    }
+    return any(word in text.lower() for word in nutrition_keywords[language])
+
+
+def generate_nutrition_analysis(history: dict, language: str) -> str:
+    """Генерирует компактный анализ истории питания"""
+    # [Реализация анализа данных...]
+    return "Анализ питания за последние 7 дней:\n..." if language == "ru" else "Nutrition analysis for last 7 days:\n..."
+
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
     contents = []
-    response_text = ""  # Инициализируем переменную заранее
-
+    
     # Проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
 
-    # Получаем язык пользователя
-    language = "ru"  # дефолтное значение
+    # Получаем язык пользователя и базовую информацию
+    language = "ru"
+    profile_info = ""
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -1468,12 +1484,43 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             cursorclass=pymysql.cursors.DictCursor
         )
         with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            cursor.execute("""
+                SELECT language, name, gender, age, weight, height, goal, 
+                       activity, diet, health, equipment, target_metric, unique_facts,
+                       timezone, wakeup_time, sleep_time, water_reminders,
+                       water_drunk_today, calories_today, proteins_today, 
+                       fats_today, carbs_today
+                FROM user_profiles 
+                WHERE user_id = %s
+            """, (user_id,))
             row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
+            
+            if row:
+                language = row['language'] or "ru"
+                # Формируем компактный профиль без истории питания
+                profile_info = (
+                    f"Текущий профиль пользователя / Current user profile:\n"
+                    f"Язык: {row['language']}\n"
+                    f"Имя: {row['name']}\n"
+                    f"Пол: {row['gender']}\n"
+                    f"Возраст: {row['age']}\n"
+                    f"Вес: {row['weight']} {'кг' if language == 'ru' else 'kg'}\n"
+                    f"Рост: {row['height']} {'см' if language == 'ru' else 'cm'}\n"
+                    f"Цель: {row['goal']}\n"
+                    f"Активность: {row['activity']}\n"
+                    f"Питание: {row['diet']}\n"
+                    f"Здоровье: {row['health']}\n"
+                    f"Инвентарь: {row['equipment']}\n"
+                    f"Целевая метрика: {row['target_metric']}\n"
+                    f"Уникальные факты: {row['unique_facts']}\n"
+                    f"💧 Вода сегодня: {row['water_drunk_today']} ml\n"
+                    f"🍽 Питание сегодня: {row['calories_today']} kcal | "
+                    f"{row['proteins_today']}g белков | "
+                    f"{row['fats_today']}g жиров | "
+                    f"{row['carbs_today']}g углеводов"
+                )
     except Exception as e:
-        print(f"Ошибка при получении языка пользователя: {e}")
+        print(f"Ошибка при получении профиля: {e}")
     finally:
         if conn:
             conn.close()
@@ -1497,99 +1544,42 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.\nPlease send text, image or document.")
         return
 
-    # Определяем тип приема пищи если это фото еды
-    meal_type = None
-    meal_keywords = {
-        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч", "ужин"],
-        "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
-    }
-    
-    # Проверяем текст на указание типа приема пищи
-    for word in meal_keywords[language]:
-        if word in user_text.lower():
-            meal_type = word
-            break
-    
-    # Если тип не указан, определяем по времени
-    if not meal_type and (message.photo or ("калории" in user_text.lower())):
-        user_timezone = "UTC"
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            )
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
-                row = cursor.fetchone()
-                if row and row['timezone']:
-                    user_timezone = row['timezone']
-        except Exception as e:
-            print(f"Ошибка при получении часового пояса: {e}")
-        finally:
-            if conn:
-                conn.close()
-        
-        tz = pytz.timezone(user_timezone)
-        now = datetime.now(tz)
-        current_hour = now.hour
-        
-        if 5 <= current_hour < 11:
-            meal_type = "завтрак" if language == "ru" else "breakfast"
-        elif 11 <= current_hour < 16:
-            meal_type = "обед" if language == "ru" else "lunch"
-        elif 16 <= current_hour < 21:
-            meal_type = "ужин" if language == "ru" else "dinner"
-        else:
-            meal_type = "перекус" if language == "ru" else "snack"
-
-    # Добавляем информацию о приеме пищи в контекст
-    if meal_type:
-        contents.insert(0, {"text": f"Прием пищи: {meal_type}"})
-
-    # Профиль пользователя и история
-    profile_info = get_user_profile_text(user_id)
-    if profile_info and "не найден" not in profile_info and "not found" not in profile_info:
-        contents.insert(0, {"text": f"Информация о пользователе / User information:\n{profile_info}"})
-
-    # Получаем историю питания за последнюю неделю
-    meal_history = await get_meal_history(user_id)
-    if meal_history:
-        meals_text = "🍽 История вашего питания / Your meal history:\n"
-    
-        # Сортируем даты по убыванию (новые сверху)
-        sorted_dates = sorted(meal_history.keys(), reverse=True)
-    
-        for day in sorted_dates[:7]:  # Последние 7 дней
-            meals_text += f"\n📅 {day}:\n"
-            for meal_type, meal_data in meal_history[day].items():
-                meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
-                meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
-                meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
-                meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
-                meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
-    
-        contents.insert(0, {"text": meals_text})
+    # Добавляем компактный профиль пользователя
+    if profile_info:
+        contents.insert(0, {"text": profile_info})
 
     # История диалога
     if user_id not in user_histories:
-        user_histories[user_id] = deque(maxlen=10)
-    user_histories[user_id].append(f"Пользователь / User: {user_text}")
+        user_histories[user_id] = deque(maxlen=5)  # Уменьшил историю до 5 сообщений
+    user_histories[user_id].append(f"Пользователь: {user_text}")
     
     if 'last_bot_reply' in context.user_data:
-        user_histories[user_id].append(f"Бот / Bot: {context.user_data['last_bot_reply']}")
+        user_histories[user_id].append(f"Бот: {context.user_data['last_bot_reply']}")
     
-    history_messages = list(user_histories[user_id])
-    if history_messages:
-        history_prompt = "\n".join(history_messages)
-        contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
+    if user_histories[user_id]:
+        history_prompt = "\n".join(user_histories[user_id])
+        contents.insert(0, {"text": f"Контекст диалога (последние сообщения):\n{history_prompt}"})
 
     
     # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
+
+Ключевые правила:
+1. Всегда учитывай профиль пользователя (цели, ограничения, предпочтения)
+2. История питания доступна только по явному запросу пользователя
+3. Для анализа питания используй только текущие дневные показатели (КБЖУ)
+4. Если нужно проанализировать историю питания - запроси у пользователя разрешение
+5. На простые сообщения (смена имени, возраста и т.д.) отвечай кратко
+
+Примеры:
+- На "Меня зовут Денис" → "Отлично, Денис! Обновил ваше имя."
+- На вопросы о питании за сегодня → анализируй только текущие дневные показатели
+- На "Проанализируй мое питание за все время" → запроси подтверждение перед анализом
+
+⚠️ Важно: 
+- Не показывай технические детали (SQL и т.д.)
+- Не дублируй профиль пользователя в ответах
+- Будь краток в простых диалогах
 
 Ты получаешь от пользователя сообщения. Они могут быть:
 - просто вопросами (например, о питании, тренировках, фото и т.д.)
@@ -1940,6 +1930,14 @@ TEXT: ...
         response = model.generate_content(contents)
         response_text = response.text.strip()
         context.user_data['last_bot_reply'] = response_text
+
+        # Проверяем, нужно ли анализировать историю питания
+        if needs_meal_history_analysis(user_text, language):
+            meal_history = await get_meal_history(user_id)
+            if meal_history:
+                # Формируем компактный анализ
+                analysis = generate_nutrition_analysis(meal_history, language)
+                response_text = f"{response_text}\n\n{analysis}"
 
         # Обработка SQL команд из ответа Gemini
         sql_part = None
