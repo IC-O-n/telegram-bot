@@ -1126,7 +1126,7 @@ def get_user_profile_text(user_id: int) -> str:
         conn.close()
 
 async def update_meal_history(user_id: int, meal_data: dict):
-    """Обновляет историю питания пользователя с учетом timezone"""
+    """Обновляет историю питания пользователя — один тип приема пищи на дату"""
     conn = None
     try:
         conn = pymysql.connect(
@@ -1137,34 +1137,30 @@ async def update_meal_history(user_id: int, meal_data: dict):
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             # Получаем текущую историю
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             current_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
-            
+
             # Получаем текущую дату с учетом timezone пользователя
             user_timezone = await get_user_timezone(user_id)
             current_date = datetime.now(user_timezone).date().isoformat()
-            
-            # Если для текущей даты еще нет записей, создаем пустой словарь
+
+            # Добавляем/обновляем прием пищи по типу
             if current_date not in current_history:
                 current_history[current_date] = {}
-            
-            # Добавляем все новые приемы пищи
+
             for meal_type, meal_info in meal_data.items():
-                # Генерируем уникальный ключ для приема пищи (тип + timestamp)
-                meal_key = f"{meal_type}_{datetime.now(user_timezone).strftime('%H%M%S')}"
-                current_history[current_date][meal_key] = meal_info
-            
-            # Сохраняем обновленную историю
+                current_history[current_date][meal_type] = meal_info
+
+            # Сохраняем
             cursor.execute("""
                 UPDATE user_profiles 
                 SET meal_history = %s 
                 WHERE user_id = %s
             """, (json.dumps(current_history), user_id))
-            
             conn.commit()
     except Exception as e:
         print(f"Ошибка при обновлении истории питания: {e}")
