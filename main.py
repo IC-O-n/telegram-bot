@@ -1133,9 +1133,6 @@ async def update_meal_history(user_id: int, meal_data: dict):
                     current_history[date_key] = {}
                 
                 for meal_type, meal_info in meals.items():
-                    # Если такой прием пищи уже есть, сохраняем его время
-                    if meal_type in current_history[date_key]:
-                        meal_info['time'] = current_history[date_key][meal_type].get('time', meal_info.get('time', ''))
                     current_history[date_key][meal_type] = meal_info
             
             # Сохраняем обновленную историю
@@ -1151,7 +1148,7 @@ async def update_meal_history(user_id: int, meal_data: dict):
         raise
     finally:
         if conn:
-            conn.close()
+            conn.close() 
 
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя"""
@@ -1875,13 +1872,13 @@ TEXT: ...
                     sql_part = sql_part.replace('?', '%s')
                     
                     # Выполняем все SQL-запросы, кроме тех, которые обрабатываются отдельно
-                    if not any(keyword in sql_part.lower() for keyword in ['meal_history']):
-                        if "%s" in sql_part:
-                            cursor.execute(sql_part, (user_id,))
-                        else:
-                            cursor.execute(sql_part)
-                        conn.commit()
-                        print(f"Выполнен SQL: {sql_part}")
+                    # (теперь мы не фильтруем запросы, так как дублирование предотвращается другим способом)
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
+                    conn.commit()
+                    print(f"Выполнен SQL: {sql_part}")
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
             finally:
