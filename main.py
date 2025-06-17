@@ -1133,6 +1133,9 @@ async def update_meal_history(user_id: int, meal_data: dict):
                     current_history[date_key] = {}
                 
                 for meal_type, meal_info in meals.items():
+                    # Если такой прием пищи уже есть, сохраняем его время
+                    if meal_type in current_history[date_key]:
+                        meal_info['time'] = current_history[date_key][meal_type].get('time', meal_info.get('time', ''))
                     current_history[date_key][meal_type] = meal_info
             
             # Сохраняем обновленную историю
@@ -1149,7 +1152,6 @@ async def update_meal_history(user_id: int, meal_data: dict):
     finally:
         if conn:
             conn.close()
-
 
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя"""
@@ -1873,7 +1875,7 @@ TEXT: ...
                     sql_part = sql_part.replace('?', '%s')
                     
                     # Выполняем все SQL-запросы, кроме тех, которые обрабатываются отдельно
-                    if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history']):
+                    if not any(keyword in sql_part.lower() for keyword in ['meal_history']):
                         if "%s" in sql_part:
                             cursor.execute(sql_part, (user_id,))
                         else:
@@ -2055,6 +2057,7 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
+
 
 def main():
     init_db()
