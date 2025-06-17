@@ -1874,9 +1874,8 @@ TEXT: ...
                     # Заменяем ? на %s для MySQL
                     sql_part = sql_part.replace('?', '%s')
                     
-                    # Исключаем SQL-запросы, связанные с nutrition_update и meal_history,
-                    # так как они обрабатываются отдельно
-                    if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
+                    # Выполняем все SQL-запросы, кроме тех, которые обрабатываются отдельно
+                    if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history']):
                         if "%s" in sql_part:
                             cursor.execute(sql_part, (user_id,))
                         else:
@@ -2058,7 +2057,6 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 def main():
     init_db()
