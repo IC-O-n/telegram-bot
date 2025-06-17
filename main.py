@@ -1108,7 +1108,7 @@ def get_user_profile_text(user_id: int) -> str:
     finally:
         conn.close()
 
-async def update_meal_history(user_id: int, meal_data: dict, adjust_nutrition=True):
+async def update_meal_history(user_id: int, meal_data: dict):
     """Обновляет историю питания и корректирует дневной КБЖУ"""
     conn = None
     try:
@@ -1133,8 +1133,8 @@ async def update_meal_history(user_id: int, meal_data: dict, adjust_nutrition=Tr
                 for meal_type, new_meal in meals.items():
                     old_meal = current_history[date_key].get(meal_type)
                     
-                    # Вычитаем старые КБЖУ
-                    if old_meal and adjust_nutrition:
+                    # Вычитаем старые КБЖУ, если есть
+                    if old_meal:
                         cursor.execute("""
                             UPDATE user_profiles 
                             SET 
@@ -1151,28 +1151,27 @@ async def update_meal_history(user_id: int, meal_data: dict, adjust_nutrition=Tr
                             user_id
                         ))
 
-                    # Обновляем запись
+                    # Записываем новое значение
                     current_history[date_key][meal_type] = new_meal
                     
-                    # Прибавляем новые КБЖУ
-                    if adjust_nutrition:
-                        cursor.execute("""
-                            UPDATE user_profiles 
-                            SET 
-                                calories_today = calories_today + %s,
-                                proteins_today = proteins_today + %s,
-                                fats_today = fats_today + %s,
-                                carbs_today = carbs_today + %s,
-                                last_nutrition_update = %s
-                            WHERE user_id = %s
-                        """, (
-                            new_meal.get('calories', 0),
-                            new_meal.get('proteins', 0),
-                            new_meal.get('fats', 0),
-                            new_meal.get('carbs', 0),
-                            date_key,
-                            user_id
-                        ))
+                    # Прибавляем новое КБЖУ
+                    cursor.execute("""
+                        UPDATE user_profiles 
+                        SET 
+                            calories_today = calories_today + %s,
+                            proteins_today = proteins_today + %s,
+                            fats_today = fats_today + %s,
+                            carbs_today = carbs_today + %s,
+                            last_nutrition_update = %s
+                        WHERE user_id = %s
+                    """, (
+                        new_meal.get('calories', 0),
+                        new_meal.get('proteins', 0),
+                        new_meal.get('fats', 0),
+                        new_meal.get('carbs', 0),
+                        date_key,
+                        user_id
+                    ))
 
             # Сохраняем обновлённую историю
             cursor.execute("""
