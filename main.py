@@ -1168,23 +1168,42 @@ async def update_meal_history(user_id: int, meal_data: dict):
             conn.close()
 
 async def get_meal_history(user_id: int) -> dict:
-    """Возвращает историю питания пользователя"""
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
+    """Возвращает историю питания пользователя с проверкой данных"""
+    conn = None
     try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
         with conn.cursor() as cursor:
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
-            return json.loads(result['meal_history']) if result and result['meal_history'] else {}
+            
+            if result and result['meal_history']:
+                history = json.loads(result['meal_history'])
+                # Реструктурируем данные для удобства использования
+                structured_history = {}
+                
+                for date_str, meals in history.items():
+                    structured_history[date_str] = {}
+                    for meal_key, meal_data in meals.items():
+                        # Извлекаем тип приема пищи из ключа
+                        meal_type = meal_key.split('_')[0]
+                        structured_history[date_str][meal_type] = meal_data
+                
+                return structured_history
+            return {}
+    except Exception as e:
+        print(f"Ошибка при получении истории питания: {e}")
+        return {}
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 async def delete_meal_entry(user_id: int, date_str: str, meal_type: str = None, food_description: str = None):
     """Удаляет запись о приеме пищи по типу или описанию еды"""
@@ -1524,6 +1543,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # Добавляем информацию о приеме пищи в контекст
     if meal_type:
+        # Получаем текущее время пользователя для уникального ключа
+        user_timezone = await get_user_timezone(user_id)
+        current_time = datetime.now(user_timezone).strftime("%H:%M")
+        meal_key = f"{meal_type}_{current_time.replace(':', '')}"
         contents.insert(0, {"text": f"Прием пищи: {meal_type}"})
 
     # Профиль пользователя и история
@@ -2048,7 +2071,7 @@ TEXT: ...
                             meal_type: meal_data
                         }
                     })
-
+                    
                     # 2. Обновляем основные поля КБЖУ
                     conn = pymysql.connect(
                         host='x91345bo.beget.tech',
