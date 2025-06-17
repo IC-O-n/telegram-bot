@@ -1126,7 +1126,7 @@ def get_user_profile_text(user_id: int) -> str:
         conn.close()
 
 async def update_meal_history(user_id: int, meal_data: dict):
-    """Обновляет историю питания пользователя с учетом timezone"""
+    """Обновляет историю питания пользователя"""
     conn = None
     try:
         conn = pymysql.connect(
@@ -1144,18 +1144,16 @@ async def update_meal_history(user_id: int, meal_data: dict):
             result = cursor.fetchone()
             current_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
             
-            # Получаем текущую дату с учетом timezone пользователя
-            user_timezone = await get_user_timezone(user_id)
-            current_date = datetime.now(user_timezone).date().isoformat()
+            # Получаем текущую дату
+            current_date = date.today().isoformat()
             
-            # Если для текущей даты еще нет записей, создаем пустой словарь
+            # Инициализируем запись для текущей даты, если её нет
             if current_date not in current_history:
                 current_history[current_date] = {}
             
-            # Добавляем новые приемы пищи (перезаписываем если тип уже существует)
-            for date_str, meals in meal_data.items():
-                for meal_type, meal_info in meals.items():
-                    current_history[current_date][meal_type] = meal_info
+            # Добавляем или обновляем прием пищи
+            for meal_type, meal_info in meal_data.items():
+                current_history[current_date][meal_type] = meal_info
             
             # Сохраняем обновленную историю
             cursor.execute("""
@@ -1498,45 +1496,21 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         return
 
     # Определяем тип приема пищи если это фото еды
+    # Определяем тип приема пищи
     meal_type = None
-    meal_keywords = {
-        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч", "ужин"],
-        "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
-    }
-    
-    # Проверяем текст на указание типа приема пищи
-    for word in meal_keywords[language]:
-        if word in user_text.lower():
-            meal_type = word
-            break
-    
+    if user_text:  # Если есть текст сообщения
+        # Ищем указание типа приема пищи в тексте
+        for word in meal_keywords[language]:
+            if word in user_text.lower():
+                meal_type = word
+                break
+
     # Если тип не указан, определяем по времени
-    if not meal_type and (message.photo or ("калории" in user_text.lower())):
-        user_timezone = "UTC"
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            )
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
-                row = cursor.fetchone()
-                if row and row['timezone']:
-                    user_timezone = row['timezone']
-        except Exception as e:
-            print(f"Ошибка при получении часового пояса: {e}")
-        finally:
-            if conn:
-                conn.close()
-        
-        tz = pytz.timezone(user_timezone)
-        now = datetime.now(tz)
+    if not meal_type and (message.photo or message.document):
+        user_timezone = await get_user_timezone(user_id)
+        now = datetime.now(user_timezone)
         current_hour = now.hour
-        
+    
         if 5 <= current_hour < 11:
             meal_type = "завтрак" if language == "ru" else "breakfast"
         elif 11 <= current_hour < 16:
@@ -1990,48 +1964,7 @@ TEXT: ...
         if not text_part:
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
-        # Обработка запросов на удаление приемов пищи
-        delete_keywords = {
-            "ru": ["удали", "забудь", "ошибся", "неправильно"],
-            "en": ["delete", "remove", "forget", "wrong"]
-        }
         
-        food_keywords = {
-            "ru": ["миндаль", "халва", "кофе"],
-            "en": ["almond", "halva", "coffee"]
-        }
-        
-        # Проверяем, есть ли запрос на удаление
-        should_delete = any(word in text_part.lower() for word in delete_keywords[language])
-        contains_food = any(word in text_part.lower() for word in food_keywords[language])
-        
-        if should_delete:
-            date_str = date.today().isoformat()
-            deleted = False
-            
-            # Если указана конкретная еда
-            if contains_food:
-                food_desc = next((word for word in food_keywords[language] if word in text_part.lower()), None)
-                if food_desc:
-                    deleted = await delete_meal_entry(user_id, date_str, food_description=food_desc)
-            
-            # Если не указана конкретная еда, удаляем последний прием пищи
-            if not deleted:
-                meal_history = await get_meal_history(user_id)
-                if date_str in meal_history and meal_history[date_str]:
-                    last_meal_type = list(meal_history[date_str].keys())[-1]
-                    deleted = await delete_meal_entry(user_id, date_str, meal_type=last_meal_type)
-            
-            if deleted:
-                if language == "ru":
-                    text_part = "✅ Удалил указанный прием пищи из вашей истории."
-                else:
-                    text_part = "✅ Deleted the specified meal from your history."
-            else:
-                if language == "ru":
-                    text_part = "Не нашел указанный прием пищи для удаления."
-                else:
-                    text_part = "Could not find the specified meal to delete."
 
         # Если это был прием пищи, сохраняем данные (и в meal_history, и в основные поля)
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
@@ -2056,13 +1989,13 @@ TEXT: ...
                     else:
                         food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
                     
-                    # Получаем текущее время пользователя
+                if meal_type:
+                    # Получаем текущее время
                     user_timezone = await get_user_timezone(user_id)
                     current_time = datetime.now(user_timezone).strftime("%H:%M")
-                    
-                    # 1. Обновляем meal_history
-                    date_str = date.today().isoformat()
-                    meal_data = {
+    
+                    # Сохраняем данные о приеме пищи
+                    meal_info = {
                         "time": current_time,
                         "food": food_description or user_text,
                         "calories": calories,
@@ -2070,12 +2003,8 @@ TEXT: ...
                         "fats": fats,
                         "carbs": carbs
                     }
-                    
-                    await update_meal_history(user_id, {
-                        date.today().isoformat(): {
-                            meal_type: meal_data
-                        }
-                    })
+    
+                    await update_meal_history(user_id, {meal_type: meal_info})
                     
                     # 2. Обновляем основные поля КБЖУ
                     conn = pymysql.connect(
