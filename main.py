@@ -79,179 +79,132 @@ def init_db():
                     fats_today INT DEFAULT 0,
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
-                    reminders TEXT,
                     meal_history JSON
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
-            
-            # Проверяем существование колонок
-            cursor.execute("""
-                SELECT COLUMN_NAME 
-                FROM INFORMATION_SCHEMA.COLUMNS 
-                WHERE TABLE_SCHEMA = DATABASE() 
-                AND TABLE_NAME = 'user_profiles'
-            """)
-            existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
-            
-            if 'reminders' not in existing_columns:
-                cursor.execute("ALTER TABLE user_profiles ADD COLUMN reminders TEXT")
-            
-            if 'meal_history' not in existing_columns:
-                cursor.execute("ALTER TABLE user_profiles ADD COLUMN meal_history JSON")
-            
         conn.commit()
     except Exception as e:
         print(f"Ошибка при инициализации базы данных: {e}")
         raise
     finally:
-        conn.close()       
-
-async def execute_sql(sql: str, params=None, commit=False):
-    """Универсальная функция для выполнения SQL-запросов"""
-    conn = None
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-
-        with conn.cursor() as cursor:
-            if params:
-                cursor.execute(sql, params)
-            else:
-                cursor.execute(sql)
-
-            if commit:
-                conn.commit()
-
-            if sql.strip().upper().startswith('SELECT'):
-                return cursor.fetchall()
-            return cursor.rowcount
-    except Exception as e:
-        print(f"Ошибка выполнения SQL: {sql}\nПараметры: {params}\nОшибка: {e}")
-        raise
-    finally:
-        if conn:
-            conn.close()
-
+        conn.close()
 
 def save_user_profile(user_id: int, profile: dict):
-    """Сохраняет профиль пользователя с транзакционной обработкой"""
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    
     try:
-        reminders = json.dumps(profile.get("reminders", []))
-        meal_history = json.dumps(profile.get("meal_history", {}))
-        
-        sql = """
-        INSERT INTO user_profiles (
-            user_id, language, name, gender, age, weight, height, goal, activity, diet, 
-            health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
-            water_reminders, water_drunk_today, last_water_notification,
-            calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
-            reminders, meal_history
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-            %s, %s, %s, %s, %s, %s, %s, 
-            %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s
-        )
-        ON DUPLICATE KEY UPDATE
-            language = VALUES(language),
-            name = VALUES(name),
-            gender = VALUES(gender),
-            age = VALUES(age),
-            weight = VALUES(weight),
-            height = VALUES(height),
-            goal = VALUES(goal),
-            activity = VALUES(activity),
-            diet = VALUES(diet),
-            health = VALUES(health),
-            equipment = VALUES(equipment),
-            target_metric = VALUES(target_metric),
-            unique_facts = VALUES(unique_facts),
-            timezone = VALUES(timezone),
-            wakeup_time = VALUES(wakeup_time),
-            sleep_time = VALUES(sleep_time),
-            water_reminders = VALUES(water_reminders),
-            water_drunk_today = VALUES(water_drunk_today),
-            last_water_notification = VALUES(last_water_notification),
-            calories_today = VALUES(calories_today),
-            proteins_today = VALUES(proteins_today),
-            fats_today = VALUES(fats_today),
-            carbs_today = VALUES(carbs_today),
-            last_nutrition_update = VALUES(last_nutrition_update),
-            reminders = VALUES(reminders),
-            meal_history = VALUES(meal_history)
-        """
-        
-        params = (
-            user_id,
-            profile.get("language"),
-            profile.get("name"),
-            profile.get("gender"),
-            profile.get("age"),
-            profile.get("weight"),
-            profile.get("height"),
-            profile.get("goal"),
-            profile.get("activity"),
-            profile.get("diet"),
-            profile.get("health"),
-            profile.get("equipment"),
-            profile.get("target_metric"),
-            profile.get("unique_facts"),
-            profile.get("timezone"),
-            profile.get("wakeup_time"),
-            profile.get("sleep_time"),
-            profile.get("water_reminders", 1),
-            profile.get("water_drunk_today", 0),
-            profile.get("last_water_notification", ""),
-            profile.get("calories_today", 0),
-            profile.get("proteins_today", 0),
-            profile.get("fats_today", 0),
-            profile.get("carbs_today", 0),
-            profile.get("last_nutrition_update", date.today().isoformat()),
-            reminders,
-            meal_history
-        )
-        
-        await execute_sql(sql, params, commit=True)
+        with conn.cursor() as cursor:
+            meal_history = json.dumps(profile.get("meal_history", {}))
+            cursor.execute('''
+            INSERT INTO user_profiles (
+                user_id, language, name, gender, age, weight, height, goal, activity, diet, 
+                health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
+                water_reminders, water_drunk_today, last_water_notification,
+                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
+                meal_history
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                %s, %s, %s, %s, %s, %s, %s, 
+                %s, %s, %s,
+                %s, %s, %s, %s, %s, %s
+            )
+            ON DUPLICATE KEY UPDATE
+                language = VALUES(language),
+                name = VALUES(name),
+                gender = VALUES(gender),
+                age = VALUES(age),
+                weight = VALUES(weight),
+                height = VALUES(height),
+                goal = VALUES(goal),
+                activity = VALUES(activity),
+                diet = VALUES(diet),
+                health = VALUES(health),
+                equipment = VALUES(equipment),
+                target_metric = VALUES(target_metric),
+                unique_facts = VALUES(unique_facts),
+                timezone = VALUES(timezone),
+                wakeup_time = VALUES(wakeup_time),
+                sleep_time = VALUES(sleep_time),
+                water_reminders = VALUES(water_reminders),
+                water_drunk_today = VALUES(water_drunk_today),
+                last_water_notification = VALUES(last_water_notification),
+                calories_today = VALUES(calories_today),
+                proteins_today = VALUES(proteins_today),
+                fats_today = VALUES(fats_today),
+                carbs_today = VALUES(carbs_today),
+                last_nutrition_update = VALUES(last_nutrition_update),
+                meal_history = VALUES(meal_history)
+            ''', (
+                user_id,
+                profile.get("language"),
+                profile.get("name"),
+                profile.get("gender"),
+                profile.get("age"),
+                profile.get("weight"),
+                profile.get("height"),
+                profile.get("goal"),
+                profile.get("activity"),
+                profile.get("diet"),
+                profile.get("health"),
+                profile.get("equipment"),
+                profile.get("target_metric"),
+                profile.get("unique_facts"),
+                profile.get("timezone"),
+                profile.get("wakeup_time"),
+                profile.get("sleep_time"),
+                profile.get("water_reminders", 1),
+                profile.get("water_drunk_today", 0),
+                profile.get("last_water_notification", ""),
+                profile.get("calories_today", 0),
+                profile.get("proteins_today", 0),
+                profile.get("fats_today", 0),
+                profile.get("carbs_today", 0),
+                profile.get("last_nutrition_update", date.today().isoformat()),
+                meal_history
+            ))
+        conn.commit()
     except Exception as e:
         print(f"Ошибка при сохранении профиля: {e}")
         raise
+    finally:
+        conn.close()
 
 
 async def reset_daily_nutrition_if_needed(user_id: int):
-    """Сбрасывает дневные показатели, если наступил новый день"""
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    
     try:
-        # Получаем дату последнего обновления
-        result = await execute_sql(
-            "SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s"), 
-            (user_id,)
-        
-        if result and result[0]['last_nutrition_update']:
-            last_update = result[0]['last_nutrition_update']
-            if last_update < date.today():
-                await execute_sql(
-                    """
-                    UPDATE user_profiles 
-                    SET 
-                        calories_today = 0, 
-                        proteins_today = 0, 
-                        fats_today = 0, 
-                        carbs_today = 0,
-                        last_nutrition_update = %s, 
-                        water_drunk_today = 0
-                    WHERE user_id = %s
-                    """,
-                    (date.today().isoformat(), user_id),
-                    commit=True
-                )
-    except Exception as e:
-        print(f"Ошибка при сбросе дневных показателей: {e}")
-        raise
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            
+            if result and result['last_nutrition_update']:
+                last_update = result['last_nutrition_update']
+                if last_update < date.today():
+                    cursor.execute('''
+                        UPDATE user_profiles 
+                        SET calories_today = 0, proteins_today = 0, fats_today = 0, carbs_today = 0,
+                            last_nutrition_update = %s, water_drunk_today = 0
+                        WHERE user_id = %s
+                    ''', (date.today().isoformat(), user_id))
+                    conn.commit()
+    finally:
+        conn.close()
+
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -1137,36 +1090,40 @@ def get_user_profile_text(user_id: int) -> str:
         conn.close()
 
 async def update_meal_history(user_id: int, meal_data: dict):
-    """Обновляет историю питания пользователя с транзакционной обработкой"""
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    
     try:
-        # Получаем текущую историю
-        result = await execute_sql(
-            "SELECT meal_history FROM user_profiles WHERE user_id = %s", 
-            (user_id,))
-        
-        current_history = json.loads(result[0]['meal_history']) if result and result[0]['meal_history'] else {}
-        
-        # Обновляем историю
-        for date_key, meals in meal_data.items():
-            if date_key not in current_history:
-                current_history[date_key] = {}
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            current_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
             
-            for meal_type, meal_info in meals.items():
-                current_history[date_key][meal_type] = meal_info
-        
-        # Сохраняем обновленную историю
-        await execute_sql(
-            "UPDATE user_profiles SET meal_history = %s WHERE user_id = %s",
-            (json.dumps(current_history), user_id),
-            commit=True
-        )
+            for date_key, meals in meal_data.items():
+                if date_key not in current_history:
+                    current_history[date_key] = {}
+                for meal_type, meal_info in meals.items():
+                    current_history[date_key][meal_type] = meal_info
+            
+            cursor.execute("""
+                UPDATE user_profiles 
+                SET meal_history = %s 
+                WHERE user_id = %s
+            """, (json.dumps(current_history), user_id))
+            conn.commit()
     except Exception as e:
         print(f"Ошибка при обновлении истории питания: {e}")
         raise
-
+    finally:
+        conn.close()
 
 async def get_meal_history(user_id: int) -> dict:
-    """Возвращает историю питания пользователя"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -1185,84 +1142,93 @@ async def get_meal_history(user_id: int) -> dict:
         conn.close()
 
 async def delete_meal_entry(user_id: int, date_str: str, meal_type: str = None, food_description: str = None):
-    """Удаляет запись о приеме пищи с транзакционной обработкой"""
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    
     try:
-        # Получаем текущую историю питания
-        result = await execute_sql(
-            "SELECT meal_history FROM user_profiles WHERE user_id = %s", 
-            (user_id,))
-        
-        if not result or not result[0]['meal_history']:
-            print("История питания пуста")
-            return False
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
             
-        history = json.loads(result[0]['meal_history'])
-        
-        if date_str not in history:
-            print(f"Нет записей за {date_str}")
-            return False
+            if not result or not result['meal_history']:
+                print("История питания пуста")
+                return False
+                
+            history = json.loads(result['meal_history'])
             
-        deleted = False
-        meal_data_to_remove = None
-        
-        # Если указан тип приема пищи
-        if meal_type:
-            if meal_type in history[date_str]:
-                meal_data_to_remove = history[date_str][meal_type]
-                # Удаляем запись
-                del history[date_str][meal_type]
-                deleted = True
-                print(f"Удален {meal_type} за {date_str}")
-        # Если указано описание еды
-        elif food_description:
-            for m_type, meal_data in list(history[date_str].items()):
-                if food_description.lower() in meal_data.get('food', '').lower():
-                    meal_data_to_remove = meal_data
-                    # Удаляем запись
-                    del history[date_str][m_type]
+            if date_str not in history:
+                print(f"Нет записей за {date_str}")
+                return False
+                
+            deleted = False
+            
+            if meal_type:
+                if meal_type in history[date_str]:
+                    meal_data = history[date_str][meal_type]
+                    cursor.execute("""
+                        UPDATE user_profiles 
+                        SET 
+                            calories_today = GREATEST(0, calories_today - %s),
+                            proteins_today = GREATEST(0, proteins_today - %s),
+                            fats_today = GREATEST(0, fats_today - %s),
+                            carbs_today = GREATEST(0, carbs_today - %s)
+                        WHERE user_id = %s
+                    """, (
+                        meal_data.get('calories', 0),
+                        meal_data.get('proteins', 0),
+                        meal_data.get('fats', 0),
+                        meal_data.get('carbs', 0),
+                        user_id
+                    ))
+                    del history[date_str][meal_type]
                     deleted = True
-                    print(f"Удален прием пищи с '{food_description}' за {date_str}")
-                    break
-        
-        # Если нашли запись для удаления - обновляем КБЖУ
-        if deleted and meal_data_to_remove:
-            await execute_sql(
-                """
-                UPDATE user_profiles 
-                SET 
-                    calories_today = GREATEST(0, calories_today - %s),
-                    proteins_today = GREATEST(0, proteins_today - %s),
-                    fats_today = GREATEST(0, fats_today - %s),
-                    carbs_today = GREATEST(0, carbs_today - %s)
-                WHERE user_id = %s
-                """,
-                (
-                    meal_data_to_remove.get('calories', 0),
-                    meal_data_to_remove.get('proteins', 0),
-                    meal_data_to_remove.get('fats', 0),
-                    meal_data_to_remove.get('carbs', 0),
-                    user_id
-                ),
-                commit=True
-            )
-        
-        # Если дата пустая, удаляем её полностью
-        if date_str in history and not history[date_str]:
-            del history[date_str]
+                    print(f"Удален {meal_type} за {date_str}")
+            elif food_description:
+                for m_type, meal_data in list(history[date_str].items()):
+                    if food_description.lower() in meal_data.get('food', '').lower():
+                        cursor.execute("""
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = GREATEST(0, calories_today - %s),
+                                proteins_today = GREATEST(0, proteins_today - %s),
+                                fats_today = GREATEST(0, fats_today - %s),
+                                carbs_today = GREATEST(0, carbs_today - %s)
+                            WHERE user_id = %s
+                        """, (
+                            meal_data.get('calories', 0),
+                            meal_data.get('proteins', 0),
+                            meal_data.get('fats', 0),
+                            meal_data.get('carbs', 0),
+                            user_id
+                        ))
+                        del history[date_str][m_type]
+                        deleted = True
+                        print(f"Удален прием пищи с '{food_description}' за {date_str}")
+                        break
             
-        # Сохраняем обновленную историю
-        await execute_sql(
-            "UPDATE user_profiles SET meal_history = %s WHERE user_id = %s",
-            (json.dumps(history), user_id),
-            commit=True
-        )
-        
-        return deleted
+            if date_str in history and not history[date_str]:
+                del history[date_str]
+                
+            cursor.execute("""
+                UPDATE user_profiles 
+                SET meal_history = %s 
+                WHERE user_id = %s
+            """, (json.dumps(history), user_id))
+            
+            conn.commit()
+            return deleted
             
     except Exception as e:
         print(f"Ошибка при удалении записи: {e}")
         raise
-
+    finally:
+        conn.close()
 
 async def update_meal_calories(user_id: int, meal_type: str, new_calories: int, language: str, context: CallbackContext):
     """Обновляет калорийность приема пищи"""
@@ -1385,31 +1351,28 @@ async def delete_meal(user_id: int, meal_type: str, language: str, context: Call
         )
 
 async def get_user_timezone(user_id: int) -> pytz.timezone:
-    """Возвращает timezone пользователя"""
-    conn = None
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    
     try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
         with conn.cursor() as cursor:
             cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
             
         if row and row['timezone']:
             return pytz.timezone(row['timezone'])
-        return pytz.UTC  # fallback
+        return pytz.UTC
     except Exception as e:
         print(f"Ошибка при получении timezone: {e}")
         return pytz.UTC
     finally:
-        if conn:
-            conn.close()
+        conn.close()
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
@@ -1423,13 +1386,24 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Получаем язык пользователя
     language = "ru"  # дефолтное значение
     try:
-        result = await execute_sql(
-            "SELECT language FROM user_profiles WHERE user_id = %s", 
-            (user_id,))
-        if result and result[0]['language']:
-            language = result[0]['language']
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
     except Exception as e:
         print(f"Ошибка при получении языка пользователя: {e}")
+    finally:
+        if conn:
+            conn.close()
 
     # Обработка фото/документов
     media_files = message.photo or []
@@ -1453,7 +1427,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Определяем тип приема пищи если это фото еды
     meal_type = None
     meal_keywords = {
-        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч", "ужин"],
+        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч"],
         "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
     }
     
@@ -1465,18 +1439,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     
     # Если тип не указан, определяем по времени
     if not meal_type and (message.photo or ("калории" in user_text.lower())):
-        user_timezone = "UTC"
-        try:
-            result = await execute_sql(
-                "SELECT timezone FROM user_profiles WHERE user_id = %s", 
-                (user_id,))
-            if result and result[0]['timezone']:
-                user_timezone = result[0]['timezone']
-        except Exception as e:
-            print(f"Ошибка при получении часового пояса: {e}")
-        
-        tz = pytz.timezone(user_timezone)
-        now = datetime.now(tz)
+        user_timezone = await get_user_timezone(user_id)
+        now = datetime.now(user_timezone)
         current_hour = now.hour
         
         if 5 <= current_hour < 11:
@@ -1827,23 +1791,32 @@ TEXT: ...
         sql_part = None
         text_part = None
 
-        # Разделяем SQL и TEXT части ответа
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
-            
             try:
-                # Заменяем ? на %s для MySQL
-                sql_part = sql_part.replace('?', '%s')
-                if "%s" in sql_part:
-                    await execute_sql(sql_part, (user_id,), commit=True)
-                else:
-                    await execute_sql(sql_part, commit=True)
-                print(f"Выполнен SQL: {sql_part}")
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
+                with conn.cursor() as cursor:
+                    sql_part = sql_part.replace('?', '%s')
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
+                    conn.commit()
+                    print(f"Выполнен SQL: {sql_part}")
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
+            finally:
+                if conn:
+                    conn.close()
 
-        # Извлекаем текст для пользователя
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
         if text_matches:
             text_part = text_matches[-1].strip()
@@ -1864,7 +1837,6 @@ TEXT: ...
             "en": ["almond", "halva", "coffee"]
         }
         
-        # Проверяем, есть ли запрос на удаление
         should_delete = any(word in text_part.lower() for word in delete_keywords[language])
         contains_food = any(word in text_part.lower() for word in food_keywords[language])
         
@@ -1872,13 +1844,11 @@ TEXT: ...
             date_str = date.today().isoformat()
             deleted = False
             
-            # Если указана конкретная еда
             if contains_food:
                 food_desc = next((word for word in food_keywords[language] if word in text_part.lower()), None)
                 if food_desc:
                     deleted = await delete_meal_entry(user_id, date_str, food_description=food_desc)
             
-            # Если не указана конкретная еда, удаляем последний прием пищи
             if not deleted:
                 meal_history = await get_meal_history(user_id)
                 if date_str in meal_history and meal_history[date_str]:
@@ -1886,19 +1856,12 @@ TEXT: ...
                     deleted = await delete_meal_entry(user_id, date_str, meal_type=last_meal_type)
             
             if deleted:
-                if language == "ru":
-                    text_part = "✅ Удалил указанный прием пищи из вашей истории."
-                else:
-                    text_part = "✅ Deleted the specified meal from your history."
+                text_part = "✅ Удалил указанный прием пищи из вашей истории." if language == "ru" else "✅ Deleted the specified meal from your history."
             else:
-                if language == "ru":
-                    text_part = "Не нашел указанный прием пищи для удаления."
-                else:
-                    text_part = "Could not find the specified meal to delete."
+                text_part = "Не нашел указанный прием пищи для удаления." if language == "ru" else "Could not find the specified meal to delete."
 
-        # Если это был прием пищи, сохраняем данные (и в meal_history, и в основные поля)
+        # Сохранение данных о приеме пищи
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
-            # Парсим КБЖУ из ответа
             calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
             proteins_match = re.search(r'Белки:\s*(\d+)', response_text) or re.search(r'Proteins:\s*(\d+)', response_text)
             fats_match = re.search(r'Жиры:\s*(\d+)', response_text) or re.search(r'Fats:\s*(\d+)', response_text)
@@ -1917,52 +1880,58 @@ TEXT: ...
                     if analysis_match:
                         food_description = analysis_match.group(1).strip()
                     else:
-                        food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
+                        food_description = user_text
                     
                     # Получаем текущее время пользователя
                     user_timezone = await get_user_timezone(user_id)
                     current_time = datetime.now(user_timezone).strftime("%H:%M")
                     
-                    # 1. Обновляем meal_history
+                    # Обновляем meal_history
                     date_str = date.today().isoformat()
                     meal_data = {
                         "time": current_time,
-                        "food": food_description or user_text,
+                        "food": food_description,
                         "calories": calories,
                         "proteins": proteins,
                         "fats": fats,
                         "carbs": carbs
                     }
                     
-                    await update_meal_history(user_id, {
-                        date_str: {
-                            meal_type: meal_data
-                        }
-                    })
+                    await update_meal_history(user_id, {date_str: {meal_type: meal_data}})
                     
-                    # 2. Обновляем основные поля КБЖУ
-                    await execute_sql(
-                        """
-                        UPDATE user_profiles 
-                        SET 
-                            calories_today = calories_today + %s,
-                            proteins_today = proteins_today + %s,
-                            fats_today = fats_today + %s,
-                            carbs_today = carbs_today + %s,
-                            last_nutrition_update = %s
-                        WHERE user_id = %s
-                        """,
-                        (
-                            calories,
-                            proteins,
-                            fats,
-                            carbs,
-                            date_str,
-                            user_id
-                        ),
-                        commit=True
+                    # Обновляем основные поля КБЖУ
+                    conn = pymysql.connect(
+                        host='x91345bo.beget.tech',
+                        user='x91345bo_nutrbot',
+                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                        database='x91345bo_nutrbot',
+                        charset='utf8mb4',
+                        cursorclass=pymysql.cursors.DictCursor
                     )
-                    print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE user_profiles 
+                                SET 
+                                    calories_today = calories_today + %s,
+                                    proteins_today = proteins_today + %s,
+                                    fats_today = fats_today + %s,
+                                    carbs_today = carbs_today + %s,
+                                    last_nutrition_update = %s
+                                WHERE user_id = %s
+                            """, (
+                                calories,
+                                proteins,
+                                fats,
+                                carbs,
+                                date_str,
+                                user_id
+                            ))
+                            conn.commit()
+                            print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
+                    finally:
+                        if conn:
+                            conn.close()
                         
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
@@ -1975,7 +1944,6 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 def main():
     init_db()
