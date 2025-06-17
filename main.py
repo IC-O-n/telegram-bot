@@ -1987,40 +1987,7 @@ TEXT: ...
                         }
                     })
                     
-                    # 2. Обновляем основные поля КБЖУ
-                    conn = pymysql.connect(
-                        host='x91345bo.beget.tech',
-                        user='x91345bo_nutrbot',
-                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                        database='x91345bo_nutrbot',
-                        charset='utf8mb4',
-                        cursorclass=pymysql.cursors.DictCursor
-                    )
-                    try:
-                        with conn.cursor() as cursor:
-                            cursor.execute("""
-                                UPDATE user_profiles 
-                                SET 
-                                    calories_today = calories_today + %s,
-                                    proteins_today = proteins_today + %s,
-                                    fats_today = fats_today + %s,
-                                    carbs_today = carbs_today + %s,
-                                    last_nutrition_update = %s
-                                WHERE user_id = %s
-                            """, (
-                                calories,
-                                proteins,
-                                fats,
-                                carbs,
-                                date_str,
-                                user_id
-                            ))
-                            conn.commit()
-                            print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
-                    finally:
-                        if conn:
-                            conn.close()
-                        
+                                            
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
