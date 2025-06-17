@@ -84,6 +84,7 @@ def init_db():
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # Проверяем существование колонок
             cursor.execute("""
                 SELECT COLUMN_NAME 
                 FROM INFORMATION_SCHEMA.COLUMNS 
@@ -1858,28 +1859,31 @@ TEXT: ...
         if sql_match:
             sql_part = sql_match.group(1).strip()
             
-            try:
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
-                with conn.cursor() as cursor:
-                    sql_part = sql_part.replace('?', '%s')
-                    if "%s" in sql_part:
-                        cursor.execute(sql_part, (user_id,))
-                    else:
-                        cursor.execute(sql_part)
-                    conn.commit()
-                    print(f"Выполнен SQL: {sql_part}")
-            except Exception as e:
-                print(f"Ошибка при выполнении SQL: {e}")
-            finally:
-                if conn:
-                    conn.close()
+            # Пропускаем SQL-запросы, связанные с nutrition_update и meal_history,
+            # так как они обрабатываются отдельно
+            if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
+                try:
+                    conn = pymysql.connect(
+                        host='x91345bo.beget.tech',
+                        user='x91345bo_nutrbot',
+                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                        database='x91345bo_nutrbot',
+                        charset='utf8mb4',
+                        cursorclass=pymysql.cursors.DictCursor
+                    )
+                    with conn.cursor() as cursor:
+                        sql_part = sql_part.replace('?', '%s')
+                        if "%s" in sql_part:
+                            cursor.execute(sql_part, (user_id,))
+                        else:
+                            cursor.execute(sql_part)
+                        conn.commit()
+                        print(f"Выполнен SQL: {sql_part}")
+                except Exception as e:
+                    print(f"Ошибка при выполнении SQL: {e}")
+                finally:
+                    if conn:
+                        conn.close()
 
         # Извлекаем текст для пользователя
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
@@ -2023,6 +2027,7 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
+
 
 
 def main():
