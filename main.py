@@ -1152,15 +1152,10 @@ async def update_meal_history(user_id: int, meal_data: dict):
             if current_date not in current_history:
                 current_history[current_date] = {}
             
-            # Добавляем новые приемы пищи
+            # Добавляем новые приемы пищи (перезаписываем если тип уже существует)
             for date_str, meals in meal_data.items():
                 for meal_type, meal_info in meals.items():
-                    # Если такой тип приема пищи уже есть, добавляем временную метку
-                    if meal_type in current_history[current_date]:
-                        meal_key = f"{meal_type}_{datetime.now(user_timezone).strftime('%H%M%S')}"
-                        current_history[current_date][meal_key] = meal_info
-                    else:
-                        current_history[current_date][meal_type] = meal_info
+                    current_history[current_date][meal_type] = meal_info
             
             # Сохраняем обновленную историю
             cursor.execute("""
