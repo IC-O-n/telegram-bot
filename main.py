@@ -228,7 +228,7 @@ async def reset_daily_nutrition_if_needed(user_id: int):
     try:
         # Получаем дату последнего обновления
         result = await execute_sql(
-            "SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s", 
+            "SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s"), 
             (user_id,)
         
         if result and result[0]['last_nutrition_update']:
