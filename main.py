@@ -107,6 +107,7 @@ def init_db():
         conn.close()
 
 def save_user_profile(user_id: int, profile: dict):
+    """Сохраняет основные данные пользователя, НЕ трогает КБЖУ и meal_history"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -115,54 +116,33 @@ def save_user_profile(user_id: int, profile: dict):
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
-    
+
     try:
         with conn.cursor() as cursor:
-            reminders = json.dumps(profile.get("reminders", []))
-            meal_history = json.dumps(profile.get("meal_history", {}))
-            
+            # Сохраняем только ключевые поля, исключая калории и meal_history
             cursor.execute('''
-            INSERT INTO user_profiles (
-                user_id, language, name, gender, age, weight, height, goal, activity, diet, 
-                health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
-                water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
-                reminders, meal_history
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s
-            )
-            ON DUPLICATE KEY UPDATE
-                language = VALUES(language),
-                name = VALUES(name),
-                gender = VALUES(gender),
-                age = VALUES(age),
-                weight = VALUES(weight),
-                height = VALUES(height),
-                goal = VALUES(goal),
-                activity = VALUES(activity),
-                diet = VALUES(diet),
-                health = VALUES(health),
-                equipment = VALUES(equipment),
-                target_metric = VALUES(target_metric),
-                unique_facts = VALUES(unique_facts),
-                timezone = VALUES(timezone),
-                wakeup_time = VALUES(wakeup_time),
-                sleep_time = VALUES(sleep_time),
-                water_reminders = VALUES(water_reminders),
-                water_drunk_today = VALUES(water_drunk_today),
-                last_water_notification = VALUES(last_water_notification),
-                calories_today = VALUES(calories_today),
-                proteins_today = VALUES(proteins_today),
-                fats_today = VALUES(fats_today),
-                carbs_today = VALUES(carbs_today),
-                last_nutrition_update = VALUES(last_nutrition_update),
-                reminders = VALUES(reminders),
-                meal_history = VALUES(meal_history)
+            UPDATE user_profiles SET
+                language = %s,
+                name = %s,
+                gender = %s,
+                age = %s,
+                weight = %s,
+                height = %s,
+                goal = %s,
+                activity = %s,
+                diet = %s,
+                health = %s,
+                equipment = %s,
+                target_metric = %s,
+                unique_facts = %s,
+                timezone = %s,
+                wakeup_time = %s,
+                sleep_time = %s,
+                water_reminders = %s,
+                water_drunk_today = %s,
+                last_water_notification = %s
+            WHERE user_id = %s
             ''', (
-                user_id,
                 profile.get("language"),
                 profile.get("name"),
                 profile.get("gender"),
@@ -182,13 +162,7 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("water_reminders", 1),
                 profile.get("water_drunk_today", 0),
                 profile.get("last_water_notification", ""),
-                profile.get("calories_today", 0),
-                profile.get("proteins_today", 0),
-                profile.get("fats_today", 0),
-                profile.get("carbs_today", 0),
-                profile.get("last_nutrition_update", date.today().isoformat()),
-                reminders,
-                meal_history
+                user_id
             ))
         conn.commit()
     except Exception as e:
@@ -1120,7 +1094,7 @@ async def update_meal_history(user_id: int, meal_data: dict):
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
@@ -1132,7 +1106,7 @@ async def update_meal_history(user_id: int, meal_data: dict):
 
                 for meal_type, new_meal in meals.items():
                     old_meal = current_history[date_key].get(meal_type)
-                    
+
                     # Вычитаем старые КБЖУ, если есть
                     if old_meal:
                         cursor.execute("""
@@ -1153,7 +1127,7 @@ async def update_meal_history(user_id: int, meal_data: dict):
 
                     # Записываем новое значение
                     current_history[date_key][meal_type] = new_meal
-                    
+
                     # Прибавляем новое КБЖУ
                     cursor.execute("""
                         UPDATE user_profiles 
