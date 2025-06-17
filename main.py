@@ -1133,9 +1133,6 @@ async def update_meal_history(user_id: int, meal_data: dict):
                     current_history[date_key] = {}
                 
                 for meal_type, meal_info in meals.items():
-                    # Если такой прием пищи уже есть, сохраняем его время
-                    if meal_type in current_history[date_key]:
-                        meal_info['time'] = current_history[date_key][meal_type].get('time', meal_info.get('time', ''))
                     current_history[date_key][meal_type] = meal_info
             
             # Сохраняем обновленную историю
@@ -1152,6 +1149,7 @@ async def update_meal_history(user_id: int, meal_data: dict):
     finally:
         if conn:
             conn.close()
+
 
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя"""
@@ -2103,6 +2101,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
