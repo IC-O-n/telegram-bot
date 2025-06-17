@@ -1849,48 +1849,8 @@ TEXT: ...
         response_text = response.text.strip()
         context.user_data['last_bot_reply'] = response_text
 
-        # Обработка SQL команд из ответа Gemini
-        sql_part = None
-        text_part = None
-
-        # Разделяем SQL и TEXT части ответа
-        sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
-        if sql_match:
-            sql_part = sql_match.group(1).strip()
-            
-            try:
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
-                with conn.cursor() as cursor:
-                    # Заменяем ? на %s для MySQL
-                    sql_part = sql_part.replace('?', '%s')
-                    if "%s" in sql_part:
-                        cursor.execute(sql_part, (user_id,))
-                    else:
-                        cursor.execute(sql_part)
-                    conn.commit()
-                    print(f"Выполнен SQL: {sql_part}")
-            except Exception as e:
-                print(f"Ошибка при выполнении SQL: {e}")
-            finally:
-                if conn:
-                    conn.close()
-
-        # Извлекаем текст для пользователя
-        text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
-        if text_matches:
-            text_part = text_matches[-1].strip()
-        else:
-            text_part = re.sub(r'SQL:.*?(?=TEXT:|$)', '', response_text, flags=re.DOTALL).strip()
-
-        if not text_part:
-            text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
+        # Убираем обработку SQL команд из ответа Gemini, так как будем обновлять КБЖУ сами
+        text_part = response_text.replace("SQL:", "").replace("TEXT:", "").strip()
 
         # Обработка запросов на удаление приемов пищи
         delete_keywords = {
@@ -1990,20 +1950,35 @@ TEXT: ...
                     )
                     try:
                         with conn.cursor() as cursor:
+                            # Получаем текущие значения
+                            cursor.execute("""
+                                SELECT calories_today, proteins_today, fats_today, carbs_today 
+                                FROM user_profiles 
+                                WHERE user_id = %s
+                            """, (user_id,))
+                            current_values = cursor.fetchone()
+                            
+                            # Рассчитываем новые значения
+                            new_calories = current_values['calories_today'] + calories
+                            new_proteins = current_values['proteins_today'] + proteins
+                            new_fats = current_values['fats_today'] + fats
+                            new_carbs = current_values['carbs_today'] + carbs
+                            
+                            # Обновляем
                             cursor.execute("""
                                 UPDATE user_profiles 
                                 SET 
-                                    calories_today = calories_today + %s,
-                                    proteins_today = proteins_today + %s,
-                                    fats_today = fats_today + %s,
-                                    carbs_today = carbs_today + %s,
+                                    calories_today = %s,
+                                    proteins_today = %s,
+                                    fats_today = %s,
+                                    carbs_today = %s,
                                     last_nutrition_update = %s
                                 WHERE user_id = %s
                             """, (
-                                calories,
-                                proteins,
-                                fats,
-                                carbs,
+                                new_calories,
+                                new_proteins,
+                                new_fats,
+                                new_carbs,
                                 date_str,
                                 user_id
                             ))
