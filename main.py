@@ -1871,16 +1871,12 @@ TEXT: ...
                 with conn.cursor() as cursor:
                     # Заменяем ? на %s для MySQL
                     sql_part = sql_part.replace('?', '%s')
-                    
-                    # Пропускаем SQL-запросы, связанные с nutrition_update,
-                    # так как они будут обработаны отдельно через meal_history
-                    if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
-                        if "%s" in sql_part:
-                            cursor.execute(sql_part, (user_id,))
-                        else:
-                            cursor.execute(sql_part)
-                        conn.commit()
-                        print(f"Выполнен SQL: {sql_part}")
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
+                    conn.commit()
+                    print(f"Выполнен SQL: {sql_part}")
             except Exception as e:
                 print(f"Ошибка при выполнении SQL: {e}")
             finally:
@@ -1940,7 +1936,7 @@ TEXT: ...
                 else:
                     text_part = "Could not find the specified meal to delete."
 
-        # Если это был прием пищи, сохраняем данные ТОЛЬКО через meal_history
+        # Если это был прием пищи, сохраняем данные (и в meal_history, и в основные поля)
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
             # Парсим КБЖУ из ответа
             calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
@@ -1967,7 +1963,7 @@ TEXT: ...
                     user_timezone = await get_user_timezone(user_id)
                     current_time = datetime.now(user_timezone).strftime("%H:%M")
                     
-                    # Обновляем meal_history (это автоматически обновит и основные поля КБЖУ)
+                    # 1. Обновляем meal_history
                     date_str = date.today().isoformat()
                     meal_data = {
                         "time": current_time,
@@ -1984,7 +1980,39 @@ TEXT: ...
                         }
                     })
                     
-                    print(f"Добавлен прием пищи для пользователя {user_id}: {meal_type} ({calories} ккал)")
+                    # 2. Обновляем основные поля КБЖУ
+                    conn = pymysql.connect(
+                        host='x91345bo.beget.tech',
+                        user='x91345bo_nutrbot',
+                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                        database='x91345bo_nutrbot',
+                        charset='utf8mb4',
+                        cursorclass=pymysql.cursors.DictCursor
+                    )
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE user_profiles 
+                                SET 
+                                    calories_today = calories_today + %s,
+                                    proteins_today = proteins_today + %s,
+                                    fats_today = fats_today + %s,
+                                    carbs_today = carbs_today + %s,
+                                    last_nutrition_update = %s
+                                WHERE user_id = %s
+                            """, (
+                                calories,
+                                proteins,
+                                fats,
+                                carbs,
+                                date_str,
+                                user_id
+                            ))
+                            conn.commit()
+                            print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
+                    finally:
+                        if conn:
+                            conn.close()
                         
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
@@ -1997,7 +2025,6 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 def main():
     init_db()
