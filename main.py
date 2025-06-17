@@ -1144,13 +1144,23 @@ async def update_meal_history(user_id: int, meal_data: dict):
             result = cursor.fetchone()
             current_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
             
-            # Обновляем историю
-            for date_key, meals in meal_data.items():
-                if date_key not in current_history:
-                    current_history[date_key] = {}
-                
+            # Получаем текущую дату с учетом timezone пользователя
+            user_timezone = await get_user_timezone(user_id)
+            current_date = datetime.now(user_timezone).date().isoformat()
+            
+            # Если для текущей даты еще нет записей, создаем пустой словарь
+            if current_date not in current_history:
+                current_history[current_date] = {}
+            
+            # Добавляем новые приемы пищи
+            for date_str, meals in meal_data.items():
                 for meal_type, meal_info in meals.items():
-                    current_history[date_key][meal_type] = meal_info
+                    # Если такой тип приема пищи уже есть, добавляем временную метку
+                    if meal_type in current_history[current_date]:
+                        meal_key = f"{meal_type}_{datetime.now(user_timezone).strftime('%H%M%S')}"
+                        current_history[current_date][meal_key] = meal_info
+                    else:
+                        current_history[current_date][meal_type] = meal_info
             
             # Сохраняем обновленную историю
             cursor.execute("""
@@ -2067,7 +2077,7 @@ TEXT: ...
                     }
                     
                     await update_meal_history(user_id, {
-                        date_str: {
+                        date.today().isoformat(): {
                             meal_type: meal_data
                         }
                     })
