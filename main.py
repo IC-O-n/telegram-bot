@@ -1108,8 +1108,8 @@ def get_user_profile_text(user_id: int) -> str:
     finally:
         conn.close()
 
-async def update_meal_history(user_id: int, meal_data: dict):
-    """Обновляет историю питания пользователя с учетом timezone"""
+async def update_meal_history(user_id: int, meal_data: dict, adjust_nutrition=True):
+    """Обновляет историю питания и корректирует дневной КБЖУ"""
     conn = None
     try:
         conn = pymysql.connect(
@@ -1122,26 +1122,65 @@ async def update_meal_history(user_id: int, meal_data: dict):
         )
         
         with conn.cursor() as cursor:
-            # Получаем текущую историю
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             current_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
-            
-            # Обновляем историю
+
             for date_key, meals in meal_data.items():
                 if date_key not in current_history:
                     current_history[date_key] = {}
-                
-                for meal_type, meal_info in meals.items():
-                    current_history[date_key][meal_type] = meal_info
-            
-            # Сохраняем обновленную историю
+
+                for meal_type, new_meal in meals.items():
+                    old_meal = current_history[date_key].get(meal_type)
+                    
+                    # Вычитаем старые КБЖУ
+                    if old_meal and adjust_nutrition:
+                        cursor.execute("""
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = GREATEST(0, calories_today - %s),
+                                proteins_today = GREATEST(0, proteins_today - %s),
+                                fats_today = GREATEST(0, fats_today - %s),
+                                carbs_today = GREATEST(0, carbs_today - %s)
+                            WHERE user_id = %s
+                        """, (
+                            old_meal.get('calories', 0),
+                            old_meal.get('proteins', 0),
+                            old_meal.get('fats', 0),
+                            old_meal.get('carbs', 0),
+                            user_id
+                        ))
+
+                    # Обновляем запись
+                    current_history[date_key][meal_type] = new_meal
+                    
+                    # Прибавляем новые КБЖУ
+                    if adjust_nutrition:
+                        cursor.execute("""
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = calories_today + %s,
+                                proteins_today = proteins_today + %s,
+                                fats_today = fats_today + %s,
+                                carbs_today = carbs_today + %s,
+                                last_nutrition_update = %s
+                            WHERE user_id = %s
+                        """, (
+                            new_meal.get('calories', 0),
+                            new_meal.get('proteins', 0),
+                            new_meal.get('fats', 0),
+                            new_meal.get('carbs', 0),
+                            date_key,
+                            user_id
+                        ))
+
+            # Сохраняем обновлённую историю
             cursor.execute("""
                 UPDATE user_profiles 
                 SET meal_history = %s 
                 WHERE user_id = %s
             """, (json.dumps(current_history), user_id))
-            
+
             conn.commit()
     except Exception as e:
         print(f"Ошибка при обновлении истории питания: {e}")
@@ -1149,7 +1188,6 @@ async def update_meal_history(user_id: int, meal_data: dict):
     finally:
         if conn:
             conn.close()
-
 
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя"""
@@ -1940,6 +1978,8 @@ TEXT: ...
                         "fats": fats,
                         "carbs": carbs
                     }
+
+
                     
                     await update_meal_history(user_id, {
                         date_str: {
