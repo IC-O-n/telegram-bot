@@ -1148,7 +1148,8 @@ async def update_meal_history(user_id: int, meal_data: dict):
         raise
     finally:
         if conn:
-            conn.close() 
+            conn.close()
+
 
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя"""
@@ -1608,8 +1609,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
      3. ⚠️ Опасные сочетания:
         * Несовместимые продукты (если есть)
         * Риски для здоровья (если выявлены)
-   - Обнови соответствующие поля в базе данных:
-     SQL: UPDATE user_profiles SET calories_today = calories_today + [калории], proteins_today = proteins_today + [белки], fats_today = fats_today + [жиры], carbs_today = carbs_today + [углеводы], last_nutrition_update = CURRENT_DATE WHERE user_id = %s
    - Ответь в формате:
      TEXT: 
      🔍 Анализ блюда:
@@ -1870,9 +1869,6 @@ TEXT: ...
                 with conn.cursor() as cursor:
                     # Заменяем ? на %s для MySQL
                     sql_part = sql_part.replace('?', '%s')
-                    
-                    # Выполняем все SQL-запросы, кроме тех, которые обрабатываются отдельно
-                    # (теперь мы не фильтруем запросы, так как дублирование предотвращается другим способом)
                     if "%s" in sql_part:
                         cursor.execute(sql_part, (user_id,))
                     else:
@@ -1965,19 +1961,8 @@ TEXT: ...
                     user_timezone = await get_user_timezone(user_id)
                     current_time = datetime.now(user_timezone).strftime("%H:%M")
                     
-                    # 1. Проверяем, не был ли уже добавлен этот прием пищи
+                    # 1. Обновляем meal_history
                     date_str = date.today().isoformat()
-                    meal_history = await get_meal_history(user_id)
-                    
-                    # Если такой прием пищи уже есть в истории, сначала вычитаем его КБЖУ
-                    if date_str in meal_history and meal_type in meal_history[date_str]:
-                        existing_meal = meal_history[date_str][meal_type]
-                        calories -= existing_meal.get('calories', 0)
-                        proteins -= existing_meal.get('proteins', 0)
-                        fats -= existing_meal.get('fats', 0)
-                        carbs -= existing_meal.get('carbs', 0)
-                    
-                    # 2. Обновляем meal_history
                     meal_data = {
                         "time": current_time,
                         "food": food_description or user_text,
@@ -1993,7 +1978,7 @@ TEXT: ...
                         }
                     })
                     
-                    # 3. Обновляем основные поля КБЖУ
+                    # 2. Обновляем основные поля КБЖУ
                     conn = pymysql.connect(
                         host='x91345bo.beget.tech',
                         user='x91345bo_nutrbot',
@@ -2004,41 +1989,25 @@ TEXT: ...
                     )
                     try:
                         with conn.cursor() as cursor:
-                            # Получаем текущие значения КБЖУ
                             cursor.execute("""
-                                SELECT calories_today, proteins_today, fats_today, carbs_today 
-                                FROM user_profiles 
+                                UPDATE user_profiles 
+                                SET 
+                                    calories_today = calories_today + %s,
+                                    proteins_today = proteins_today + %s,
+                                    fats_today = fats_today + %s,
+                                    carbs_today = carbs_today + %s,
+                                    last_nutrition_update = %s
                                 WHERE user_id = %s
-                            """, (user_id,))
-                            current_values = cursor.fetchone()
-                            
-                            if current_values:
-                                # Вычисляем новые значения
-                                new_calories = current_values['calories_today'] + calories
-                                new_proteins = current_values['proteins_today'] + proteins
-                                new_fats = current_values['fats_today'] + fats
-                                new_carbs = current_values['carbs_today'] + carbs
-                                
-                                # Обновляем значения
-                                cursor.execute("""
-                                    UPDATE user_profiles 
-                                    SET 
-                                        calories_today = %s,
-                                        proteins_today = %s,
-                                        fats_today = %s,
-                                        carbs_today = %s,
-                                        last_nutrition_update = %s
-                                    WHERE user_id = %s
-                                """, (
-                                    new_calories,
-                                    new_proteins,
-                                    new_fats,
-                                    new_carbs,
-                                    date_str,
-                                    user_id
-                                ))
-                                conn.commit()
-                                print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал (всего {new_calories})")
+                            """, (
+                                calories,
+                                proteins,
+                                fats,
+                                carbs,
+                                date_str,
+                                user_id
+                            ))
+                            conn.commit()
+                            print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
                     finally:
                         if conn:
                             conn.close()
@@ -2054,7 +2023,6 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 def main():
     init_db()
