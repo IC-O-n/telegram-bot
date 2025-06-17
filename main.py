@@ -1449,7 +1449,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
     contents = []
-    response_text = ""  # Инициализируем переменную заранее
 
     # Проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
@@ -1495,22 +1494,26 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.\nPlease send text, image or document.")
         return
 
-    # Определяем тип приема пищи если это фото еды
     # Определяем тип приема пищи
     meal_type = None
-    if user_text:  # Если есть текст сообщения
-        # Ищем указание типа приема пищи в тексте
+    meal_keywords = {
+        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч"],
+        "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
+    }
+    
+    # Проверяем текст на указание типа приема пищи
+    if user_text:
         for word in meal_keywords[language]:
             if word in user_text.lower():
                 meal_type = word
                 break
-
+    
     # Если тип не указан, определяем по времени
     if not meal_type and (message.photo or message.document):
         user_timezone = await get_user_timezone(user_id)
         now = datetime.now(user_timezone)
         current_hour = now.hour
-    
+        
         if 5 <= current_hour < 11:
             meal_type = "завтрак" if language == "ru" else "breakfast"
         elif 11 <= current_hour < 16:
@@ -1522,35 +1525,12 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # Добавляем информацию о приеме пищи в контекст
     if meal_type:
-        # Получаем текущее время пользователя для уникального ключа
-        user_timezone = await get_user_timezone(user_id)
-        current_time = datetime.now(user_timezone).strftime("%H:%M")
-        meal_key = f"{meal_type}_{current_time.replace(':', '')}"
         contents.insert(0, {"text": f"Прием пищи: {meal_type}"})
 
     # Профиль пользователя и история
     profile_info = get_user_profile_text(user_id)
     if profile_info and "не найден" not in profile_info and "not found" not in profile_info:
         contents.insert(0, {"text": f"Информация о пользователе / User information:\n{profile_info}"})
-
-    # Получаем историю питания за последнюю неделю
-    meal_history = await get_meal_history(user_id)
-    if meal_history:
-        meals_text = "🍽 История вашего питания / Your meal history:\n"
-    
-        # Сортируем даты по убыванию (новые сверху)
-        sorted_dates = sorted(meal_history.keys(), reverse=True)
-    
-        for day in sorted_dates[:7]:  # Последние 7 дней
-            meals_text += f"\n📅 {day}:\n"
-            for meal_type, meal_data in meal_history[day].items():
-                meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
-                meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
-                meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
-                meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
-                meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
-    
-        contents.insert(0, {"text": meals_text})
 
     # История диалога
     if user_id not in user_histories:
@@ -1564,7 +1544,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if history_messages:
         history_prompt = "\n".join(history_messages)
         contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
-
     
     # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
@@ -1928,31 +1907,27 @@ TEXT: ...
         if sql_match:
             sql_part = sql_match.group(1).strip()
             
-            # Пропускаем SQL-запросы, связанные с nutrition_update и meal_history,
-            # так как они обрабатываются отдельно
-            if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
-                try:
-                    conn = pymysql.connect(
-                        host='x91345bo.beget.tech',
-                        user='x91345bo_nutrbot',
-                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                        database='x91345bo_nutrbot',
-                        charset='utf8mb4',
-                        cursorclass=pymysql.cursors.DictCursor
-                    )
-                    with conn.cursor() as cursor:
-                        sql_part = sql_part.replace('?', '%s')
-                        if "%s" in sql_part:
-                            cursor.execute(sql_part, (user_id,))
-                        else:
-                            cursor.execute(sql_part)
-                        conn.commit()
-                        print(f"Выполнен SQL: {sql_part}")
-                except Exception as e:
-                    print(f"Ошибка при выполнении SQL: {e}")
-                finally:
-                    if conn:
-                        conn.close()
+            try:
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
+                with conn.cursor() as cursor:
+                    sql_part = sql_part.replace('?', '%s')
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
+                    conn.commit()
+            except Exception as e:
+                print(f"Ошибка при выполнении SQL: {e}")
+            finally:
+                if conn:
+                    conn.close()
 
         # Извлекаем текст для пользователя
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
@@ -1964,9 +1939,7 @@ TEXT: ...
         if not text_part:
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
-        
-
-        # Если это был прием пищи, сохраняем данные (и в meal_history, и в основные поля)
+        # Если это был прием пищи, сохраняем данные
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
             # Парсим КБЖУ из ответа
             calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
@@ -1989,11 +1962,10 @@ TEXT: ...
                     else:
                         food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
                     
-                if meal_type:
-                    # Получаем текущее время
+                    # Получаем текущее время пользователя
                     user_timezone = await get_user_timezone(user_id)
                     current_time = datetime.now(user_timezone).strftime("%H:%M")
-    
+                    
                     # Сохраняем данные о приеме пищи
                     meal_info = {
                         "time": current_time,
@@ -2003,10 +1975,10 @@ TEXT: ...
                         "fats": fats,
                         "carbs": carbs
                     }
-    
+                    
                     await update_meal_history(user_id, {meal_type: meal_info})
                     
-                    # 2. Обновляем основные поля КБЖУ
+                    # Обновляем основные поля КБЖУ
                     conn = pymysql.connect(
                         host='x91345bo.beget.tech',
                         user='x91345bo_nutrbot',
@@ -2031,11 +2003,10 @@ TEXT: ...
                                 proteins,
                                 fats,
                                 carbs,
-                                date_str,
+                                date.today().isoformat(),
                                 user_id
                             ))
                             conn.commit()
-                            print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
                     finally:
                         if conn:
                             conn.close()
@@ -2051,7 +2022,6 @@ TEXT: ...
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 def main():
     init_db()
