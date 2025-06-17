@@ -1153,9 +1153,12 @@ async def update_meal_history(user_id: int, meal_data: dict):
                 current_history[current_date] = {}
             
             # Добавляем все новые приемы пищи
-            for meal_type, meal_info in meal_data.items():
-                current_history[current_date][meal_type] = meal_info
-            
+            for date_key, meals in meal_data.items():
+                if date_key not in current_history:
+                    current_history[date_key] = {}
+                for meal_type, meal_info in meals.items():
+                    current_history[date_key][meal_type] = meal_info
+
             # Сохраняем обновленную историю
             cursor.execute("""
                 UPDATE user_profiles 
