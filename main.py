@@ -1579,19 +1579,20 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     meal_history = await get_meal_history(user_id)
     if meal_history:
         meals_text = "🍽 История вашего питания / Your meal history:\n"
-    
+
         # Сортируем даты по убыванию (новые сверху)
         sorted_dates = sorted(meal_history.keys(), reverse=True)
-    
+
         for day in sorted_dates[:7]:  # Последние 7 дней
             meals_text += f"\n📅 {day}:\n"
-            for meal_type, meal_data in meal_history[day].items():
-                meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
-                meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
-                meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
-                meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
-                meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
-    
+            for meal_type, meals in meal_history[day].items():
+                for meal in meals:  # Теперь meals - это список приемов пищи
+                    meals_text += f"  - {meal_type} в {meal.get('time', '?')}: {meal.get('food', '')}\n"
+                    meals_text += f"    🧪 КБЖУ: {meal.get('calories', 0)} ккал | "
+                    meals_text += f"Б: {meal.get('proteins', 0)}г | "
+                    meals_text += f"Ж: {meal.get('fats', 0)}г | "
+                    meals_text += f"У: {meal.get('carbs', 0)}г\n"
+
         contents.insert(0, {"text": meals_text})
 
     # История диалога
