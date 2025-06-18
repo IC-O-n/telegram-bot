@@ -1470,6 +1470,42 @@ async def get_user_timezone(user_id: int) -> pytz.timezone:
         if conn:
             conn.close()
 
+def is_sql_safe(sql: str) -> bool:
+    """Проверяет SQL-запрос на безопасность"""
+    # Запрещаем опасные операции
+    forbidden = ['DROP', 'TRUNCATE', 'DELETE FROM', 'ALTER TABLE', 'CREATE TABLE']
+    if any(f.lower() in sql.lower() for f in forbidden):
+        return False
+    
+    # Проверяем корректность структуры запроса
+    if 'WHERE' in sql.upper() and '=' in sql:
+        parts = sql.split('WHERE', 1)[1].split('=')
+        if len(parts) < 2:
+            return False
+    
+    return True
+
+def safe_execute_sql(conn, sql: str, params=(), user_id=None):
+    """Безопасное выполнение SQL-запроса"""
+    try:
+        with conn.cursor() as cursor:
+            if user_id:
+                if '%s' in sql:
+                    cursor.execute(sql, (user_id,))
+                else:
+                    cursor.execute(sql)
+            else:
+                if params:
+                    cursor.execute(sql, params)
+                else:
+                    cursor.execute(sql)
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Ошибка при выполнении SQL: {e}")
+        conn.rollback()
+        return False
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
@@ -2005,139 +2041,13 @@ TEXT: ...
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
-    
-            try:
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
-                with conn.cursor() as cursor:
-                    # Заменяем потенциально проблемные конструкции
-                    sql_part = sql_part.replace('?', '%s')
             
-                    # Обрабатываем особые случаи
-                    if "FROM user_profiles" in sql_part and "UPDATE user_profiles" in sql_part:
-                        # Переписываем запросы с подзапросами к той же таблице
-                        if "WHERE user_id IN (SELECT user_id FROM user_profiles" in sql_part:
-                            sql_part = sql_part.replace(
-                                "WHERE user_id IN (SELECT user_id FROM user_profiles",
-                                "WHERE user_id IN (SELECT tmp.user_id FROM (SELECT user_id FROM user_profiles"
-                            ) + ")"
-                
-                    if "%s" in sql_part:
-                        cursor.execute(sql_part, (user_id,))
-                    else:
-                        cursor.execute(sql_part)
-                    conn.commit()
-                    print(f"Выполнен SQL: {sql_part}")
-            except Exception as e:
-                print(f"Ошибка при выполнении SQL: {e}")
-                # Добавляем информацию об ошибке в ответ пользователю
-                text_part = (text_part or "") + f"\n\n⚠️ Произошла ошибка при обновлении данных. Пожалуйста, попробуйте еще раз."
-            finally:
-                if conn:
-                    conn.close()
-
-        # Извлекаем текст для пользователя
-        text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
-        if text_matches:
-            text_part = text_matches[-1].strip()
-        else:
-            text_part = re.sub(r'SQL:.*?(?=TEXT:|$)', '', response_text, flags=re.DOTALL).strip()
-
-        if not text_part:
-            text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
-
-        # Обработка запросов на удаление приемов пищи
-        delete_keywords = {
-            "ru": ["удали", "забудь", "ошибся", "неправильно"],
-            "en": ["delete", "remove", "forget", "wrong"]
-        }
-        
-        food_keywords = {
-            "ru": ["миндаль", "халва", "кофе"],
-            "en": ["almond", "halva", "coffee"]
-        }
-        
-        # Проверяем, есть ли запрос на удаление
-        should_delete = any(word in text_part.lower() for word in delete_keywords[language])
-        contains_food = any(word in text_part.lower() for word in food_keywords[language])
-        
-        if should_delete:
-            date_str = date.today().isoformat()
-            deleted = False
-            
-            # Если указана конкретная еда
-            if contains_food:
-                food_desc = next((word for word in food_keywords[language] if word in text_part.lower()), None)
-                if food_desc:
-                    deleted = await delete_meal_entry(user_id, date_str, food_description=food_desc)
-            
-            # Если не указана конкретная еда, удаляем последний прием пищи
-            if not deleted:
-                meal_history = await get_meal_history(user_id)
-                if date_str in meal_history and meal_history[date_str]:
-                    last_meal_type = list(meal_history[date_str].keys())[-1]
-                    deleted = await delete_meal_entry(user_id, date_str, meal_type=last_meal_type)
-            
-            if deleted:
-                if language == "ru":
-                    text_part = "✅ Удалил указанный прием пищи из вашей истории."
-                else:
-                    text_part = "✅ Deleted the specified meal from your history."
+            # Проверяем SQL на безопасность перед выполнением
+            if not is_sql_safe(sql_part):
+                print(f"Потенциально опасный SQL: {sql_part}")
+                text_part = "Произошла ошибка при обновлении данных. Пожалуйста, попробуйте другой формат запроса."
             else:
-                if language == "ru":
-                    text_part = "Не нашел указанный прием пищи для удаления."
-                else:
-                    text_part = "Could not find the specified meal to delete."
-
-        # Если это был прием пищи, сохраняем данные (и в meal_history, и в основные поля)
-        if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
-            # Парсим КБЖУ из ответа
-            calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
-            proteins_match = re.search(r'Белки:\s*(\d+)', response_text) or re.search(r'Proteins:\s*(\d+)', response_text)
-            fats_match = re.search(r'Жиры:\s*(\d+)', response_text) or re.search(r'Fats:\s*(\d+)', response_text)
-            carbs_match = re.search(r'Углеводы:\s*(\d+)', response_text) or re.search(r'Carbs:\s*(\d+)', response_text)
-    
-            if calories_match and proteins_match and fats_match and carbs_match:
                 try:
-                    calories = int(calories_match.group(1))
-                    proteins = int(proteins_match.group(1))
-                    fats = int(fats_match.group(1))
-                    carbs = int(carbs_match.group(1))
-                    
-                    # Получаем описание еды
-                    food_description = None
-                    analysis_match = re.search(r'🔍 Анализ блюда:\s*(.*?)(?=\n\n|$)', response_text, re.DOTALL)
-                    if analysis_match:
-                        food_description = analysis_match.group(1).strip()
-                    else:
-                        food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
-                    
-                    # Получаем текущее время пользователя
-                    user_timezone = await get_user_timezone(user_id)
-                    current_time = datetime.now(user_timezone).strftime("%H:%M")
-                    
-                    # 1. Обновляем meal_history
-                    date_str = date.today().isoformat()
-                    meal_data = {
-                        "time": current_time,
-                        "food": food_description or user_text,
-                        "calories": calories,
-                        "proteins": proteins,
-                        "fats": fats,
-                        "carbs": carbs
-                    }
-                    
-                    await update_meal_history(user_id, {
-                        meal_type: meal_data
-                    })
-                    
-                    # 2. Обновляем основные поля КБЖУ
                     conn = pymysql.connect(
                         host='x91345bo.beget.tech',
                         user='x91345bo_nutrbot',
@@ -2146,33 +2056,55 @@ TEXT: ...
                         charset='utf8mb4',
                         cursorclass=pymysql.cursors.DictCursor
                     )
-                    try:
-                        with conn.cursor() as cursor:
-                            cursor.execute("""
-                                UPDATE user_profiles 
-                                SET 
-                                    calories_today = calories_today + %s,
-                                    proteins_today = proteins_today + %s,
-                                    fats_today = fats_today + %s,
-                                    carbs_today = carbs_today + %s,
-                                    last_nutrition_update = %s
-                                WHERE user_id = %s
-                            """, (
-                                calories,
-                                proteins,
-                                fats,
-                                carbs,
-                                date_str,
-                                user_id
-                            ))
-                            conn.commit()
-                            print(f"Обновлены КБЖУ для пользователя {user_id}: +{calories} ккал")
-                    finally:
-                        if conn:
-                            conn.close()
+                    with conn.cursor() as cursor:
+                        # Заменяем параметры на %s и экранируем значения
+                        sql_part = sql_part.replace('?', '%s')
                         
+                        # Если запрос содержит UPDATE или INSERT с текстовыми значениями
+                        if any(cmd in sql_part.upper() for cmd in ['UPDATE', 'INSERT', 'SET']):
+                            # Извлекаем значения из запроса для параметризации
+                            if 'WHERE' in sql_part.upper():
+                                base_sql, where_clause = sql_part.split('WHERE', 1)
+                                where_clause = 'WHERE ' + where_clause
+                            else:
+                                base_sql = sql_part
+                                where_clause = ''
+                            
+                            # Параметризуем запрос
+                            if '=' in where_clause:
+                                where_parts = where_clause.split('=')
+                                field = where_parts[0].strip()
+                                value = where_parts[1].strip().strip("'").strip('"')
+                                safe_sql = f"{base_sql} {field} = %s"
+                                params = (value,)
+                            else:
+                                safe_sql = sql_part
+                                params = ()
+                            
+                            # Выполняем безопасный запрос
+                            if '%s' in safe_sql:
+                                cursor.execute(safe_sql, params)
+                            else:
+                                cursor.execute(safe_sql)
+                            
+                            conn.commit()
+                            print(f"Выполнен безопасный SQL: {safe_sql} с параметрами: {params}")
+                        else:
+                            # Для простых SELECT запросов
+                            cursor.execute(sql_part)
                 except Exception as e:
-                    print(f"Ошибка при сохранении данных о приеме пищи: {e}")
+                    print(f"Ошибка при выполнении SQL: {e}")
+                    text_part = (text_part or "") + "\n\n⚠️ Произошла ошибка при обновлении данных. Пожалуйста, сформулируйте запрос иначе."
+                finally:
+                    if conn:
+                        conn.close()
+
+        # Извлекаем текст для пользователя
+        text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
+        if text_matches:
+            text_part = text_matches[-1].strip()
+        else:
+            text_part = re.sub(r'SQL:.*?(?=TEXT:|$)', '', response_text, flags=re.DOTALL).strip()
 
         await update.message.reply_text(text_part)
 
