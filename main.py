@@ -1152,11 +1152,10 @@ async def update_meal_history(user_id: int, meal_data: dict):
             if current_date not in current_history:
                 current_history[current_date] = {}
             
-            # Добавляем все новые приемы пищи
+            # Добавляем все новые приемы пищи (убрали timestamp из ключа)
             for meal_type, meal_info in meal_data.items():
-                # Генерируем уникальный ключ для приема пищи (тип + timestamp)
-                meal_key = f"{meal_type}_{datetime.now(user_timezone).strftime('%H%M%S')}"
-                current_history[current_date][meal_key] = meal_info
+                # Используем только тип приема пищи в качестве ключа
+                current_history[current_date][meal_type] = meal_info
             
             # Сохраняем обновленную историю
             cursor.execute("""
@@ -1199,8 +1198,8 @@ async def get_meal_history(user_id: int) -> dict:
                 for date_str, meals in history.items():
                     structured_history[date_str] = {}
                     for meal_key, meal_data in meals.items():
-                        # Извлекаем тип приема пищи из ключа
-                        meal_type = meal_key.split('_')[0]
+                        # Убираем обработку timestamp, используем ключ как есть
+                        meal_type = meal_key.split('_')[0] if '_' in meal_key else meal_key
                         structured_history[date_str][meal_type] = meal_data
                 
                 return structured_history
