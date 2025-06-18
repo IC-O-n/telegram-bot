@@ -892,12 +892,9 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
                 f"  Carbs: {carbs} g"
             )
         await update.message.reply_text(profile_text)
-    except pymysql.Error as e:
+    except Exception as e:
         print(f"Ошибка при получении профиля: {e}")
-        error_msg = "Произошла ошибка при получении профиля. Пожалуйста, попробуйте позже."
-        if language == "en":
-            error_msg = "An error occurred while getting profile. Please try again later."
-        await update.message.reply_text(error_msg)
+        await update.message.reply_text("Произошла ошибка при получении профиля. Пожалуйста, попробуйте позже.")
     finally:
         if conn:
             conn.close()
@@ -909,7 +906,6 @@ async def reset(update: Update, context: CallbackContext) -> None:
     user_profiles.pop(user_id, None)
     
     conn = None
-    language = "ru"  # дефолтное значение
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -919,7 +915,6 @@ async def reset(update: Update, context: CallbackContext) -> None:
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
         with conn.cursor() as cursor:
             cursor.execute("""
                 UPDATE user_profiles 
@@ -952,25 +947,25 @@ async def reset(update: Update, context: CallbackContext) -> None:
                     meal_history = NULL
                 WHERE user_id = %s
             """, (user_id,))
-            conn.commit()
-            
-            # Получаем язык для ответа
+        conn.commit()
+        
+        with conn.cursor() as cursor:
             cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
+        
+        language = row['language'] if row and row['language'] else "ru"
         
         if language == "ru":
             await update.message.reply_text("Все данные успешно сброшены! Начнем с чистого листа 🧼")
         else:
             await update.message.reply_text("All data has been reset! Let's start fresh 🧼")
             
-    except pymysql.Error as e:
+    except Exception as e:
         print(f"Ошибка при сбросе данных: {e}")
-        error_msg = f"Произошла ошибка при сбросе данных: {e}"
-        if language == "en":
-            error_msg = f"An error occurred while resetting data: {e}"
-        await update.message.reply_text(error_msg)
+        if language == "ru":
+            await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}")
+        else:
+            await update.message.reply_text(f"An error occurred while resetting data: {e}")
     finally:
         if conn:
             conn.close()
@@ -979,7 +974,6 @@ async def reset(update: Update, context: CallbackContext) -> None:
 async def toggle_water_reminders(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     conn = None
-    language = "ru"  # дефолтное значение
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -999,13 +993,12 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
             return
         
         new_state = 0 if row['water_reminders'] else 1
-        language = row['language'] if row['language'] else language
         
         with conn.cursor() as update_cursor:
             update_cursor.execute("UPDATE user_profiles SET water_reminders = %s WHERE user_id = %s", (new_state, user_id))
         conn.commit()
         
-        if language == "ru":
+        if row['language'] == "ru":
             if new_state:
                 message = "Напоминания о воде включены! Я буду напоминать тебе пить воду в течение дня."
             else:
@@ -1017,16 +1010,12 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
                 message = "Water reminders disabled. You can enable them again with /water command."
         
         await update.message.reply_text(message)
-    except pymysql.Error as e:
+    except Exception as e:
         print(f"Ошибка при переключении напоминаний о воде: {e}")
-        error_msg = "Произошла ошибка. Пожалуйста, попробуйте позже."
-        if language == "en":
-            error_msg = "An error occurred. Please try again later."
-        await update.message.reply_text(error_msg)
+        await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
     finally:
         if conn:
             conn.close()
-
 
 def get_user_profile_text(user_id: int) -> str:
     conn = pymysql.connect(
@@ -1474,14 +1463,13 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
     contents = []
-    response_text = ""
+    response_text = ""  # Инициализируем переменную заранее
 
     # Проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
 
-    # Получаем язык пользователя с улучшенной обработкой ошибок
+    # Получаем язык пользователя
     language = "ru"  # дефолтное значение
-    conn = None
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -1496,10 +1484,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             row = cursor.fetchone()
             if row and row['language']:
                 language = row['language']
-    except pymysql.Error as e:
-        print(f"Ошибка подключения к базе данных при получении языка: {e}")
-        await update.message.reply_text("Произошла ошибка подключения к базе данных. Пожалуйста, попробуйте позже.")
-        return
+    except Exception as e:
+        print(f"Ошибка при получении языка пользователя: {e}")
     finally:
         if conn:
             conn.close()
@@ -2007,9 +1993,10 @@ TEXT: ...
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
-        
+            
+            # Пропускаем SQL-запросы, связанные с nutrition_update и meal_history,
+            # так как они обрабатываются отдельно
             if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
-                conn = None
                 try:
                     conn = pymysql.connect(
                         host='x91345bo.beget.tech',
@@ -2027,13 +2014,8 @@ TEXT: ...
                             cursor.execute(sql_part)
                         conn.commit()
                         print(f"Выполнен SQL: {sql_part}")
-                except pymysql.Error as e:
+                except Exception as e:
                     print(f"Ошибка при выполнении SQL: {e}")
-                    error_msg = "Произошла ошибка при обновлении данных. Пожалуйста, попробуйте позже."
-                    if language == "en":
-                        error_msg = "An error occurred while updating data. Please try again later."
-                    await update.message.reply_text(error_msg)
-                    return
                 finally:
                     if conn:
                         conn.close()
