@@ -1175,7 +1175,7 @@ async def update_meal_history(user_id: int, meal_data: dict):
 
 
 async def get_meal_history(user_id: int) -> dict:
-    """Возвращает историю питания пользователя за последние 7 дней"""
+    """Возвращает историю питания пользователя с проверкой данных"""
     conn = None
     try:
         conn = pymysql.connect(
@@ -1192,67 +1192,28 @@ async def get_meal_history(user_id: int) -> dict:
             result = cursor.fetchone()
             
             if result and result['meal_history']:
-                history = json.loads(result['meal_history'])
-                # Фильтруем только последние 7 дней
-                sorted_dates = sorted(history.keys(), reverse=True)
-                last_week_dates = sorted_dates[:7]
-                
-                # Создаем структуру для анализа
-                analysis_data = {
-                    "total_days": len(last_week_dates),
-                    "meals_per_day": {},
-                    "nutrients": {
-                        "calories": 0,
-                        "proteins": 0,
-                        "fats": 0,
-                        "carbs": 0
-                    },
-                    "meal_types": {},
-                    "time_patterns": {}
-                }
-                
-                for date_str in last_week_dates:
-                    day_meals = history[date_str]
-                    analysis_data["meals_per_day"][date_str] = len(day_meals)
-                    
-                    for meal_key, meal_data in day_meals.items():
-                        # Определяем тип приема пищи
-                        meal_type = meal_key.split('_')[0]
-                        
-                        # Обновляем статистику по типам приемов пищи
-                        if meal_type not in analysis_data["meal_types"]:
-                            analysis_data["meal_types"][meal_type] = {
-                                "count": 0,
-                                "calories": 0,
-                                "proteins": 0,
-                                "fats": 0,
-                                "carbs": 0
-                            }
-                        
-                        analysis_data["meal_types"][meal_type]["count"] += 1
-                        analysis_data["meal_types"][meal_type]["calories"] += meal_data.get('calories', 0)
-                        analysis_data["meal_types"][meal_type]["proteins"] += meal_data.get('proteins', 0)
-                        analysis_data["meal_types"][meal_type]["fats"] += meal_data.get('fats', 0)
-                        analysis_data["meal_types"][meal_type]["carbs"] += meal_data.get('carbs', 0)
-                        
-                        # Обновляем общие показатели нутриентов
-                        analysis_data["nutrients"]["calories"] += meal_data.get('calories', 0)
-                        analysis_data["nutrients"]["proteins"] += meal_data.get('proteins', 0)
-                        analysis_data["nutrients"]["fats"] += meal_data.get('fats', 0)
-                        analysis_data["nutrients"]["carbs"] += meal_data.get('carbs', 0)
-                        
-                        # Анализируем временные паттерны
-                        meal_time = meal_data.get('time', '')
-                        if meal_time:
-                            hour = int(meal_time.split(':')[0]) if ':' in meal_time else 12
-                            if hour not in analysis_data["time_patterns"]:
-                                analysis_data["time_patterns"][hour] = 0
-                            analysis_data["time_patterns"][hour] += meal_data.get('calories', 0)
-                
-                return {
-                    "raw_data": {date: history[date] for date in last_week_dates if date in history},
-                    "analysis": analysis_data
-                }
+                try:
+                    history = json.loads(result['meal_history'])
+                    # Проверяем и корректируем структуру данных
+                    cleaned_history = {}
+                    for date_str, meals in history.items():
+                        if isinstance(meals, dict):
+                            cleaned_meals = {}
+                            for meal_key, meal_data in meals.items():
+                                if isinstance(meal_data, dict):
+                                    cleaned_meals[meal_key] = {
+                                        'time': meal_data.get('time', '?'),
+                                        'food': meal_data.get('food', ''),
+                                        'calories': meal_data.get('calories', 0),
+                                        'proteins': meal_data.get('proteins', 0),
+                                        'fats': meal_data.get('fats', 0),
+                                        'carbs': meal_data.get('carbs', 0)
+                                    }
+                            cleaned_history[date_str] = cleaned_meals
+                    return cleaned_history
+                except json.JSONDecodeError:
+                    print("Ошибка декодирования meal_history")
+                    return {}
             return {}
     except Exception as e:
         print(f"Ошибка при получении истории питания: {e}")
@@ -1624,8 +1585,9 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     
     # Если запрошен анализ питания, добавляем meal_history в контекст
     if is_nutrition_analysis:
-        meal_history = await get_meal_history(user_id)
-        if meal_history:
+    meal_history = await get_meal_history(user_id)
+    if meal_history:
+        try:
             meals_text = "🍽 История вашего питания / Your meal history:\n"
         
             # Сортируем даты по убыванию (новые сверху)
@@ -1633,15 +1595,34 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         
             for day in sorted_dates[:7]:  # Последние 7 дней
                 meals_text += f"\n📅 {day}:\n"
-                for meal_type, meal_data in meal_history[day].items():
-                    meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
-                    meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
-                    meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
-                    meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
-                    meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
+                day_meals = meal_history[day]
+                if isinstance(day_meals, dict):
+                    for meal_key, meal_data in day_meals.items():
+                        if isinstance(meal_data, dict):
+                            meals_text += f"  - {meal_key.split('_')[0]} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                            meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
+                            meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
+                            meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
+                            meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
+                        else:
+                            print(f"Некорректные данные о приеме пищи для {meal_key}")
+                else:
+                    print(f"Некорректный формат данных за день {day}")
         
             contents.insert(0, {"text": meals_text})
-
+        except Exception as e:
+            print(f"Ошибка при формировании истории питания: {e}")
+            if language == "ru":
+                await update.message.reply_text("Произошла ошибка при анализе истории питания. Попробуйте позже.")
+            else:
+                await update.message.reply_text("Error analyzing meal history. Please try again later.")
+            return
+    else:
+        if language == "ru":
+            await update.message.reply_text("История питания не найдена. Начните добавлять приемы пищи.")
+        else:
+            await update.message.reply_text("No meal history found. Start adding meals.")
+        return
     
     # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
