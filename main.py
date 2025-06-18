@@ -1146,16 +1146,25 @@ async def update_meal_history(user_id: int, meal_data: dict):
             
             # Получаем текущую дату с учетом timezone пользователя
             user_timezone = await get_user_timezone(user_id)
-            current_date = datetime.now(user_timezone).date().isoformat()
+            now = datetime.now(user_timezone)
+            current_date = now.date().isoformat()
+            current_time = now.strftime("%H:%M:%S")
             
-            # Если для текущей даты еще нет записей, создаем пустой словарь
+            # Если для текущей даты еще нет записей, создаем пустой список
             if current_date not in current_history:
                 current_history[current_date] = {}
             
-            # Добавляем все новые приемы пищи (убрали timestamp из ключа)
+            # Добавляем новый прием пищи
             for meal_type, meal_info in meal_data.items():
-                # Используем только тип приема пищи в качестве ключа
-                current_history[current_date][meal_type] = meal_info
+                # Если для этого типа приема пищи еще нет записей, создаем список
+                if meal_type not in current_history[current_date]:
+                    current_history[current_date][meal_type] = []
+                
+                # Добавляем время в информацию о еде
+                meal_info['time'] = current_time
+                
+                # Добавляем новый прием пищи в список
+                current_history[current_date][meal_type].append(meal_info)
             
             # Сохраняем обновленную историю
             cursor.execute("""
@@ -1171,7 +1180,6 @@ async def update_meal_history(user_id: int, meal_data: dict):
     finally:
         if conn:
             conn.close()
-
 
 async def get_meal_history(user_id: int) -> dict:
     """Возвращает историю питания пользователя с проверкой данных"""
@@ -1192,17 +1200,7 @@ async def get_meal_history(user_id: int) -> dict:
             
             if result and result['meal_history']:
                 history = json.loads(result['meal_history'])
-                # Реструктурируем данные для удобства использования
-                structured_history = {}
-                
-                for date_str, meals in history.items():
-                    structured_history[date_str] = {}
-                    for meal_key, meal_data in meals.items():
-                        # Убираем обработку timestamp, используем ключ как есть
-                        meal_type = meal_key.split('_')[0] if '_' in meal_key else meal_key
-                        structured_history[date_str][meal_type] = meal_data
-                
-                return structured_history
+                return history
             return {}
     except Exception as e:
         print(f"Ошибка при получении истории питания: {e}")
@@ -1241,43 +1239,64 @@ async def delete_meal_entry(user_id: int, date_str: str, meal_type: str = None, 
                 
             deleted = False
             
-            # Создаем список ключей для удаления
-            keys_to_delete = []
-            
             # Если указан тип приема пищи
-            if meal_type:
-                for meal_key in list(history[date_str].keys()):
-                    if meal_key.startswith(meal_type + '_'):
-                        keys_to_delete.append(meal_key)
+            if meal_type and meal_type in history[date_str]:
+                # Удаляем последний прием пищи этого типа
+                if history[date_str][meal_type]:
+                    last_meal = history[date_str][meal_type][-1]
+                    # Вычитаем КБЖУ
+                    cursor.execute("""
+                        UPDATE user_profiles 
+                        SET 
+                            calories_today = GREATEST(0, calories_today - %s),
+                            proteins_today = GREATEST(0, proteins_today - %s),
+                            fats_today = GREATEST(0, fats_today - %s),
+                            carbs_today = GREATEST(0, carbs_today - %s)
+                        WHERE user_id = %s
+                    """, (
+                        last_meal.get('calories', 0),
+                        last_meal.get('proteins', 0),
+                        last_meal.get('fats', 0),
+                        last_meal.get('carbs', 0),
+                        user_id
+                    ))
+                    # Удаляем запись
+                    history[date_str][meal_type].pop()
+                    deleted = True
+                    
+                    # Если список пуст, удаляем тип приема пищи
+                    if not history[date_str][meal_type]:
+                        del history[date_str][meal_type]
             
             # Если указано описание еды
             elif food_description:
-                for meal_key, meal_data in list(history[date_str].items()):
-                    if food_description.lower() in meal_data.get('food', '').lower():
-                        keys_to_delete.append(meal_key)
-            
-            # Удаляем найденные записи
-            for meal_key in keys_to_delete:
-                meal_data = history[date_str][meal_key]
-                # Вычитаем КБЖУ
-                cursor.execute("""
-                    UPDATE user_profiles 
-                    SET 
-                        calories_today = GREATEST(0, calories_today - %s),
-                        proteins_today = GREATEST(0, proteins_today - %s),
-                        fats_today = GREATEST(0, fats_today - %s),
-                        carbs_today = GREATEST(0, carbs_today - %s)
-                    WHERE user_id = %s
-                """, (
-                    meal_data.get('calories', 0),
-                    meal_data.get('proteins', 0),
-                    meal_data.get('fats', 0),
-                    meal_data.get('carbs', 0),
-                    user_id
-                ))
-                # Удаляем запись
-                del history[date_str][meal_key]
-                deleted = True
+                for meal_type_key, meals in list(history[date_str].items()):
+                    for i, meal in enumerate(meals):
+                        if food_description.lower() in meal.get('food', '').lower():
+                            # Вычитаем КБЖУ
+                            cursor.execute("""
+                                UPDATE user_profiles 
+                                SET 
+                                    calories_today = GREATEST(0, calories_today - %s),
+                                    proteins_today = GREATEST(0, proteins_today - %s),
+                                    fats_today = GREATEST(0, fats_today - %s),
+                                    carbs_today = GREATEST(0, carbs_today - %s)
+                                WHERE user_id = %s
+                            """, (
+                                meal.get('calories', 0),
+                                meal.get('proteins', 0),
+                                meal.get('fats', 0),
+                                meal.get('carbs', 0),
+                                user_id
+                            ))
+                            # Удаляем запись
+                            history[date_str][meal_type_key].pop(i)
+                            deleted = True
+                            
+                            # Если список пуст, удаляем тип приема пищи
+                            if not history[date_str][meal_type_key]:
+                                del history[date_str][meal_type_key]
+                            break
             
             # Если дата пустая, удаляем её полностью
             if date_str in history and not history[date_str]:
