@@ -122,46 +122,34 @@ def save_user_profile(user_id: int, profile: dict):
             reminders = json.dumps(profile.get("reminders", []))
             meal_history = json.dumps(profile.get("meal_history", {}))
             
+            # Разбиваем большой запрос на более простые части
             cursor.execute('''
-            INSERT INTO user_profiles (
-                user_id, language, name, gender, age, weight, height, goal, activity, diet, 
-                health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
-                water_reminders, water_drunk_today, last_water_notification,
-                calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
-                reminders, meal_history
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s
-            )
-            ON DUPLICATE KEY UPDATE
-                language = VALUES(language),
-                name = VALUES(name),
-                gender = VALUES(gender),
-                age = VALUES(age),
-                weight = VALUES(weight),
-                height = VALUES(height),
-                goal = VALUES(goal),
-                activity = VALUES(activity),
-                diet = VALUES(diet),
-                health = VALUES(health),
-                equipment = VALUES(equipment),
-                target_metric = VALUES(target_metric),
-                unique_facts = VALUES(unique_facts),
-                timezone = VALUES(timezone),
-                wakeup_time = VALUES(wakeup_time),
-                sleep_time = VALUES(sleep_time),
-                water_reminders = VALUES(water_reminders),
-                water_drunk_today = VALUES(water_drunk_today),
-                last_water_notification = VALUES(last_water_notification),
-                calories_today = VALUES(calories_today),
-                proteins_today = VALUES(proteins_today),
-                fats_today = VALUES(fats_today),
-                carbs_today = VALUES(carbs_today),
-                last_nutrition_update = VALUES(last_nutrition_update),
-                reminders = VALUES(reminders),
-                meal_history = VALUES(meal_history)
+                INSERT INTO user_profiles (
+                    user_id, language, name, gender, age, weight, height, goal, activity, diet, 
+                    health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
+                    water_reminders
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                    %s, %s, %s, %s, %s, %s, %s, %s
+                )
+                ON DUPLICATE KEY UPDATE
+                    language = VALUES(language),
+                    name = VALUES(name),
+                    gender = VALUES(gender),
+                    age = VALUES(age),
+                    weight = VALUES(weight),
+                    height = VALUES(height),
+                    goal = VALUES(goal),
+                    activity = VALUES(activity),
+                    diet = VALUES(diet),
+                    health = VALUES(health),
+                    equipment = VALUES(equipment),
+                    target_metric = VALUES(target_metric),
+                    unique_facts = VALUES(unique_facts),
+                    timezone = VALUES(timezone),
+                    wakeup_time = VALUES(wakeup_time),
+                    sleep_time = VALUES(sleep_time),
+                    water_reminders = VALUES(water_reminders)
             ''', (
                 user_id,
                 profile.get("language"),
@@ -180,7 +168,24 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("timezone"),
                 profile.get("wakeup_time"),
                 profile.get("sleep_time"),
-                profile.get("water_reminders", 1),
+                profile.get("water_reminders", 1)
+            ))
+            
+            # Отдельно обновляем поля, которые могут быть NULL
+            cursor.execute('''
+                UPDATE user_profiles 
+                SET 
+                    water_drunk_today = %s,
+                    last_water_notification = %s,
+                    calories_today = %s,
+                    proteins_today = %s,
+                    fats_today = %s,
+                    carbs_today = %s,
+                    last_nutrition_update = %s,
+                    reminders = %s,
+                    meal_history = %s
+                WHERE user_id = %s
+            ''', (
                 profile.get("water_drunk_today", 0),
                 profile.get("last_water_notification", ""),
                 profile.get("calories_today", 0),
@@ -189,8 +194,10 @@ def save_user_profile(user_id: int, profile: dict):
                 profile.get("carbs_today", 0),
                 profile.get("last_nutrition_update", date.today().isoformat()),
                 reminders,
-                meal_history
+                meal_history,
+                user_id
             ))
+            
         conn.commit()
     except Exception as e:
         print(f"Ошибка при сохранении профиля: {e}")
@@ -212,18 +219,20 @@ async def reset_daily_nutrition_if_needed(user_id: int):
         )
         
         with conn.cursor() as cursor:
+            # Получаем дату последнего обновления
             cursor.execute("SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             
             if result and result['last_nutrition_update']:
                 last_update = result['last_nutrition_update']
                 if last_update < date.today():
+                    # Используем прямое сравнение дат без подзапроса
                     cursor.execute('''
                         UPDATE user_profiles 
                         SET calories_today = 0, proteins_today = 0, fats_today = 0, carbs_today = 0,
-                            last_nutrition_update = %s, water_drunk_today = 0
-                        WHERE user_id = %s
-                    ''', (date.today().isoformat(), user_id))
+                            water_drunk_today = 0, last_nutrition_update = %s
+                        WHERE user_id = %s AND last_nutrition_update < %s
+                    ''', (date.today().isoformat(), user_id, date.today().isoformat()))
                     conn.commit()
     except Exception as e:
         print(f"Ошибка при сбросе дневного питания: {e}")
@@ -985,6 +994,7 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
         )
         
         with conn.cursor() as cursor:
+            # Получаем текущее состояние
             cursor.execute("SELECT water_reminders, language FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
         
@@ -995,24 +1005,26 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
         new_state = 0 if row['water_reminders'] else 1
         
         with conn.cursor() as update_cursor:
-            update_cursor.execute("UPDATE user_profiles SET water_reminders = %s WHERE user_id = %s", (new_state, user_id))
+            # Простой запрос без подзапросов
+            update_cursor.execute("""
+                UPDATE user_profiles 
+                SET water_reminders = %s 
+                WHERE user_id = %s
+            """, (new_state, user_id))
         conn.commit()
         
         if row['language'] == "ru":
-            if new_state:
-                message = "Напоминания о воде включены! Я буду напоминать тебе пить воду в течение дня."
-            else:
-                message = "Напоминания о воде отключены. Ты можешь снова включить их через команду /water."
+            message = "Напоминания о воде включены!" if new_state else "Напоминания о воде отключены."
         else:
-            if new_state:
-                message = "Water reminders enabled! I'll remind you to drink water during the day."
-            else:
-                message = "Water reminders disabled. You can enable them again with /water command."
+            message = "Water reminders enabled!" if new_state else "Water reminders disabled."
         
         await update.message.reply_text(message)
     except Exception as e:
         print(f"Ошибка при переключении напоминаний о воде: {e}")
-        await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
+        error_msg = "Произошла ошибка. Пожалуйста, попробуйте позже."
+        if row and row.get('language') == "en":
+            error_msg = "An error occurred. Please try again later."
+        await update.message.reply_text(error_msg)
     finally:
         if conn:
             conn.close()
@@ -1993,32 +2005,42 @@ TEXT: ...
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
+    
+            try:
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
+                with conn.cursor() as cursor:
+                    # Заменяем потенциально проблемные конструкции
+                    sql_part = sql_part.replace('?', '%s')
             
-            # Пропускаем SQL-запросы, связанные с nutrition_update и meal_history,
-            # так как они обрабатываются отдельно
-            if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
-                try:
-                    conn = pymysql.connect(
-                        host='x91345bo.beget.tech',
-                        user='x91345bo_nutrbot',
-                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                        database='x91345bo_nutrbot',
-                        charset='utf8mb4',
-                        cursorclass=pymysql.cursors.DictCursor
-                    )
-                    with conn.cursor() as cursor:
-                        sql_part = sql_part.replace('?', '%s')
-                        if "%s" in sql_part:
-                            cursor.execute(sql_part, (user_id,))
-                        else:
-                            cursor.execute(sql_part)
-                        conn.commit()
-                        print(f"Выполнен SQL: {sql_part}")
-                except Exception as e:
-                    print(f"Ошибка при выполнении SQL: {e}")
-                finally:
-                    if conn:
-                        conn.close()
+                    # Обрабатываем особые случаи
+                    if "FROM user_profiles" in sql_part and "UPDATE user_profiles" in sql_part:
+                        # Переписываем запросы с подзапросами к той же таблице
+                        if "WHERE user_id IN (SELECT user_id FROM user_profiles" in sql_part:
+                            sql_part = sql_part.replace(
+                                "WHERE user_id IN (SELECT user_id FROM user_profiles",
+                                "WHERE user_id IN (SELECT tmp.user_id FROM (SELECT user_id FROM user_profiles"
+                            ) + ")"
+                
+                    if "%s" in sql_part:
+                        cursor.execute(sql_part, (user_id,))
+                    else:
+                        cursor.execute(sql_part)
+                    conn.commit()
+                    print(f"Выполнен SQL: {sql_part}")
+            except Exception as e:
+                print(f"Ошибка при выполнении SQL: {e}")
+                # Добавляем информацию об ошибке в ответ пользователю
+                text_part = (text_part or "") + f"\n\n⚠️ Произошла ошибка при обновлении данных. Пожалуйста, попробуйте еще раз."
+            finally:
+                if conn:
+                    conn.close()
 
         # Извлекаем текст для пользователя
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
