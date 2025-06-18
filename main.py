@@ -1585,44 +1585,44 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     
     # Если запрошен анализ питания, добавляем meal_history в контекст
     if is_nutrition_analysis:
-    meal_history = await get_meal_history(user_id)
-    if meal_history:
-        try:
-            meals_text = "🍽 История вашего питания / Your meal history:\n"
+        meal_history = await get_meal_history(user_id)
+        if meal_history:
+            try:
+                meals_text = "🍽 История вашего питания / Your meal history:\n"
         
-            # Сортируем даты по убыванию (новые сверху)
-            sorted_dates = sorted(meal_history.keys(), reverse=True)
+                # Сортируем даты по убыванию (новые сверху)
+                sorted_dates = sorted(meal_history.keys(), reverse=True)
         
-            for day in sorted_dates[:7]:  # Последние 7 дней
-                meals_text += f"\n📅 {day}:\n"
-                day_meals = meal_history[day]
-                if isinstance(day_meals, dict):
-                    for meal_key, meal_data in day_meals.items():
-                        if isinstance(meal_data, dict):
-                            meals_text += f"  - {meal_key.split('_')[0]} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
-                            meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
-                            meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
-                            meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
-                            meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
-                        else:
-                            print(f"Некорректные данные о приеме пищи для {meal_key}")
+                for day in sorted_dates[:7]:  # Последние 7 дней
+                    meals_text += f"\n📅 {day}:\n"
+                    day_meals = meal_history[day]
+                    if isinstance(day_meals, dict):
+                        for meal_key, meal_data in day_meals.items():
+                            if isinstance(meal_data, dict):
+                                meals_text += f"  - {meal_key.split('_')[0]} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                                meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
+                                meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
+                                meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
+                                meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
+                            else:
+                                print(f"Некорректные данные о приеме пищи для {meal_key}")
+                    else:
+                        print(f"Некорректный формат данных за день {day}")
+        
+                contents.insert(0, {"text": meals_text})
+            except Exception as e:
+                print(f"Ошибка при формировании истории питания: {e}")
+                if language == "ru":
+                    await update.message.reply_text("Произошла ошибка при анализе истории питания. Попробуйте позже.")
                 else:
-                    print(f"Некорректный формат данных за день {day}")
-        
-            contents.insert(0, {"text": meals_text})
-        except Exception as e:
-            print(f"Ошибка при формировании истории питания: {e}")
-            if language == "ru":
-                await update.message.reply_text("Произошла ошибка при анализе истории питания. Попробуйте позже.")
-            else:
-                await update.message.reply_text("Error analyzing meal history. Please try again later.")
-            return
-    else:
-        if language == "ru":
-            await update.message.reply_text("История питания не найдена. Начните добавлять приемы пищи.")
+                    await update.message.reply_text("Error analyzing meal history. Please try again later.")
+                return
         else:
-            await update.message.reply_text("No meal history found. Start adding meals.")
-        return
+            if language == "ru":
+                await update.message.reply_text("История питания не найдена. Начните добавлять приемы пищи.")
+            else:
+                await update.message.reply_text("No meal history found. Start adding meals.")
+            return
     
     # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
