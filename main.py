@@ -1512,10 +1512,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Определяем тип приема пищи если это фото еды
     meal_type = None
     meal_keywords = {
-        "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч", "ужин"],
-        "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
+    "ru": ["завтрак", "позавтракал", "обед", "пообедал", "ужин", "поужинал", "перекус", "снек", "ланч"],
+    "en": ["breakfast", "had breakfast", "lunch", "had lunch", "dinner", "had dinner", "snack", "supper", "brunch"]
     }
-    
+
     # Проверяем текст на указание типа приема пищи
     for word in meal_keywords[language]:
         if word in user_text.lower():
@@ -2042,8 +2042,11 @@ TEXT: ...
         }
         
         # Проверяем, есть ли запрос на удаление
-        should_delete = any(word in text_part.lower() for word in delete_keywords[language])
-        contains_food = any(word in text_part.lower() for word in food_keywords[language])
+        should_delete = (
+            any(word in user_text.lower() for word in delete_keywords[language]) and
+            not any(word in user_text.lower() for word in meal_keywords[language])
+        )
+        contains_food = any(word in user_text.lower() for word in food_keywords[language])
         
         if should_delete:
             date_str = date.today().isoformat()
