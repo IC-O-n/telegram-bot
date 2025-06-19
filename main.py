@@ -796,7 +796,7 @@ async def check_water_reminder_time(context: CallbackContext):
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     await reset_daily_nutrition_if_needed(user_id)
-
+    
     conn = None
     try:
         conn = pymysql.connect(
@@ -807,7 +807,7 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-
+        
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
@@ -825,12 +825,12 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         recommended_water = int(weight * 30)
         water_drunk = row['water_drunk_today'] if row['water_drunk_today'] is not None else 0
         remaining_water = max(0, recommended_water - water_drunk)
-
+        
         calories = row['calories_today'] if row['calories_today'] is not None else 0
         proteins = row['proteins_today'] if row['proteins_today'] is not None else 0
         fats = row['fats_today'] if row['fats_today'] is not None else 0
         carbs = row['carbs_today'] if row['carbs_today'] is not None else 0
-
+        
         if language == "ru":
             profile_text = (
                 f"Твой профиль:\n\n"
@@ -892,13 +892,8 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
                 f"  Carbs: {carbs} g"
             )
         await update.message.reply_text(profile_text)
-    except pymysql.Error as e:
     except Exception as e:
         print(f"Ошибка при получении профиля: {e}")
-        error_msg = "Произошла ошибка при получении профиля. Пожалуйста, попробуйте позже."
-        if language == "en":
-            error_msg = "An error occurred while getting profile. Please try again later."
-        await update.message.reply_text(error_msg)
         await update.message.reply_text("Произошла ошибка при получении профиля. Пожалуйста, попробуйте позже.")
     finally:
         if conn:
