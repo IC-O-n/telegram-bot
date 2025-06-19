@@ -1,4 +1,4 @@
-import os
+import osMore actions
 import re
 import base64
 import aiohttp
@@ -49,7 +49,7 @@ def init_db():
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
-    
+
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
@@ -83,7 +83,7 @@ def init_db():
                     meal_history JSON
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
-            
+
             # Проверяем существование колонок
             cursor.execute("""
                 SELECT COLUMN_NAME 
@@ -92,13 +92,13 @@ def init_db():
                 AND TABLE_NAME = 'user_profiles'
             """)
             existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
-            
+
             if 'reminders' not in existing_columns:
                 cursor.execute("ALTER TABLE user_profiles ADD COLUMN reminders TEXT")
-            
+
             if 'meal_history' not in existing_columns:
                 cursor.execute("ALTER TABLE user_profiles ADD COLUMN meal_history JSON")
-            
+
         conn.commit()
     except Exception as e:
         print(f"Ошибка при инициализации базы данных: {e}")
@@ -117,11 +117,11 @@ def save_user_profile(user_id: int, profile: dict):
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             reminders = json.dumps(profile.get("reminders", []))
             meal_history = json.dumps(profile.get("meal_history", {}))
-            
+
             cursor.execute('''
             INSERT INTO user_profiles (
                 user_id, language, name, gender, age, weight, height, goal, activity, diet, 
@@ -210,11 +210,11 @@ async def reset_daily_nutrition_if_needed(user_id: int):
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             cursor.execute("SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
-            
+
             if result and result['last_nutrition_update']:
                 last_update = result['last_nutrition_update']
                 if last_update < date.today():
@@ -261,10 +261,10 @@ async def ask_name(update: Update, context: CallbackContext) -> int:
             "Пожалуйста, выбери 'ru' для русского или 'en' для английского / Please choose 'ru' for Russian or 'en' for English"
         )
         return ASK_LANGUAGE
-    
+
     user_id = update.message.from_user.id
     user_profiles[user_id] = {"language": language}
-    
+
     if language == "ru":
         await update.message.reply_text("Как тебя зовут?")
     else:
@@ -275,7 +275,7 @@ async def ask_gender(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     user_profiles[user_id]["name"] = update.message.text
-    
+
     if language == "ru":
         await update.message.reply_text("Укажи свой пол (м/ж):")
     else:
@@ -286,20 +286,20 @@ async def ask_age(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     gender = update.message.text.lower()
-    
+
     if language == "ru":
         valid_genders = ["м", "ж"]
         error_msg = "Пожалуйста, укажи только 'м' или 'ж'."
     else:
         valid_genders = ["m", "f"]
         error_msg = "Please specify only 'm' or 'f'."
-    
+
     if gender not in valid_genders:
         await update.message.reply_text(error_msg)
         return ASK_GENDER
-    
+
     user_profiles[user_id]["gender"] = gender
-    
+
     if language == "ru":
         await update.message.reply_text("Сколько тебе лет?")
     else:
@@ -309,7 +309,7 @@ async def ask_age(update: Update, context: CallbackContext) -> int:
 async def ask_weight(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
-    
+
     try:
         age = int(update.message.text)
     except ValueError:
@@ -318,9 +318,9 @@ async def ask_weight(update: Update, context: CallbackContext) -> int:
         else:
             await update.message.reply_text("Please enter your age as a number.")
         return ASK_AGE
-    
+
     user_profiles[user_id]["age"] = age
-    
+
     if language == "ru":
         await update.message.reply_text("Какой у тебя текущий вес (в кг)?")
     else:
@@ -330,7 +330,7 @@ async def ask_weight(update: Update, context: CallbackContext) -> int:
 async def ask_height(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
-    
+
     try:
         weight = float(update.message.text.replace(",", "."))
     except ValueError:
@@ -339,9 +339,9 @@ async def ask_height(update: Update, context: CallbackContext) -> int:
         else:
             await update.message.reply_text("Please enter your weight as a number.")
         return ASK_WEIGHT
-    
+
     user_profiles[user_id]["weight"] = weight
-    
+
     if language == "ru":
         await update.message.reply_text("Какой у тебя рост (в см)?")
     else:
@@ -351,7 +351,7 @@ async def ask_height(update: Update, context: CallbackContext) -> int:
 async def ask_goal(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
-    
+
     try:
         height = int(update.message.text)
         if height < 100 or height > 250:
@@ -366,9 +366,9 @@ async def ask_goal(update: Update, context: CallbackContext) -> int:
         else:
             await update.message.reply_text("Please enter your height as a whole number in centimeters.")
         return ASK_HEIGHT
-    
+
     user_profiles[user_id]["height"] = height
-    
+
     if language == "ru":
         await update.message.reply_text("Какая у тебя цель? (Похудеть, Набрать массу, Рельеф, Просто ЗОЖ)")
     else:
@@ -379,7 +379,7 @@ async def ask_activity(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     user_profiles[user_id]["goal"] = update.message.text
-    
+
     if language == "ru":
         await update.message.reply_text("Какой у тебя уровень активности/опыта? (Новичок, Средний, Продвинутый)")
     else:
@@ -390,7 +390,7 @@ async def ask_diet_pref(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     user_profiles[user_id]["activity"] = update.message.text
-    
+
     if language == "ru":
         await update.message.reply_text("Есть ли у тебя предпочтения в еде? (Веганство, без глютена и т.п.)")
     else:
@@ -401,7 +401,7 @@ async def ask_health(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     user_profiles[user_id]["diet"] = update.message.text
-    
+
     if language == "ru":
         await update.message.reply_text("Есть ли у тебя ограничения по здоровью?")
     else:
@@ -412,7 +412,7 @@ async def ask_equipment(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     user_profiles[user_id]["health"] = update.message.text
-    
+
     if language == "ru":
         await update.message.reply_text("Какой инвентарь/тренажёры у тебя есть?")
     else:
@@ -423,7 +423,7 @@ async def ask_target(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     user_profiles[user_id]["equipment"] = update.message.text
-    
+
     if language == "ru":
         await update.message.reply_text("Какая у тебя конкретная цель по весу или другим метрикам?")
     else:
@@ -435,7 +435,7 @@ async def ask_timezone(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     user_profiles[user_id]["target_metric"] = update.message.text
-    
+
     if language == "ru":
         await update.message.reply_text("В каком городе или часовом поясе ты находишься? (Например: Москва, или Europe/Moscow, или UTC+3)")
     else:
@@ -447,7 +447,7 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     timezone_input = update.message.text.strip()
-    
+
     # Упрощенная обработка часового пояса
     try:
         if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
@@ -472,14 +472,14 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
             except pytz.UnknownTimeZoneError:
                 # Если город не найден, используем UTC как fallback
                 tz = pytz.UTC
-        
+
         user_profiles[user_id]["timezone"] = tz.zone
         print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
     except Exception as e:
         print(f"Ошибка определения часового пояса: {e}")
         # Используем UTC как fallback
         user_profiles[user_id]["timezone"] = "UTC"
-    
+
     if language == "ru":
         await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
     else:
@@ -489,7 +489,7 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
 
 async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-    
+
     # First try in-memory storage
     if user_id not in user_profiles:
         # Fallback to database
@@ -498,7 +498,7 @@ async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
         cursor.execute("SELECT language FROM user_profiles WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         conn.close()
-        
+
         if row:
             # Reconstruct minimal profile from database
             user_profiles[user_id] = {"language": row[0]}
@@ -506,9 +506,9 @@ async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
             # If not found anywhere, restart questionnaire
             await update.message.reply_text("Сессия устарела. Пожалуйста, начните заново с /start\nSession expired. Please start again with /start")
             return ConversationHandler.END
-    
+
     language = user_profiles[user_id].get("language", "ru")
-    
+
     try:
         wakeup_time = datetime.strptime(update.message.text, "%H:%M").time()
         user_profiles[user_id]["wakeup_time"] = update.message.text
@@ -518,7 +518,7 @@ async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
         else:
             await update.message.reply_text("Please enter time in HH:MM format (e.g. 07:30)")
         return ASK_WAKEUP_TIME
-    
+
     if language == "ru":
         await update.message.reply_text("Во сколько ты обычно ложишься спать? (Формат: ЧЧ:ММ, например 23:00)")
     else:
@@ -529,7 +529,7 @@ async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
 async def ask_water_reminders(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
-    
+
     try:
         sleep_time = datetime.strptime(update.message.text, "%H:%M").time()
         user_profiles[user_id]["sleep_time"] = update.message.text
@@ -539,7 +539,7 @@ async def ask_water_reminders(update: Update, context: CallbackContext) -> int:
         else:
             await update.message.reply_text("Please enter time in HH:MM format (e.g. 23:00)")
         return ASK_SLEEP_TIME
-    
+
     if language == "ru":
         await update.message.reply_text("Хочешь ли ты получать напоминания пить воду в течение дня? (да/нет)")
     else:
@@ -551,33 +551,33 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
     answer = update.message.text.lower()
-    
+
     if language == "ru":
         valid_answers = ["да", "нет"]
     else:
         valid_answers = ["yes", "no"]
-    
+
     if answer not in valid_answers:
         if language == "ru":
             await update.message.reply_text("Пожалуйста, ответь 'да' или 'нет'")
         else:
             await update.message.reply_text("Please answer 'yes' or 'no'")
         return ASK_WATER_REMINDERS
-    
+
     user_profiles[user_id]["water_reminders"] = 1 if answer in ["да", "yes"] else 0
     user_profiles[user_id]["water_drunk_today"] = 0
     user_profiles[user_id]["reminders"] = []  # Инициализируем пустой список напоминаний
-    
+
     name = user_profiles[user_id]["name"]
     weight = user_profiles[user_id]["weight"]
     recommended_water = int(weight * 30)
     save_user_profile(user_id, user_profiles[user_id])
-    
+
     # Удаляем старые задачи для этого пользователя, если они есть
     current_jobs = context.job_queue.get_jobs_by_name(str(user_id))
     for job in current_jobs:
         job.schedule_removal()
-    
+
     # Создаем новую задачу для напоминаний
     if user_profiles[user_id]["water_reminders"]:
         context.job_queue.run_repeating(
@@ -589,7 +589,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             name=str(user_id)
         )
         print(f"Создана задача напоминаний для пользователя {user_id}")
-    
+
     if language == "ru":
         await update.message.reply_text(
             f"Отлично, {name}! Анкета завершена 🎉\n"
@@ -616,7 +616,7 @@ async def check_reminders(context: CallbackContext):
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
-    
+
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
@@ -630,7 +630,7 @@ async def check_reminders(context: CallbackContext):
             try:
                 if not user['reminders'] or user['reminders'] == '[]':
                     continue
-                    
+
                 reminders = json.loads(user['reminders'])
                 tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
                 now = datetime.now(tz)
@@ -660,7 +660,7 @@ async def check_reminders(context: CallbackContext):
                                     (json.dumps(reminders), user['user_id'])
                                 )
                             conn.commit()
-                            
+
                         except Exception as e:
                             print(f"Ошибка при отправке напоминания пользователю {user['user_id']}: {e}")
             except Exception as e:
@@ -675,7 +675,7 @@ async def check_water_reminder_time(context: CallbackContext):
     job = context.job
     user_id = job.user_id
     chat_id = job.chat_id
-    
+
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -684,7 +684,7 @@ async def check_water_reminder_time(context: CallbackContext):
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
-    
+
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
@@ -694,17 +694,17 @@ async def check_water_reminder_time(context: CallbackContext):
                 WHERE user_id = %s
             """, (user_id,))
             row = cursor.fetchone()
-        
+
         if not row:
             print(f"Профиль пользователя {user_id} не найден")
             return
-        
+
         if not row['water_reminders']:
             print(f"Напоминания отключены для пользователя {user_id}")
             return
-        
+
         recommended_water = int(row['weight'] * 30)
-        
+
         if row['water_drunk_today'] >= recommended_water:
             print(f"Пользователь {user_id} уже выпил достаточное количество воды")
             return  
@@ -714,7 +714,7 @@ async def check_water_reminder_time(context: CallbackContext):
             now = datetime.now(tz)
             current_time = now.time()
             today = now.date()
-            
+
             if row['last_water_notification']:
                 try:
                     last_notif_datetime = datetime.strptime(row['last_water_notification'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=tz)
@@ -724,27 +724,27 @@ async def check_water_reminder_time(context: CallbackContext):
                         return
                 except ValueError as e:
                     print(f"Ошибка парсинга времени последнего уведомления: {e}")
-            
+
             wakeup_time = datetime.strptime(row['wakeup_time'], "%H:%M").time()
             sleep_time = datetime.strptime(row['sleep_time'], "%H:%M").time()
-            
+
             wakeup_dt = datetime.combine(today, wakeup_time).astimezone(tz)
             sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
             current_dt = datetime.combine(today, current_time).astimezone(tz)
-            
+
             if sleep_time < wakeup_time:
                 sleep_dt += timedelta(days=1)
-            
+
             is_active_time = wakeup_dt <= current_dt <= sleep_dt
-            
+
             if not is_active_time:
                 print(f"Текущее время {current_time} вне периода активности пользователя {user_id} ({wakeup_time}-{sleep_time})")
                 return
-            
+
             remaining_water = max(0, recommended_water - row['water_drunk_today'])
             time_since_wakeup = current_dt - wakeup_dt
             hours_since_wakeup = time_since_wakeup.total_seconds() / 3600
-            
+
             reminder_interval = 2
             if hours_since_wakeup >= 0 and hours_since_wakeup % reminder_interval <= 0.1:
                 last_notif_hour = None
@@ -755,7 +755,7 @@ async def check_water_reminder_time(context: CallbackContext):
                         last_notif_hour = last_notif_since_wakeup.total_seconds() / 3600
                     except ValueError as e:
                         print(f"Ошибка парсинга времени последнего уведомления: {e}")
-                
+
                 if last_notif_hour is None or (hours_since_wakeup - last_notif_hour) >= (reminder_interval - 0.1):
                     with conn.cursor() as update_cursor:
                         update_cursor.execute("""
@@ -764,9 +764,9 @@ async def check_water_reminder_time(context: CallbackContext):
                             WHERE user_id = %s
                         """, (now.strftime("%Y-%m-%d %H:%M:%S"), user_id))
                     conn.commit()
-                    
+
                     water_to_drink_now = min(250, max(150, recommended_water // 8))
-                    
+
                     if row['language'] == "ru":
                         message = (
                             f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
@@ -783,10 +783,10 @@ async def check_water_reminder_time(context: CallbackContext):
                             f"After drinking water, send me a message in the format:\n"
                             f"'Drank 300 ml' or 'Выпил 250 мл'"
                         )
-                    
+
                     await context.bot.send_message(chat_id=chat_id, text=message)
                     print(f"Напоминание отправлено пользователю {user_id} в {now}")
-        
+
         except Exception as e:
             print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
     finally:
@@ -796,7 +796,7 @@ async def check_water_reminder_time(context: CallbackContext):
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     await reset_daily_nutrition_if_needed(user_id)
-    
+
     conn = None
     try:
         conn = pymysql.connect(
@@ -807,7 +807,7 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
@@ -825,12 +825,12 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
         recommended_water = int(weight * 30)
         water_drunk = row['water_drunk_today'] if row['water_drunk_today'] is not None else 0
         remaining_water = max(0, recommended_water - water_drunk)
-        
+
         calories = row['calories_today'] if row['calories_today'] is not None else 0
         proteins = row['proteins_today'] if row['proteins_today'] is not None else 0
         fats = row['fats_today'] if row['fats_today'] is not None else 0
         carbs = row['carbs_today'] if row['carbs_today'] is not None else 0
-        
+
         if language == "ru":
             profile_text = (
                 f"Твой профиль:\n\n"
@@ -892,8 +892,13 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
                 f"  Carbs: {carbs} g"
             )
         await update.message.reply_text(profile_text)
+    except pymysql.Error as e:
     except Exception as e:
         print(f"Ошибка при получении профиля: {e}")
+        error_msg = "Произошла ошибка при получении профиля. Пожалуйста, попробуйте позже."
+        if language == "en":
+            error_msg = "An error occurred while getting profile. Please try again later."
+        await update.message.reply_text(error_msg)
         await update.message.reply_text("Произошла ошибка при получении профиля. Пожалуйста, попробуйте позже.")
     finally:
         if conn:
@@ -904,8 +909,9 @@ async def reset(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     user_histories.pop(user_id, None)
     user_profiles.pop(user_id, None)
-    
+
     conn = None
+    language = "ru"  # дефолтное значение
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -915,6 +921,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
+        
         with conn.cursor() as cursor:
             cursor.execute("""
                 UPDATE user_profiles 
@@ -947,21 +954,31 @@ async def reset(update: Update, context: CallbackContext) -> None:
                     meal_history = NULL
                 WHERE user_id = %s
             """, (user_id,))
+            conn.commit()
+            
+            # Получаем язык для ответа
         conn.commit()
         
         with conn.cursor() as cursor:
             cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
         
         language = row['language'] if row and row['language'] else "ru"
-        
+
         if language == "ru":
             await update.message.reply_text("Все данные успешно сброшены! Начнем с чистого листа 🧼")
         else:
             await update.message.reply_text("All data has been reset! Let's start fresh 🧼")
-            
+
+    except pymysql.Error as e:
     except Exception as e:
         print(f"Ошибка при сбросе данных: {e}")
+        error_msg = f"Произошла ошибка при сбросе данных: {e}"
+        if language == "en":
+            error_msg = f"An error occurred while resetting data: {e}"
+        await update.message.reply_text(error_msg)
         if language == "ru":
             await update.message.reply_text(f"Произошла ошибка при сбросе данных: {e}")
         else:
@@ -974,6 +991,7 @@ async def reset(update: Update, context: CallbackContext) -> None:
 async def toggle_water_reminders(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     conn = None
+    language = "ru"  # дефолтное значение
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -983,21 +1001,23 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             cursor.execute("SELECT water_reminders, language FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
-        
+
         if not row:
             await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
             return
-        
+
         new_state = 0 if row['water_reminders'] else 1
-        
+        language = row['language'] if row['language'] else language
+
         with conn.cursor() as update_cursor:
             update_cursor.execute("UPDATE user_profiles SET water_reminders = %s WHERE user_id = %s", (new_state, user_id))
         conn.commit()
-        
+
+        if language == "ru":
         if row['language'] == "ru":
             if new_state:
                 message = "Напоминания о воде включены! Я буду напоминать тебе пить воду в течение дня."
@@ -1008,14 +1028,20 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
                 message = "Water reminders enabled! I'll remind you to drink water during the day."
             else:
                 message = "Water reminders disabled. You can enable them again with /water command."
-        
+
         await update.message.reply_text(message)
+    except pymysql.Error as e:
     except Exception as e:
         print(f"Ошибка при переключении напоминаний о воде: {e}")
+        error_msg = "Произошла ошибка. Пожалуйста, попробуйте позже."
+        if language == "en":
+            error_msg = "An error occurred. Please try again later."
+        await update.message.reply_text(error_msg)
         await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
     finally:
         if conn:
             conn.close()
+
 
 def get_user_profile_text(user_id: int) -> str:
     conn = pymysql.connect(
@@ -1026,7 +1052,7 @@ def get_user_profile_text(user_id: int) -> str:
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
-    
+
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
@@ -1040,12 +1066,12 @@ def get_user_profile_text(user_id: int) -> str:
         recommended_water = int(weight * 30)
         water_drunk = row['water_drunk_today'] if row['water_drunk_today'] is not None else 0
         remaining_water = max(0, recommended_water - water_drunk)
-        
+
         calories = row['calories_today'] if row['calories_today'] is not None else 0
         proteins = row['proteins_today'] if row['proteins_today'] is not None else 0
         fats = row['fats_today'] if row['fats_today'] is not None else 0
         carbs = row['carbs_today'] if row['carbs_today'] is not None else 0
-        
+
         # Обработка поля reminders
         reminders = []
         if row['reminders']:
@@ -1053,7 +1079,7 @@ def get_user_profile_text(user_id: int) -> str:
                 reminders = json.loads(row['reminders'])
             except:
                 reminders = []
-        
+
         if language == "ru":
             profile_text = (
                 f"Твой профиль:\n\n"
@@ -1137,34 +1163,34 @@ async def update_meal_history(user_id: int, meal_data: dict):
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             # Получаем текущую историю
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             current_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
-            
+
             # Получаем текущую дату с учетом timezone пользователя
             user_timezone = await get_user_timezone(user_id)
             current_date = datetime.now(user_timezone).date().isoformat()
-            
+
             # Если для текущей даты еще нет записей, создаем пустой словарь
             if current_date not in current_history:
                 current_history[current_date] = {}
-            
+
             # Добавляем все новые приемы пищи
             for meal_type, meal_info in meal_data.items():
                 # Генерируем уникальный ключ для приема пищи (тип + timestamp)
                 meal_key = f"{meal_type}_{datetime.now(user_timezone).strftime('%H%M%S')}"
                 current_history[current_date][meal_key] = meal_info
-            
+
             # Сохраняем обновленную историю
             cursor.execute("""
                 UPDATE user_profiles 
                 SET meal_history = %s 
                 WHERE user_id = %s
             """, (json.dumps(current_history), user_id))
-            
+
             conn.commit()
     except Exception as e:
         print(f"Ошибка при обновлении истории питания: {e}")
@@ -1186,11 +1212,11 @@ async def get_meal_history(user_id: int) -> dict:
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
-            
+
             if result and result['meal_history']:
                 try:
                     history = json.loads(result['meal_history'])
@@ -1234,39 +1260,39 @@ async def delete_meal_entry(user_id: int, date_str: str, meal_type: str = None, 
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             # Получаем текущую историю питания
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
-            
+
             if not result or not result['meal_history']:
                 print("История питания пуста")
                 return False
-                
+
             history = json.loads(result['meal_history'])
-            
+
             if date_str not in history:
                 print(f"Нет записей за {date_str}")
                 return False
-                
+
             deleted = False
-            
+
             # Создаем список ключей для удаления
             keys_to_delete = []
-            
+
             # Если указан тип приема пищи
             if meal_type:
                 for meal_key in list(history[date_str].keys()):
                     if meal_key.startswith(meal_type + '_'):
                         keys_to_delete.append(meal_key)
-            
+
             # Если указано описание еды
             elif food_description:
                 for meal_key, meal_data in list(history[date_str].items()):
                     if food_description.lower() in meal_data.get('food', '').lower():
                         keys_to_delete.append(meal_key)
-            
+
             # Удаляем найденные записи
             for meal_key in keys_to_delete:
                 meal_data = history[date_str][meal_key]
@@ -1289,21 +1315,21 @@ async def delete_meal_entry(user_id: int, date_str: str, meal_type: str = None, 
                 # Удаляем запись
                 del history[date_str][meal_key]
                 deleted = True
-            
+
             # Если дата пустая, удаляем её полностью
             if date_str in history and not history[date_str]:
                 del history[date_str]
-                
+
             # Сохраняем обновленную историю
             cursor.execute("""
                 UPDATE user_profiles 
                 SET meal_history = %s 
                 WHERE user_id = %s
             """, (json.dumps(history), user_id))
-            
+
             conn.commit()
             return deleted
-            
+
     except Exception as e:
         print(f"Ошибка при удалении записи: {e}")
         raise
@@ -1321,37 +1347,37 @@ async def update_meal_calories(user_id: int, meal_type: str, new_calories: int, 
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
-    
+
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             if not result or not result['meal_history']:
                 return
-                
+
             history = json.loads(result['meal_history'])
             date_str = date.today().isoformat()
-            
+
             if date_str in history and meal_type in history[date_str]:
                 old_calories = history[date_str][meal_type].get('calories', 0)
                 history[date_str][meal_type]['calories'] = new_calories
-                
+
                 # Обновляем разницу в БД
                 cursor.execute("""
                     UPDATE user_profiles 
                     SET calories_today = calories_today - %s + %s 
                     WHERE user_id = %s
                 """, (old_calories, new_calories, user_id))
-                
+
                 # Сохраняем историю
                 cursor.execute("""
                     UPDATE user_profiles 
                     SET meal_history = %s 
                     WHERE user_id = %s
                 """, (json.dumps(history), user_id))
-                
+
                 conn.commit()
-                
+
                 if language == "ru":
                     await context.bot.send_message(
                         chat_id=user_id,
@@ -1375,34 +1401,34 @@ async def change_meal_type(user_id: int, old_type: str, new_type: str, language:
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
-    
+
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             if not result or not result['meal_history']:
                 return
-                
+
             history = json.loads(result['meal_history'])
             date_str = date.today().isoformat()
-            
+
             if date_str in history and old_type in history[date_str]:
                 meal_data = history[date_str][old_type]
                 del history[date_str][old_type]
-                
+
                 if date_str not in history:
                     history[date_str] = {}
                 history[date_str][new_type] = meal_data
-                
+
                 # Сохраняем историю
                 cursor.execute("""
                     UPDATE user_profiles 
                     SET meal_history = %s 
                     WHERE user_id = %s
                 """, (json.dumps(history), user_id))
-                
+
                 conn.commit()
-                
+
                 if language == "ru":
                     await context.bot.send_message(
                         chat_id=user_id,
@@ -1419,7 +1445,7 @@ async def change_meal_type(user_id: int, old_type: str, new_type: str, language:
 async def delete_meal(user_id: int, meal_type: str, language: str, context: CallbackContext):
     """Удаляет прием пищи"""
     await delete_meal_entry(user_id, date.today().isoformat(), meal_type)
-    
+
     if language == "ru":
         await context.bot.send_message(
             chat_id=user_id,
@@ -1443,11 +1469,11 @@ async def get_user_timezone(user_id: int) -> pytz.timezone:
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-        
+
         with conn.cursor() as cursor:
             cursor.execute("SELECT timezone FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
-            
+
         if row and row['timezone']:
             return pytz.timezone(row['timezone'])
         return pytz.UTC  # fallback
@@ -1463,13 +1489,16 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
     contents = []
+    response_text = ""
     response_text = ""  # Инициализируем переменную заранее
 
     # Проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
 
+    # Получаем язык пользователя с улучшенной обработкой ошибок
     # Получаем язык пользователя
     language = "ru"  # дефолтное значение
+    conn = None
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -1484,6 +1513,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             row = cursor.fetchone()
             if row and row['language']:
                 language = row['language']
+    except pymysql.Error as e:
+        print(f"Ошибка подключения к базе данных при получении языка: {e}")
+        await update.message.reply_text("Произошла ошибка подключения к базе данных. Пожалуйста, попробуйте позже.")
+        return
     except Exception as e:
         print(f"Ошибка при получении языка пользователя: {e}")
     finally:
@@ -1515,13 +1548,13 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         "ru": ["завтрак", "обед", "ужин", "перекус", "снек", "ланч", "ужин"],
         "en": ["breakfast", "lunch", "dinner", "snack", "supper", "brunch"]
     }
-    
+
     # Проверяем текст на указание типа приема пищи
     for word in meal_keywords[language]:
         if word in user_text.lower():
             meal_type = word
             break
-    
+
     # Если тип не указан, определяем по времени
     if not meal_type and (message.photo or ("калории" in user_text.lower())):
         user_timezone = "UTC"
@@ -1544,11 +1577,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         finally:
             if conn:
                 conn.close()
-        
+
         tz = pytz.timezone(user_timezone)
         now = datetime.now(tz)
         current_hour = now.hour
-        
+
         if 5 <= current_hour < 11:
             meal_type = "завтрак" if language == "ru" else "breakfast"
         elif 11 <= current_hour < 16:
@@ -1571,10 +1604,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if user_id not in user_histories:
         user_histories[user_id] = deque(maxlen=10)
     user_histories[user_id].append(f"Пользователь / User: {user_text}")
-    
+
     if 'last_bot_reply' in context.user_data:
         user_histories[user_id].append(f"Бот / Bot: {context.user_data['last_bot_reply']}")
-    
+
     history_messages = list(user_histories[user_id])
     if history_messages:
         history_prompt = "\n".join(history_messages)
@@ -1582,17 +1615,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # Проверяем, запрашивает ли пользователь анализ питания
     is_nutrition_analysis = ("анализ питания" in user_text.lower()) or ("nutrition analysis" in user_text.lower())
-    
+
     # Если запрошен анализ питания, добавляем meal_history в контекст
     if is_nutrition_analysis:
         meal_history = await get_meal_history(user_id)
         if meal_history:
             try:
                 meals_text = "🍽 История вашего питания / Your meal history:\n"
-        
+
                 # Сортируем даты по убыванию (новые сверху)
                 sorted_dates = sorted(meal_history.keys(), reverse=True)
-        
+
                 for day in sorted_dates[:7]:  # Последние 7 дней
                     meals_text += f"\n📅 {day}:\n"
                     day_meals = meal_history[day]
@@ -1608,7 +1641,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                                 print(f"Некорректные данные о приеме пищи для {meal_key}")
                     else:
                         print(f"Некорректный формат данных за день {day}")
-        
+
                 contents.insert(0, {"text": meals_text})
             except Exception as e:
                 print(f"Ошибка при формировании истории питания: {e}")
@@ -1623,7 +1656,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             else:
                 await update.message.reply_text("No meal history found. Start adding meals.")
             return
-    
+
     # Обновленный системный промпт с добавлением функционала КБЖУ
     GEMINI_SYSTEM_PROMPT = """Ты — умный ассистент, который помогает пользователю и при необходимости обновляет его профиль в базе данных.
 
@@ -1993,10 +2026,12 @@ TEXT: ...
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
+        
             
             # Пропускаем SQL-запросы, связанные с nutrition_update и meal_history,
             # так как они обрабатываются отдельно
             if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
+                conn = None
                 try:
                     conn = pymysql.connect(
                         host='x91345bo.beget.tech',
@@ -2014,8 +2049,14 @@ TEXT: ...
                             cursor.execute(sql_part)
                         conn.commit()
                         print(f"Выполнен SQL: {sql_part}")
+                except pymysql.Error as e:
                 except Exception as e:
                     print(f"Ошибка при выполнении SQL: {e}")
+                    error_msg = "Произошла ошибка при обновлении данных. Пожалуйста, попробуйте позже."
+                    if language == "en":
+                        error_msg = "An error occurred while updating data. Please try again later."
+                    await update.message.reply_text(error_msg)
+                    return
                 finally:
                     if conn:
                         conn.close()
@@ -2035,33 +2076,33 @@ TEXT: ...
             "ru": ["удали", "забудь", "ошибся", "неправильно"],
             "en": ["delete", "remove", "forget", "wrong"]
         }
-        
+
         food_keywords = {
             "ru": ["миндаль", "халва", "кофе"],
             "en": ["almond", "halva", "coffee"]
         }
-        
+
         # Проверяем, есть ли запрос на удаление
         should_delete = any(word in text_part.lower() for word in delete_keywords[language])
         contains_food = any(word in text_part.lower() for word in food_keywords[language])
-        
+
         if should_delete:
             date_str = date.today().isoformat()
             deleted = False
-            
+
             # Если указана конкретная еда
             if contains_food:
                 food_desc = next((word for word in food_keywords[language] if word in text_part.lower()), None)
                 if food_desc:
                     deleted = await delete_meal_entry(user_id, date_str, food_description=food_desc)
-            
+
             # Если не указана конкретная еда, удаляем последний прием пищи
             if not deleted:
                 meal_history = await get_meal_history(user_id)
                 if date_str in meal_history and meal_history[date_str]:
                     last_meal_type = list(meal_history[date_str].keys())[-1]
                     deleted = await delete_meal_entry(user_id, date_str, meal_type=last_meal_type)
-            
+
             if deleted:
                 if language == "ru":
                     text_part = "✅ Удалил указанный прием пищи из вашей истории."
@@ -2080,14 +2121,14 @@ TEXT: ...
             proteins_match = re.search(r'Белки:\s*(\d+)', response_text) or re.search(r'Proteins:\s*(\d+)', response_text)
             fats_match = re.search(r'Жиры:\s*(\d+)', response_text) or re.search(r'Fats:\s*(\d+)', response_text)
             carbs_match = re.search(r'Углеводы:\s*(\d+)', response_text) or re.search(r'Carbs:\s*(\d+)', response_text)
-    
+
             if calories_match and proteins_match and fats_match and carbs_match:
                 try:
                     calories = int(calories_match.group(1))
                     proteins = int(proteins_match.group(1))
                     fats = int(fats_match.group(1))
                     carbs = int(carbs_match.group(1))
-                    
+
                     # Получаем описание еды
                     food_description = None
                     analysis_match = re.search(r'🔍 Анализ блюда:\s*(.*?)(?=\n\n|$)', response_text, re.DOTALL)
@@ -2095,11 +2136,11 @@ TEXT: ...
                         food_description = analysis_match.group(1).strip()
                     else:
                         food_description = " ".join([part for part in response_text.split("\n") if part and not part.startswith(("SQL:", "TEXT:", "🔍", "🧪", "🍽", "📊"))][:3])
-                    
+
                     # Получаем текущее время пользователя
                     user_timezone = await get_user_timezone(user_id)
                     current_time = datetime.now(user_timezone).strftime("%H:%M")
-                    
+
                     # 1. Обновляем meal_history
                     date_str = date.today().isoformat()
                     meal_data = {
@@ -2110,11 +2151,11 @@ TEXT: ...
                         "fats": fats,
                         "carbs": carbs
                     }
-                    
+
                     await update_meal_history(user_id, {
                         meal_type: meal_data
                     })
-                    
+
                     # 2. Обновляем основные поля КБЖУ
                     conn = pymysql.connect(
                         host='x91345bo.beget.tech',
@@ -2148,7 +2189,7 @@ TEXT: ...
                     finally:
                         if conn:
                             conn.close()
-                        
+
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
@@ -2207,15 +2248,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
 
 
 
