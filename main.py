@@ -582,12 +582,11 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     if user_profiles[user_id]["water_reminders"]:
         context.job_queue.run_repeating(
             check_water_reminder_time,
-            interval=300,  # Проверка каждые 5 минут
-            first=10,      # Первая проверка через 10 секунд
+            interval=300,
+            first=10,
             chat_id=update.message.chat_id,
             user_id=user_id,
-            name=str(user_id),
-            data={'user_id': user_id}
+            name=str(user_id)
         )
         print(f"Создана задача напоминаний для пользователя {user_id}")
     
@@ -606,6 +605,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             f"You can send me photos, text or documents - I'll help you with analysis and recommendations!"
         )
     return ConversationHandler.END
+
 
 async def check_reminders(context: CallbackContext):
     conn = pymysql.connect(
@@ -674,6 +674,7 @@ async def check_reminders(context: CallbackContext):
 async def check_water_reminder_time(context: CallbackContext):
     job = context.job
     user_id = job.user_id
+    chat_id = job.chat_id
     
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
@@ -783,13 +784,14 @@ async def check_water_reminder_time(context: CallbackContext):
                             f"'Drank 300 ml' or 'Выпил 250 мл'"
                         )
                     
-                    await context.bot.send_message(chat_id=user_id, text=message)
+                    await context.bot.send_message(chat_id=chat_id, text=message)
                     print(f"Напоминание отправлено пользователю {user_id} в {now}")
         
         except Exception as e:
             print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
     finally:
         conn.close()
+
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
@@ -2169,13 +2171,6 @@ def main():
         check_reminders,
         interval=60,  # Проверяем каждую минуту
         first=10      # Первая проверка через 10 секунд
-    )
-
-    # Добавляем job для проверки воды (глобальная проверка)
-    app.job_queue.run_repeating(
-        check_water_reminder_time,
-        interval=300,  # Проверка каждые 5 минут
-        first=10       # Первая проверка через 10 секунд
     )
 
     conv_handler = ConversationHandler(
