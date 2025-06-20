@@ -1458,6 +1458,43 @@ async def get_user_timezone(user_id: int) -> pytz.timezone:
         if conn:
             conn.close()
 
+
+async def restore_water_reminders_jobs(application: Application):
+    """Восстанавливает jobs для напоминаний о воде при перезапуске бота"""
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT user_id FROM user_profiles WHERE water_reminders = 1")
+            users = cursor.fetchall()
+            
+            for user in users:
+                user_id = user['user_id']
+                # Проверяем, есть ли уже job для этого пользователя
+                existing_jobs = application.job_queue.get_jobs_by_name(str(user_id))
+                if not existing_jobs:
+                    # Создаем новый job для напоминаний о воде
+                    application.job_queue.run_repeating(
+                        check_water_reminder_time,
+                        interval=300,
+                        first=10,
+                        chat_id=user_id,
+                        user_id=user_id,
+                        name=str(user_id)
+                    )
+                    print(f"Восстановлена задача напоминаний для пользователя {user_id}")
+    except Exception as e:
+        print(f"Ошибка при восстановлении напоминаний о воде: {e}")
+    finally:
+        conn.close()
+
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
@@ -2166,46 +2203,16 @@ def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
-    # Добавляем job для проверки напоминаний
+    # Добавляем job для проверки общих напоминаний
     app.job_queue.run_repeating(
         check_reminders,
-        interval=60,  # Проверяем каждую минуту
-        first=10      # Первая проверка через 10 секунд
+        interval=60,
+        first=10
     )
 
-    # Проверяем пользователей с включенными напоминаниями о воде и создаем jobs при необходимости
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT user_id FROM user_profiles WHERE water_reminders = 1")
-            users = cursor.fetchall()
-            
-            for user in users:
-                user_id = user['user_id']
-                # Проверяем, есть ли уже job для этого пользователя
-                existing_jobs = app.job_queue.get_jobs_by_name(str(user_id))
-                if not existing_jobs:
-                    # Создаем новый job для напоминаний о воде
-                    app.job_queue.run_repeating(
-                        check_water_reminder_time,
-                        interval=300,
-                        first=10,
-                        chat_id=user_id,  # Используем user_id как chat_id, так как это личный чат
-                        user_id=user_id,
-                        name=str(user_id)
-                    )
-                    print(f"Создана задача напоминаний для пользователя {user_id} при старте бота")
-    except Exception as e:
-        print(f"Ошибка при проверке пользователей с напоминаниями: {e}")
-    finally:
-        conn.close()
+    # Восстанавливаем jobs для напоминаний о воде
+    app.add_handler(CommandHandler("start", start))  # Сначала добавляем команду start
+    app.run_once(restore_water_reminders_jobs, when=5)  # Запускаем через 5 секунд после старта
 
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
@@ -2238,7 +2245,6 @@ def main():
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
