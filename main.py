@@ -578,7 +578,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     for job in current_jobs:
         job.schedule_removal()
     
-    # Создаем новую задачу для напоминаний
+    # Создаем новую задачу для напоминаний, если они включены
     if user_profiles[user_id]["water_reminders"]:
         context.job_queue.run_repeating(
             check_water_reminder_time,
@@ -587,7 +587,6 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             chat_id=update.message.chat_id,
             user_id=user_id,
             name=str(user_id)
-        )
         print(f"Создана задача напоминаний для пользователя {user_id}")
     
     if language == "ru":
@@ -605,7 +604,6 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             f"You can send me photos, text or documents - I'll help you with analysis and recommendations!"
         )
     return ConversationHandler.END
-
 
 async def check_reminders(context: CallbackContext):
     conn = pymysql.connect(
@@ -998,6 +996,24 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
             update_cursor.execute("UPDATE user_profiles SET water_reminders = %s WHERE user_id = %s", (new_state, user_id))
         conn.commit()
         
+        # Если включаем напоминания - создаем job
+        if new_state:
+            # Удаляем старые задачи для этого пользователя, если они есть
+            current_jobs = context.job_queue.get_jobs_by_name(str(user_id))
+            for job in current_jobs:
+                job.schedule_removal()
+            
+            # Создаем новую задачу для напоминаний
+            context.job_queue.run_repeating(
+                check_water_reminder_time,
+                interval=300,
+                first=10,
+                chat_id=update.message.chat_id,
+                user_id=user_id,
+                name=str(user_id)
+            )
+            print(f"Создана задача напоминаний для пользователя {user_id} через команду /water")
+        
         if row['language'] == "ru":
             if new_state:
                 message = "Напоминания о воде включены! Я буду напоминать тебе пить воду в течение дня."
@@ -1016,6 +1032,7 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
     finally:
         if conn:
             conn.close()
+
 
 def get_user_profile_text(user_id: int) -> str:
     conn = pymysql.connect(
