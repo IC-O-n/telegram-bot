@@ -1459,8 +1459,8 @@ async def get_user_timezone(user_id: int) -> pytz.timezone:
             conn.close()
 
 
-async def restore_water_reminders_jobs(application: Application):
-    """Восстанавливает jobs для напоминаний о воде при перезапуске бота"""
+async def check_and_create_water_job(context: CallbackContext):
+    """Проверяет пользователей с включенными напоминаниями и создает job, если его нет"""
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
         user='x91345bo_nutrbot',
@@ -1469,31 +1469,34 @@ async def restore_water_reminders_jobs(application: Application):
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
     )
+    
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT user_id FROM user_profiles WHERE water_reminders = 1")
+            cursor.execute("""
+                SELECT user_id FROM user_profiles 
+                WHERE water_reminders = 1
+            """)
             users = cursor.fetchall()
             
-            for user in users:
-                user_id = user['user_id']
-                # Проверяем, есть ли уже job для этого пользователя
-                existing_jobs = application.job_queue.get_jobs_by_name(str(user_id))
-                if not existing_jobs:
-                    # Создаем новый job для напоминаний о воде
-                    application.job_queue.run_repeating(
-                        check_water_reminder_time,
-                        interval=300,
-                        first=10,
-                        chat_id=user_id,
-                        user_id=user_id,
-                        name=str(user_id)
-                    )
-                    print(f"Восстановлена задача напоминаний для пользователя {user_id}")
+        for user in users:
+            user_id = user['user_id']
+            # Проверяем, есть ли уже job для этого пользователя
+            current_jobs = context.job_queue.get_jobs_by_name(str(user_id))
+            if not current_jobs:
+                # Создаем новую задачу для напоминаний
+                context.job_queue.run_repeating(
+                    check_water_reminder_time,
+                    interval=300,
+                    first=10,
+                    chat_id=user_id,  # Для отправки сообщений нужен chat_id
+                    user_id=user_id,
+                    name=str(user_id)
+                )
+                print(f"Создана задача напоминаний для пользователя {user_id} при перезагрузке")
     except Exception as e:
-        print(f"Ошибка при восстановлении напоминаний о воде: {e}")
+        print(f"Ошибка при проверке напоминаний: {e}")
     finally:
         conn.close()
-
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
@@ -2203,16 +2206,18 @@ def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
-    # Добавляем job для проверки общих напоминаний
+    # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
         check_reminders,
-        interval=60,
-        first=10
+        interval=60,  # Проверяем каждую минуту
+        first=10      # Первая проверка через 10 секунд
     )
-
-    # Восстанавливаем jobs для напоминаний о воде
-    app.add_handler(CommandHandler("start", start))  # Сначала добавляем команду start
-    app.run_once(restore_water_reminders_jobs, when=5)  # Запускаем через 5 секунд после старта
+    
+    # Проверяем и создаем jobs для напоминаний о воде при старте
+    app.job_queue.run_once(
+        lambda ctx: check_and_create_water_job(ctx),
+        when=5  # Через 5 секунд после старта
+    )
 
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
