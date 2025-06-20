@@ -1459,6 +1459,7 @@ async def get_user_timezone(user_id: int) -> pytz.timezone:
             conn.close()
 
 
+
 async def check_and_create_water_job(context: CallbackContext):
     """Проверяет пользователей с включенными напоминаниями и создает job, если его нет"""
     conn = pymysql.connect(
