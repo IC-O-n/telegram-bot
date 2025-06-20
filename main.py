@@ -1498,6 +1498,7 @@ async def check_and_create_water_job(context: CallbackContext):
     finally:
         conn.close()
 
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
