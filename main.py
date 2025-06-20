@@ -1486,7 +1486,7 @@ async def restore_water_jobs(application: Application):
                     first=10,
                     chat_id=user_id,  # предполагаем, что chat_id = user_id
                     user_id=user_id,
-                    name=str(user_id)
+                    name=str(user_id))
                 print(f"Восстановлена задача напоминаний для пользователя {user_id}")
                 
     except Exception as e:
