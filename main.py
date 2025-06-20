@@ -699,7 +699,8 @@ async def check_water_reminder_time(context: CallbackContext):
             print(f"Профиль пользователя {user_id} не найден")
             return
         
-        if not row['water_reminders']:
+        # Проверяем, включены ли напоминания (добавлена дополнительная проверка)
+        if not row.get('water_reminders', 0):
             print(f"Напоминания отключены для пользователя {user_id}")
             return
         
@@ -997,6 +998,22 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
         with conn.cursor() as update_cursor:
             update_cursor.execute("UPDATE user_profiles SET water_reminders = %s WHERE user_id = %s", (new_state, user_id))
         conn.commit()
+        
+        # Удаляем старые задачи для этого пользователя, если они есть
+        current_jobs = context.job_queue.get_jobs_by_name(str(user_id))
+        for job in current_jobs:
+            job.schedule_removal()
+        
+        # Если напоминания включаются, создаем новую задачу
+        if new_state:
+            context.job_queue.run_repeating(
+                check_water_reminder_time,
+                interval=300,
+                first=10,
+                chat_id=update.message.chat_id,
+                user_id=user_id,
+                name=str(user_id)
+            print(f"Создана задача напоминаний для пользователя {user_id}")
         
         if row['language'] == "ru":
             if new_state:
