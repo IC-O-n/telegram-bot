@@ -1013,7 +1013,9 @@ async def toggle_water_reminders(update: Update, context: CallbackContext) -> No
                 chat_id=update.message.chat_id,
                 user_id=user_id,
                 name=str(user_id)
+                )
             print(f"Создана задача напоминаний для пользователя {user_id}")
+            
         
         if row['language'] == "ru":
             if new_state:
