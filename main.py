@@ -1458,6 +1458,44 @@ async def get_user_timezone(user_id: int) -> pytz.timezone:
         if conn:
             conn.close()
 
+async def restore_water_jobs(application: Application):
+    """Восстанавливает задачи для напоминаний о воде при перезапуске бота"""
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT user_id FROM user_profiles WHERE water_reminders = 1")
+            users = cursor.fetchall()
+
+        for user in users:
+            user_id = user['user_id']
+            # Проверяем, нет ли уже задачи для этого пользователя
+            existing_jobs = application.job_queue.get_jobs_by_name(str(user_id))
+            if not existing_jobs:
+                application.job_queue.run_repeating(
+                    check_water_reminder_time,
+                    interval=300,
+                    first=10,
+                    chat_id=user_id,  # предполагаем, что chat_id = user_id
+                    user_id=user_id,
+                    name=str(user_id)
+                print(f"Восстановлена задача напоминаний для пользователя {user_id}")
+                
+    except Exception as e:
+        print(f"Ошибка при восстановлении задач напоминаний: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
@@ -2172,6 +2210,10 @@ def main():
         interval=60,  # Проверяем каждую минуту
         first=10      # Первая проверка через 10 секунд
     )
+
+    # Восстанавливаем задачи для напоминаний о воде
+    app.add_handler(CommandHandler("start", start))  # Добавляем этот обработчик до вызова restore_water_jobs
+    app.run_once(restore_water_jobs, when=5)  # Выполнить через 5 секунд после старта
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
