@@ -2241,7 +2241,7 @@ def main():
     app.add_handler(CommandHandler("water", toggle_water_reminders))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    application.post_init(initialize_water_reminder_jobs)
+    app.post_init(initialize_water_reminder_jobs)
 
     app.run_polling()
 
