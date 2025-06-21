@@ -7,8 +7,6 @@ import pytz
 import telegram
 import json
 import pymysql
-import requests
-from timezonefinder import TimezoneFinder
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
@@ -247,57 +245,6 @@ async def download_and_encode(file: File) -> dict:
     }
 
 
-async def get_timezone_from_input(timezone_input: str) -> pytz.timezone:
-    """
-    Определяет часовой пояс из ввода пользователя.
-    Возвращает объект timezone или UTC в случае ошибки.
-    """
-    try:
-        # Обработка форматов UTC/GMT
-        if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
-            offset_str = timezone_input[3:]
-            offset = int(offset_str) if offset_str else 0
-            return pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
-        
-        # Обработка форматов +3/-5
-        elif timezone_input.startswith("+"):
-            offset = int(timezone_input[1:])
-            return pytz.timezone(f"Etc/GMT{-offset}")
-        elif timezone_input.startswith("-"):
-            offset = int(timezone_input[1:])
-            return pytz.timezone(f"Etc/GMT{+offset}")
-        
-        # Прямое указание часового пояса (America/New_York)
-        elif "/" in timezone_input:
-            return pytz.timezone(timezone_input)
-        
-        # Попытка определить по городу (новый функционал)
-        else:
-            from timezonefinder import TimezoneFinder
-            import requests
-            
-            # Используем OpenStreetMap Nominatim API для геокодинга
-            url = f"https://nominatim.openstreetmap.org/search?q={timezone_input}&format=json"
-            headers = {"User-Agent": "NutriBot/1.0"}
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-
-            if data:
-                lat = float(data[0]['lat'])
-                lon = float(data[0]['lon'])
-                tf = TimezoneFinder()
-                timezone_str = tf.timezone_at(lat=lat, lng=lon)
-                if timezone_str:
-                    return pytz.timezone(timezone_str)
-                
-    except Exception as e:
-        print(f"Ошибка определения часового пояса для '{timezone_input}': {e}")
-    
-    # Fallback на UTC
-    return pytz.UTC
-
-
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
@@ -490,9 +437,9 @@ async def ask_timezone(update: Update, context: CallbackContext) -> int:
     user_profiles[user_id]["target_metric"] = update.message.text
     
     if language == "ru":
-        await update.message.reply_text("В каком городе или часовом поясе ты находишься? (Например: Москва, или Europe/Moscow, или UTC+3)")
+        await update.message.reply_text("В каком часовом поясе ты находишься? (Например: UTC+3)")
     else:
-        await update.message.reply_text("What city or timezone are you in? (e.g. New York, or America/New_York, or UTC-5)")
+        await update.message.reply_text("What timezone are you in? (e.g. UTC-5)")
     return ASK_TIMEZONE
 
 
@@ -501,28 +448,37 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     language = user_profiles[user_id].get("language", "ru")
     timezone_input = update.message.text.strip()
     
+    # Упрощенная обработка часового пояса
     try:
-        # Используем новую функцию для определения часового пояса
-        tz = await get_timezone_from_input(timezone_input)
+        if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
+            # Преобразуем UTC+3 в Etc/GMT-3 (знаки обратные)
+            offset_str = timezone_input[3:]
+            offset = int(offset_str) if offset_str else 0
+            tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+        elif timezone_input.startswith("+"):
+            # Обработка формата "+3"
+            offset = int(timezone_input[1:])
+            tz = pytz.timezone(f"Etc/GMT{-offset}")
+        elif timezone_input.startswith("-"):
+            # Обработка формата "-5"
+            offset = int(timezone_input[1:])
+            tz = pytz.timezone(f"Etc/GMT{+offset}")
+        elif "/" in timezone_input:
+            tz = pytz.timezone(timezone_input)
+        else:
+            # Попробуем найти город в базе данных pytz
+            try:
+                tz = pytz.timezone(timezone_input)
+            except pytz.UnknownTimeZoneError:
+                # Если город не найден, используем UTC как fallback
+                tz = pytz.UTC
+        
         user_profiles[user_id]["timezone"] = tz.zone
         print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
-        
     except Exception as e:
-        print(f"Ошибка при обработке часового пояса: {e}")
+        print(f"Ошибка определения часового пояса: {e}")
         # Используем UTC как fallback
-        tz = pytz.UTC
         user_profiles[user_id]["timezone"] = "UTC"
-        
-        if language == "ru":
-            await update.message.reply_text(
-                "Не удалось точно определить ваш часовой пояс. "
-                "Использую UTC. Вы можете уточнить его позже в настройках."
-            )
-        else:
-            await update.message.reply_text(
-                "Could not determine your timezone precisely. "
-                "Using UTC. You can specify it later in settings."
-            )
     
     if language == "ru":
         await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
@@ -649,8 +605,6 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             f"You can send me photos, text or documents - I'll help you with analysis and recommendations!"
         )
     return ConversationHandler.END
-
-
 
 
 async def check_reminders(context: CallbackContext):
@@ -2331,4 +2285,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
