@@ -247,6 +247,57 @@ async def download_and_encode(file: File) -> dict:
     }
 
 
+async def get_timezone_from_input(timezone_input: str) -> pytz.timezone:
+    """
+    Определяет часовой пояс из ввода пользователя.
+    Возвращает объект timezone или UTC в случае ошибки.
+    """
+    try:
+        # Обработка форматов UTC/GMT
+        if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
+            offset_str = timezone_input[3:]
+            offset = int(offset_str) if offset_str else 0
+            return pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+        
+        # Обработка форматов +3/-5
+        elif timezone_input.startswith("+"):
+            offset = int(timezone_input[1:])
+            return pytz.timezone(f"Etc/GMT{-offset}")
+        elif timezone_input.startswith("-"):
+            offset = int(timezone_input[1:])
+            return pytz.timezone(f"Etc/GMT{+offset}")
+        
+        # Прямое указание часового пояса (America/New_York)
+        elif "/" in timezone_input:
+            return pytz.timezone(timezone_input)
+        
+        # Попытка определить по городу (новый функционал)
+        else:
+            from timezonefinder import TimezoneFinder
+            import requests
+            
+            # Используем OpenStreetMap Nominatim API для геокодинга
+            url = f"https://nominatim.openstreetmap.org/search?q={timezone_input}&format=json"
+            headers = {"User-Agent": "NutriBot/1.0"}
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            if data:
+                lat = float(data[0]['lat'])
+                lon = float(data[0]['lon'])
+                tf = TimezoneFinder()
+                timezone_str = tf.timezone_at(lat=lat, lng=lon)
+                if timezone_str:
+                    return pytz.timezone(timezone_str)
+                
+    except Exception as e:
+        print(f"Ошибка определения часового пояса для '{timezone_input}': {e}")
+    
+    # Fallback на UTC
+    return pytz.UTC
+
+
 async def start(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
         "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
@@ -450,75 +501,29 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     language = user_profiles[user_id].get("language", "ru")
     timezone_input = update.message.text.strip()
     
-    conn = None
     try:
-        # Определение часового пояса
-        tz = None
-        try:
-            if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
-                offset_str = timezone_input[3:]
-                offset = int(offset_str) if offset_str else 0
-                tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
-            elif timezone_input.startswith("+"):
-                offset = int(timezone_input[1:])
-                tz = pytz.timezone(f"Etc/GMT{-offset}")
-            elif timezone_input.startswith("-"):
-                offset = int(timezone_input[1:])
-                tz = pytz.timezone(f"Etc/GMT{+offset}")
-            elif "/" in timezone_input:
-                tz = pytz.timezone(timezone_input)
-            else:
-                # Попробуем геокодинг только если стандартные методы не сработали
-                timezone_str = await get_timezone_by_city(timezone_input)
-                if timezone_str:
-                    tz = pytz.timezone(timezone_str)
-        except Exception as e:
-            print(f"Ошибка определения часового пояса: {e}")
-
-        # Fallback на UTC
-        if tz is None:
-            tz = pytz.UTC
-            error_msg = (
-                "Не удалось определить часовой пояс. Использую UTC. "
-                "Вы можете уточнить позже в настройках." if language == "ru" else
-                "Could not determine timezone. Using UTC. "
-                "You can specify it later in settings."
-            )
-            await update.message.reply_text(error_msg)
-
-        # Сохраняем в профиль
+        # Используем новую функцию для определения часового пояса
+        tz = await get_timezone_from_input(timezone_input)
         user_profiles[user_id]["timezone"] = tz.zone
-        
-        # Обновляем базу данных
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                UPDATE user_profiles 
-                SET timezone = %s 
-                WHERE user_id = %s
-            """, (tz.zone, user_id))
-            conn.commit()
-            
         print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
-
+        
     except Exception as e:
         print(f"Ошибка при обработке часового пояса: {e}")
+        # Используем UTC как fallback
+        tz = pytz.UTC
+        user_profiles[user_id]["timezone"] = "UTC"
+        
         if language == "ru":
-            await update.message.reply_text("Произошла ошибка. Часовой пояс установлен по умолчанию (UTC).")
+            await update.message.reply_text(
+                "Не удалось точно определить ваш часовой пояс. "
+                "Использую UTC. Вы можете уточнить его позже в настройках."
+            )
         else:
-            await update.message.reply_text("Error occurred. Default timezone (UTC) was set.")
-    finally:
-        if conn:
-            conn.close()
-
+            await update.message.reply_text(
+                "Could not determine your timezone precisely. "
+                "Using UTC. You can specify it later in settings."
+            )
+    
     if language == "ru":
         await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
     else:
@@ -646,35 +651,6 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
-async def get_timezone_by_city(city_name: str) -> str:
-    """
-    Определяет часовой пояс по названию города.
-    Возвращает строку в формате 'Continent/City' (например, 'Europe/Moscow') или None в случае ошибки.
-    """
-    try:
-        # Используем OpenStreetMap Nominatim API для геокодинга
-        url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json"
-        headers = {"User-Agent": "NutriBot/1.0"}
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-
-        if not data:
-            return None
-
-        # Берем первый результат (наиболее релевантный)
-        lat = float(data[0]['lat'])
-        lon = float(data[0]['lon'])
-
-        # Используем TimezoneFinder для определения часового пояса
-        tf = TimezoneFinder()
-        timezone_str = tf.timezone_at(lat=lat, lng=lon)
-
-        return timezone_str if timezone_str else None
-
-    except Exception as e:
-        print(f"Ошибка при определении часового пояса для города {city_name}: {e}")
-        return None
 
 
 async def check_reminders(context: CallbackContext):
