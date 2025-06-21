@@ -450,54 +450,81 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     language = user_profiles[user_id].get("language", "ru")
     timezone_input = update.message.text.strip()
     
-    tz = None
-    error_msg = None
-    
-    # Попробуем сначала стандартные способы
+    conn = None
     try:
-        if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
-            offset_str = timezone_input[3:]
-            offset = int(offset_str) if offset_str else 0
-            tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
-        elif timezone_input.startswith("+"):
-            offset = int(timezone_input[1:])
-            tz = pytz.timezone(f"Etc/GMT{-offset}")
-        elif timezone_input.startswith("-"):
-            offset = int(timezone_input[1:])
-            tz = pytz.timezone(f"Etc/GMT{+offset}")
-        elif "/" in timezone_input:
-            tz = pytz.timezone(timezone_input)
-    except Exception:
-        pass
-    
-    # Если стандартные способы не сработали, попробуем определить по городу
-    if tz is None:
-        timezone_str = await get_timezone_by_city(timezone_input)
-        if timezone_str:
-            try:
-                tz = pytz.timezone(timezone_str)
-            except pytz.UnknownTimeZoneError:
-                pass
-    
-    # Если все еще не определили, используем UTC как fallback
-    if tz is None:
-        tz = pytz.UTC
-        error_msg = (
-            "Не удалось определить часовой пояс. Использую UTC." if language == "ru" else
-            "Could not determine timezone. Using UTC. "
+        # Определение часового пояса
+        tz = None
+        try:
+            if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
+                offset_str = timezone_input[3:]
+                offset = int(offset_str) if offset_str else 0
+                tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+            elif timezone_input.startswith("+"):
+                offset = int(timezone_input[1:])
+                tz = pytz.timezone(f"Etc/GMT{-offset}")
+            elif timezone_input.startswith("-"):
+                offset = int(timezone_input[1:])
+                tz = pytz.timezone(f"Etc/GMT{+offset}")
+            elif "/" in timezone_input:
+                tz = pytz.timezone(timezone_input)
+            else:
+                # Попробуем геокодинг только если стандартные методы не сработали
+                timezone_str = await get_timezone_by_city(timezone_input)
+                if timezone_str:
+                    tz = pytz.timezone(timezone_str)
+        except Exception as e:
+            print(f"Ошибка определения часового пояса: {e}")
+
+        # Fallback на UTC
+        if tz is None:
+            tz = pytz.UTC
+            error_msg = (
+                "Не удалось определить часовой пояс. Использую UTC. "
+                "Вы можете уточнить позже в настройках." if language == "ru" else
+                "Could not determine timezone. Using UTC. "
+                "You can specify it later in settings."
+            )
+            await update.message.reply_text(error_msg)
+
+        # Сохраняем в профиль
+        user_profiles[user_id]["timezone"] = tz.zone
+        
+        # Обновляем базу данных
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
         )
-    
-    user_profiles[user_id]["timezone"] = tz.zone
-    print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
-    
-    if error_msg:
-        await update.message.reply_text(error_msg)
-    
+        
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                UPDATE user_profiles 
+                SET timezone = %s 
+                WHERE user_id = %s
+            """, (tz.zone, user_id))
+            conn.commit()
+            
+        print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
+
+    except Exception as e:
+        print(f"Ошибка при обработке часового пояса: {e}")
+        if language == "ru":
+            await update.message.reply_text("Произошла ошибка. Часовой пояс установлен по умолчанию (UTC).")
+        else:
+            await update.message.reply_text("Error occurred. Default timezone (UTC) was set.")
+    finally:
+        if conn:
+            conn.close()
+
     if language == "ru":
         await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
     else:
         await update.message.reply_text("What time do you usually wake up? (Format: HH:MM, e.g. 07:30)")
     return ASK_WAKEUP_TIME
+
 
 async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
