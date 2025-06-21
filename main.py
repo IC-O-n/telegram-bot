@@ -437,9 +437,9 @@ async def ask_timezone(update: Update, context: CallbackContext) -> int:
     user_profiles[user_id]["target_metric"] = update.message.text
     
     if language == "ru":
-        await update.message.reply_text("В каком городе или часовом поясе ты находишься? (Например: Москва, или Europe/Moscow, или UTC+3)")
+        await update.message.reply_text("В каком часовом поясе ты находишься? (Например: UTC+3)")
     else:
-        await update.message.reply_text("What city or timezone are you in? (e.g. New York, or America/New_York, or UTC-5)")
+        await update.message.reply_text("What timezone are you in? (e.g. UTC-5)")
     return ASK_TIMEZONE
 
 
