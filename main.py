@@ -2261,106 +2261,39 @@ TEXT: ...
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
 
-
-
-async def show_tariffs(update: Update, context: CallbackContext) -> None:
+async def info(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+    language = "ru"  # Можно добавить проверку языка пользователя
 
-    # Получаем язык пользователя
-    language = "ru"  # дефолтное значение
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
-    except Exception as e:
-        print(f"Ошибка при получении языка пользователя: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-    if language == "ru":
-        response_text = (
-            "🤖 *NutriBot — ваш персональный фитнес-ассистент!*\n\n"
-            "Я помогу вам:\n"
-            "• Следить за питанием и считать КБЖУ 🍎\n"
-            "• Создавать персонализированные тренировки 💪\n"
-            "• Напоминать пить воду и принимать добавки ⏰\n"
-            "• Анализировать прогресс и давать рекомендации 📊\n\n"
-            "🔹 *Базовые тарифы (для максимального охвата)*\n"
-            "Всего *249 руб/мес* — меньше чашки кофе! ☕\n\n"
-            "Что вы получите:\n"
-            "• Персональные рекомендации по питанию\n"
-            "• Ежедневные напоминания о воде\n"
-            "• Анализ фото еды с расчетом КБЖУ\n"
-            "• Доступ к базе упражнений\n"
-            "• Поддержку 24/7\n\n"
-            "💳 Оплатить 249 руб"
-        )
-    else:
-        response_text = (
-            "🤖 *NutriBot — your personal fitness assistant!*\n\n"
-            "I will help you:\n"
-            "• Track nutrition and count macros 🍎\n"
-            "• Create personalized workouts 💪\n"
-            "• Remind to drink water and take supplements ⏰\n"
-            "• Analyze progress and give recommendations 📊\n\n"
-            "🔹 *Basic plans (for maximum coverage)*\n"
-            "Only *249 rub/month* — less than a cup of coffee! ☕\n\n"
-            "What you'll get:\n"
-            "• Personalized nutrition recommendations\n"
-            "• Daily water reminders\n"
-            "• Food photo analysis with macros calculation\n"
-            "• Access to exercise database\n"
-            "• 24/7 support\n\n"
-            "💳 Pay 249 rub"
-        )
-
-    await update.message.reply_text(
-        response_text,
-        parse_mode=telegram.constants.ParseMode.MARKDOWN,
-        reply_markup=telegram.InlineKeyboardMarkup([
-            [telegram.InlineKeyboardButton(
-                "💳 Оплатить 249 руб" if language == "ru" else "💳 Pay 249 rub",
-                callback_data="pay_249"
-            )],
-            [telegram.InlineKeyboardButton(
-                "Написать сообщение..." if language == "ru" else "Send message...",
-                callback_data="contact"
-            )]
-        ])
+    info_text = (
+        "🤖 *NutriBot - ваш персональный фитнес-ассистент*\n\n"
+        "Я помогу вам:\n"
+        "• Следить за питанием и считать КБЖУ 🍎\n"
+        "• Напоминать пить воду 💧\n"
+        "• Давать персонализированные рекомендации по тренировкам 🏋️\n"
+        "• Анализировать ваши фото еды и оценивать состав тела 📸\n"
+        "• Создавать индивидуальные планы питания и тренировок 📝\n\n"
+        "💵 *Тарифы:*\n"
+        "• 1 месяц - 249₽\n"
+        "• 6 месяцев - 1299₽ (экономия 195₽)\n"
+        "• 12 месяцев - 2299₽ (экономия 689₽)\n\n"
+        "Для оформления подписки нажмите кнопку ниже 👇"
     )
 
+    keyboard = [
+        [telegram.InlineKeyboardButton("Оформить подписку", callback_data="subscribe")]
+    ]
+    reply_markup = telegram.InlineKeyboardMarkup(keyboard)
 
-async def button_callback(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "pay_249":
-        await query.edit_message_text(
-            text=query.message.text + "\n\n" + "Вы будете перенаправлены на страницу оплаты..." if "ru" in query.message.text else "You will be redirected to payment page...",
-            parse_mode=telegram.constants.ParseMode.MARKDOWN
-        )
-    elif query.data == "contact":
-        await query.edit_message_text(
-            text=query.message.text + "\n\n" + "Напишите ваш вопрос, и мы ответим в ближайшее время!" if "ru" in query.message.text else "Write your question and we'll reply soon!",
-            parse_mode=telegram.constants.ParseMode.MARKDOWN
-        )
-
+    await update.message.reply_text(
+        info_text,
+        parse_mode=telegram.constants.ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
 
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
-
 
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
@@ -2400,12 +2333,11 @@ def main():
     )
 
     app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("tariffs", show_tariffs))
+    app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("profile", show_profile))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(button_callback))
 
     app.run_polling()
 
