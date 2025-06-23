@@ -212,19 +212,44 @@ async def reset_daily_nutrition_if_needed(user_id: int):
         )
         
         with conn.cursor() as cursor:
-            cursor.execute("SELECT last_nutrition_update FROM user_profiles WHERE user_id = %s", (user_id,))
+            # Получаем timezone пользователя
+            cursor.execute("SELECT timezone, last_nutrition_update FROM user_profiles WHERE user_id = %s", (user_id,))
             result = cursor.fetchone()
             
-            if result and result['last_nutrition_update']:
+            if not result:
+                return
+                
+            user_timezone = pytz.timezone(result['timezone']) if result['timezone'] else pytz.UTC
+            now = datetime.now(user_timezone)
+            today = now.date()
+            
+            if result['last_nutrition_update']:
                 last_update = result['last_nutrition_update']
-                if last_update < date.today():
+                if isinstance(last_update, str):
+                    last_update = date.fromisoformat(last_update)
+                
+                if last_update < today:
                     cursor.execute('''
                         UPDATE user_profiles 
-                        SET calories_today = 0, proteins_today = 0, fats_today = 0, carbs_today = 0,
-                            last_nutrition_update = %s, water_drunk_today = 0
+                        SET 
+                            calories_today = 0,
+                            proteins_today = 0,
+                            fats_today = 0,
+                            carbs_today = 0,
+                            water_drunk_today = 0,
+                            last_nutrition_update = %s
                         WHERE user_id = %s
-                    ''', (date.today().isoformat(), user_id))
+                    ''', (today.isoformat(), user_id))
                     conn.commit()
+                    print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+            else:
+                # Если last_nutrition_update NULL, устанавливаем текущую дату
+                cursor.execute('''
+                    UPDATE user_profiles 
+                    SET last_nutrition_update = %s
+                    WHERE user_id = %s
+                ''', (today.isoformat(), user_id))
+                conn.commit()
     except Exception as e:
         print(f"Ошибка при сбросе дневного питания: {e}")
     finally:
@@ -675,6 +700,9 @@ async def check_water_reminder_time(context: CallbackContext):
     job = context.job
     user_id = job.user_id
     chat_id = job.chat_id
+    
+    # Сначала проверяем и сбрасываем дневные показатели, если нужно
+    await reset_daily_nutrition_if_needed(user_id)
     
     conn = pymysql.connect(
         host='x91345bo.beget.tech',
