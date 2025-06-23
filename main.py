@@ -2262,11 +2262,12 @@ TEXT: ...
         print(f"Ошибка при генерации ответа: {e}")
 
 
-async def show_bot_info(update: Update, context: CallbackContext) -> None:
-    # Получаем язык пользователя
+
+async def show_tariffs(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
-    language = "ru"  # По умолчанию русский
-    
+
+    # Получаем язык пользователя
+    language = "ru"  # дефолтное значение
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2288,67 +2289,78 @@ async def show_bot_info(update: Update, context: CallbackContext) -> None:
             conn.close()
 
     if language == "ru":
-        text = (
-            "🤖 <b>NutriBot - ваш персональный фитнес-ассистент</b>\n\n"
+        response_text = (
+            "🤖 *NutriBot — ваш персональный фитнес-ассистент!*\n\n"
             "Я помогу вам:\n"
-            "✅ Следить за питанием и считать КБЖУ\n"
-            "✅ Создавать персонализированные тренировки\n"
-            "✅ Напоминать пить воду и принимать пищу\n"
-            "✅ Анализировать фото еды и тела\n"
-            "✅ Давать рекомендации по ЗОЖ\n\n"
-            "💎 <b>Тарифные планы:</b>\n"
-            "1. <b>Базовый</b> - 249 руб/мес\n"
-            "   • Полный функционал бота\n"
-            "   • Анализ питания и тренировок\n"
-            "   • Персонализированные рекомендации\n\n"
-            "🛒 Для оформления подписки нажмите кнопку ниже:"
+            "• Следить за питанием и считать КБЖУ 🍎\n"
+            "• Создавать персонализированные тренировки 💪\n"
+            "• Напоминать пить воду и принимать добавки ⏰\n"
+            "• Анализировать прогресс и давать рекомендации 📊\n\n"
+            "🔹 *Базовые тарифы (для максимального охвата)*\n"
+            "Всего *249 руб/мес* — меньше чашки кофе! ☕\n\n"
+            "Что вы получите:\n"
+            "• Персональные рекомендации по питанию\n"
+            "• Ежедневные напоминания о воде\n"
+            "• Анализ фото еды с расчетом КБЖУ\n"
+            "• Доступ к базе упражнений\n"
+            "• Поддержку 24/7\n\n"
+            "💳 Оплатить 249 руб"
         )
-        
-        keyboard = [
-            [InlineKeyboardButton("💳 Оформить подписку", callback_data="subscribe")],
-            [InlineKeyboardButton("📋 Полный список тарифов", callback_data="full_tariffs")]
-        ]
     else:
-        text = (
-            "🤖 <b>NutriBot - Your Personal Fitness Assistant</b>\n\n"
+        response_text = (
+            "🤖 *NutriBot — your personal fitness assistant!*\n\n"
             "I will help you:\n"
-            "✅ Track nutrition and count macros\n"
-            "✅ Create personalized workouts\n"
-            "✅ Remind to drink water and eat\n"
-            "✅ Analyze food and body photos\n"
-            "✅ Provide health recommendations\n\n"
-            "💎 <b>Pricing plans:</b>\n"
-            "1. <b>Basic</b> - 249 RUB/month\n"
-            "   • Full bot functionality\n"
-            "   • Nutrition and workout analysis\n"
-            "   • Personalized recommendations\n\n"
-            "🛒 Click the button below to subscribe:"
+            "• Track nutrition and count macros 🍎\n"
+            "• Create personalized workouts 💪\n"
+            "• Remind to drink water and take supplements ⏰\n"
+            "• Analyze progress and give recommendations 📊\n\n"
+            "🔹 *Basic plans (for maximum coverage)*\n"
+            "Only *249 rub/month* — less than a cup of coffee! ☕\n\n"
+            "What you'll get:\n"
+            "• Personalized nutrition recommendations\n"
+            "• Daily water reminders\n"
+            "• Food photo analysis with macros calculation\n"
+            "• Access to exercise database\n"
+            "• 24/7 support\n\n"
+            "💳 Pay 249 rub"
         )
-        
-        keyboard = [
-            [InlineKeyboardButton("💳 Subscribe", callback_data="subscribe")],
-            [InlineKeyboardButton("📋 Full tariff list", callback_data="full_tariffs")]
-        ]
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
+    await update.message.reply_text(
+        response_text,
+        parse_mode=telegram.constants.ParseMode.MARKDOWN,
+        reply_markup=telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton(
+                "💳 Оплатить 249 руб" if language == "ru" else "💳 Pay 249 rub",
+                callback_data="pay_249"
+            )],
+            [telegram.InlineKeyboardButton(
+                "Написать сообщение..." if language == "ru" else "Send message...",
+                callback_data="contact"
+            )]
+        ])
+    )
+
 
 async def button_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
     
-    if query.data == "subscribe":
-        await query.edit_message_text(text="🚀 Отличный выбор! Для оформления подписки перейдите по ссылке: [ссылка на оплату]")
-    elif query.data == "full_tariffs":
-        await query.edit_message_text(text="📋 Полный список тарифов:\n\n1. Базовый - 249 руб/мес\n2. Премиум - 499 руб/мес\n3. Годовой - 1990 руб/год")
+    if query.data == "pay_249":
+        await query.edit_message_text(
+            text=query.message.text + "\n\n" + "Вы будете перенаправлены на страницу оплаты..." if "ru" in query.message.text else "You will be redirected to payment page...",
+            parse_mode=telegram.constants.ParseMode.MARKDOWN
+        )
+    elif query.data == "contact":
+        await query.edit_message_text(
+            text=query.message.text + "\n\n" + "Напишите ваш вопрос, и мы ответим в ближайшее время!" if "ru" in query.message.text else "Write your question and we'll reply soon!",
+            parse_mode=telegram.constants.ParseMode.MARKDOWN
+        )
 
 
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("info", show_bot_info))
-    app.add_handler(CallbackQueryHandler(button_callback))
 
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
@@ -2388,10 +2400,12 @@ def main():
     )
 
     app.add_handler(conv_handler)
+    app.add_handler(CommandHandler("tariffs", show_tariffs))
     app.add_handler(CommandHandler("profile", show_profile))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(button_callback))
 
     app.run_polling()
 
