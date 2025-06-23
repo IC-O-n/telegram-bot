@@ -2261,35 +2261,6 @@ TEXT: ...
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
 
-async def info(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    language = "ru"  # Можно добавить проверку языка пользователя
-
-    info_text = (
-        "🤖 *NutriBot - ваш персональный фитнес-ассистент*\n\n"
-        "Я помогу вам:\n"
-        "• Следить за питанием и считать КБЖУ 🍎\n"
-        "• Напоминать пить воду 💧\n"
-        "• Давать персонализированные рекомендации по тренировкам 🏋️\n"
-        "• Анализировать ваши фото еды и оценивать состав тела 📸\n"
-        "• Создавать индивидуальные планы питания и тренировок 📝\n\n"
-        "💵 *Тарифы:*\n"
-        "• 1 месяц - 249₽\n"
-        "• 6 месяцев - 1299₽ (экономия 195₽)\n"
-        "• 12 месяцев - 2299₽ (экономия 689₽)\n\n"
-        "Для оформления подписки нажмите кнопку ниже 👇"
-    )
-
-    keyboard = [
-        [telegram.InlineKeyboardButton("Оформить подписку", callback_data="subscribe")]
-    ]
-    reply_markup = telegram.InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        info_text,
-        parse_mode=telegram.constants.ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
 
 def main():
     init_db()
@@ -2333,7 +2304,6 @@ def main():
     )
 
     app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("profile", show_profile))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
