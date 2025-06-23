@@ -23,10 +23,6 @@ from datetime import datetime, time, timedelta
 TOKEN = os.getenv("TOKEN")
 GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 
-SUBSCRIPTION_PRICE = 299  # цена подписки в рублях
-FREE_PERIOD_HOURS = 24    # бесплатный период в часах
-PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_TOKEN")
-
 if not TOKEN or not GOOGLE_API_KEY:
     raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
 
@@ -59,11 +55,6 @@ def init_db():
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id BIGINT PRIMARY KEY,
-                    subscription_active BOOLEAN DEFAULT FALSE,
-                    subscription_expires DATETIME,
-                    payment_date DATETIME,
-                    free_period_used BOOLEAN DEFAULT FALSE,
-                    unlimited_access BOOLEAN DEFAULT FALSE,
                     language VARCHAR(10),
                     name VARCHAR(100),
                     gender VARCHAR(10),
@@ -133,24 +124,18 @@ def save_user_profile(user_id: int, profile: dict):
             
             cursor.execute('''
             INSERT INTO user_profiles (
-                user_id, subscription_active, subscription_expires, payment_date, 
-                free_period_used, unlimited_access, language, name, gender, age, weight, height, goal, activity, diet, 
+                user_id, language, name, gender, age, weight, height, goal, activity, diet, 
                 health, equipment, target_metric, unique_facts, timezone, wakeup_time, sleep_time,
                 water_reminders, water_drunk_today, last_water_notification,
                 calories_today, proteins_today, fats_today, carbs_today, last_nutrition_update, 
                 reminders, meal_history
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                %s, %s, %s, %s, %s, %s, %s, 
                 %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s
             )
             ON DUPLICATE KEY UPDATE
-                subscription_active = VALUES(subscription_active),
-                subscription_expires = VALUES(subscription_expires),
-                payment_date = VALUES(payment_date),
-                free_period_used = VALUES(free_period_used),
-                unlimited_access = VALUES(unlimited_access),
                 language = VALUES(language),
                 name = VALUES(name),
                 gender = VALUES(gender),
@@ -179,11 +164,6 @@ def save_user_profile(user_id: int, profile: dict):
                 meal_history = VALUES(meal_history)
             ''', (
                 user_id,
-                profile.get("subscription_active", False),
-                profile.get("subscription_expires"),
-                profile.get("payment_date"),
-                profile.get("free_period_used", False),
-                profile.get("unlimited_access", False),
                 profile.get("language"),
                 profile.get("name"),
                 profile.get("gender"),
@@ -218,206 +198,6 @@ def save_user_profile(user_id: int, profile: dict):
     finally:
         if conn:
             conn.close()
-
-
-# Новая функция проверки подписки
-async def check_subscription(user_id: int) -> bool:
-    """Проверяет, активна ли подписка у пользователя"""
-    conn = None
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT subscription_active, subscription_expires, 
-                       free_period_used, unlimited_access, created_at 
-                FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            row = cursor.fetchone()
-
-        if not row:
-            return False
-            
-        # Если включен неограниченный доступ
-        if row['unlimited_access']:
-            return True
-            
-        # Если подписка активна и не истекла
-        if row['subscription_active'] and row['subscription_expires']:
-            expires = row['subscription_expires']
-            if isinstance(expires, str):
-                expires = datetime.strptime(expires, "%Y-%m-%d %H:%M:%S")
-            if expires > datetime.now():
-                return True
-                
-        # Если бесплатный период еще не использован
-        if not row['free_period_used'] and row['created_at']:
-            created = row['created_at']
-            if isinstance(created, str):
-                created = datetime.strptime(created, "%Y-%m-%d %H:%M:%S")
-            if (datetime.now() - created).total_seconds() < FREE_PERIOD_HOURS * 3600:
-                return True
-                
-        return False
-    except Exception as e:
-        print(f"Ошибка при проверке подписки: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
-# Новая функция активации подписки
-async def activate_subscription(user_id: int, months: int = 1) -> bool:
-    """Активирует подписку на указанное количество месяцев"""
-    conn = None
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        expires = datetime.now() + timedelta(days=30*months)
-        
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                UPDATE user_profiles 
-                SET 
-                    subscription_active = TRUE,
-                    subscription_expires = %s,
-                    payment_date = %s,
-                    free_period_used = TRUE
-                WHERE user_id = %s
-            """, (expires, datetime.now(), user_id))
-            conn.commit()
-            return True
-    except Exception as e:
-        print(f"Ошибка при активации подписки: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
-# Новая функция для обработки платежей
-async def send_payment_invoice(update: Update, context: CallbackContext) -> None:
-    """Отправляет счет на оплату подписки"""
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    
-    # Получаем язык пользователя
-    language = "ru"
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
-    except Exception as e:
-        print(f"Ошибка при получении языка: {e}")
-    finally:
-        if conn:
-            conn.close()
-    
-    title = "Месячная подписка на NutriBot" if language == "ru" else "NutriBot monthly subscription"
-    description = (
-        "Доступ ко всем функциям бота на 1 месяц" if language == "ru" 
-        else "Access to all bot features for 1 month"
-    )
-    
-    payload = f"subscription_{user_id}"
-    currency = "RUB"
-    prices = [LabeledPrice(title, SUBSCRIPTION_PRICE * 100)]  # в копейках
-    
-    try:
-        await context.bot.send_invoice(
-            chat_id,
-            title,
-            description,
-            payload,
-            PAYMENT_PROVIDER_TOKEN,
-            currency,
-            prices,
-            need_name=False,
-            need_phone_number=False,
-            need_email=False,
-            need_shipping_address=False,
-            is_flexible=False
-        )
-    except Exception as e:
-        print(f"Ошибка при отправке счета: {e}")
-        error_msg = (
-            "Не удалось отправить счет. Попробуйте позже." if language == "ru" 
-            else "Failed to send invoice. Please try again later."
-        )
-        await update.message.reply_text(error_msg)
-
-# Обработчик успешного платежа
-async def successful_payment(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает успешный платеж"""
-    user_id = update.effective_user.id
-    payment = update.message.successful_payment
-    
-    # Активируем подписку на 1 месяц
-    success = await activate_subscription(user_id, 1)
-    
-    # Получаем язык пользователя
-    language = "ru"
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
-    except Exception as e:
-        print(f"Ошибка при получении языка: {e}")
-    finally:
-        if conn:
-            conn.close()
-    
-    if success:
-        msg = (
-            "✅ Подписка успешно активирована! Спасибо за оплату.\n"
-            "Теперь у вас есть полный доступ ко всем функциям бота на 1 месяц."
-            if language == "ru" else
-            "✅ Subscription activated successfully! Thank you for payment.\n"
-            "You now have full access to all bot features for 1 month."
-        )
-    else:
-        msg = (
-            "Ошибка активации подписки. Пожалуйста, свяжитесь с поддержкой."
-            if language == "ru" else
-            "Subscription activation error. Please contact support."
-        )
-    
-    await update.message.reply_text(msg)
-
 
 async def reset_daily_nutrition_if_needed(user_id: int):
     conn = None
@@ -1768,83 +1548,6 @@ async def check_and_create_water_job(context: CallbackContext):
 
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    user_text = update.message.text or ""
-    
-    # Проверяем секретный код
-    if user_text.strip().upper() == "S05D":
-        conn = None
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            )
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE user_profiles 
-                    SET unlimited_access = TRUE 
-                    WHERE user_id = %s
-                """, (user_id,))
-                conn.commit()
-                
-            await update.message.reply_text(
-                "🔓 Вам активирован неограниченный доступ к боту! "
-                "Больше не нужно беспокоиться о подписках."
-            )
-            return
-        except Exception as e:
-            print(f"Ошибка при активации неограниченного доступа: {e}")
-        finally:
-            if conn:
-                conn.close()
-    
-    # Проверяем подписку
-    has_access = await check_subscription(user_id)
-    if not has_access:
-        # Получаем язык пользователя
-        language = "ru"
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            )
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-                row = cursor.fetchone()
-                if row and row['language']:
-                    language = row['language']
-        except Exception as e:
-            print(f"Ошибка при получении языка: {e}")
-        finally:
-            if conn:
-                conn.close()
-        
-        if language == "ru":
-            msg = (
-                "⏳ Ваш бесплатный период истек или подписка не активна.\n\n"
-                "Чтобы продолжить пользоваться ботом, оплатите подписку "
-                f"на 1 месяц за {SUBSCRIPTION_PRICE} руб.\n\n"
-                "Нажмите /pay для оплаты."
-            )
-        else:
-            msg = (
-                "⏳ Your free period has expired or subscription is not active.\n\n"
-                "To continue using the bot, please pay for "
-                f"1 month subscription for {SUBSCRIPTION_PRICE} RUB.\n\n"
-                "Press /pay to proceed with payment."
-            )
-        
-        await update.message.reply_text(msg)
-        return
-
     message = update.message
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
@@ -2559,14 +2262,11 @@ TEXT: ...
         print(f"Ошибка при генерации ответа: {e}")
 
 
-async def pay_command(update: Update, context: CallbackContext) -> None:
-    await send_payment_invoice(update, context)
-
 async def show_bot_info(update: Update, context: CallbackContext) -> None:
     # Получаем язык пользователя
     user_id = update.message.from_user.id
     language = "ru"  # По умолчанию русский
-
+    
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2603,7 +2303,7 @@ async def show_bot_info(update: Update, context: CallbackContext) -> None:
             "   • Персонализированные рекомендации\n\n"
             "🛒 Для оформления подписки нажмите кнопку ниже:"
         )
-
+        
         keyboard = [
             [InlineKeyboardButton("💳 Оформить подписку", callback_data="subscribe")],
             [InlineKeyboardButton("📋 Полный список тарифов", callback_data="full_tariffs")]
@@ -2624,7 +2324,7 @@ async def show_bot_info(update: Update, context: CallbackContext) -> None:
             "   • Personalized recommendations\n\n"
             "🛒 Click the button below to subscribe:"
         )
-
+        
         keyboard = [
             [InlineKeyboardButton("💳 Subscribe", callback_data="subscribe")],
             [InlineKeyboardButton("📋 Full tariff list", callback_data="full_tariffs")]
@@ -2636,12 +2336,11 @@ async def show_bot_info(update: Update, context: CallbackContext) -> None:
 async def button_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
-
+    
     if query.data == "subscribe":
         await query.edit_message_text(text="🚀 Отличный выбор! Для оформления подписки перейдите по ссылке: [ссылка на оплату]")
     elif query.data == "full_tariffs":
         await query.edit_message_text(text="📋 Полный список тарифов:\n\n1. Базовый - 249 руб/мес\n2. Премиум - 499 руб/мес\n3. Годовой - 1990 руб/год")
-
 
 
 def main():
@@ -2650,10 +2349,6 @@ def main():
 
     app.add_handler(CommandHandler("info", show_bot_info))
     app.add_handler(CallbackQueryHandler(button_callback))
-
-    # Добавляем обработчики платежей
-    app.add_handler(CommandHandler("pay", pay_command))
-    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
@@ -2702,3 +2397,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
