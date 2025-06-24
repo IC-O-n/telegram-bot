@@ -7,7 +7,6 @@ import pytz
 import telegram
 import json
 import pymysql
-import uuid
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
@@ -23,16 +22,6 @@ from datetime import datetime, time, timedelta
 # Конфигурация
 TOKEN = os.getenv("TOKEN")
 GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
-
-
-# Конфигурация платежей
-YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")  # ID магазина в ЮKassa
-YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")  # Секретный ключ ЮKassa
-SUBSCRIPTION_PRICE = 249.00  # Цена подписки в рублях
-SUBSCRIPTION_PERIOD_DAYS = 30  # Период подписки в днях
-FREE_TRIAL_HOURS = 24  # Бесплатный период в часах
-ADMIN_SECRET_CODE = "S05D"  # Секретный код для бессрочного доступа
-
 
 if not TOKEN or not GOOGLE_API_KEY:
     raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
@@ -91,10 +80,7 @@ def init_db():
                     carbs_today INT DEFAULT 0,
                     last_nutrition_update DATE,
                     reminders TEXT,
-                    meal_history JSON,
-                    subscription_end DATETIME,
-                    unlimited_access TINYINT DEFAULT 0,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    meal_history JSON
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -112,15 +98,6 @@ def init_db():
             
             if 'meal_history' not in existing_columns:
                 cursor.execute("ALTER TABLE user_profiles ADD COLUMN meal_history JSON")
-
-            if 'subscription_end' not in existing_columns:
-                cursor.execute("ALTER TABLE user_profiles ADD COLUMN subscription_end DATETIME")
-
-            if 'unlimited_access' not in existing_columns:
-                cursor.execute("ALTER TABLE user_profiles ADD COLUMN unlimited_access TINYINT DEFAULT 0")
-
-            if 'created_at' not in existing_columns:
-                cursor.execute("ALTER TABLE user_profiles ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
             
         conn.commit()
     except Exception as e:
@@ -221,186 +198,6 @@ def save_user_profile(user_id: int, profile: dict):
     finally:
         if conn:
             conn.close()
-
-
-async def create_payment(user_id: int, chat_id: int, price: float) -> str:
-    """Создает платеж в ЮKassa и возвращает URL для оплаты"""
-    payment_data = {
-        "amount": {
-            "value": f"{price:.2f}",
-            "currency": "RUB"
-        },
-        "capture": True,
-        "confirmation": {
-            "type": "redirect",
-            "return_url": f"https://t.me/your_bot_username?start=payment_{user_id}"
-        },
-        "description": f"Подписка на бота на {SUBSCRIPTION_PERIOD_DAYS} дней",
-        "metadata": {
-            "user_id": user_id,
-            "chat_id": chat_id
-        }
-    }
-    
-    headers = {
-        "Idempotence-Key": str(uuid.uuid4()),
-        "Content-Type": "application/json"
-    }
-    auth = aiohttp.BasicAuth(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://api.yookassa.ru/v3/payments",
-            json=payment_data,
-            headers=headers,
-            auth=auth
-        ) as resp:
-            response = await resp.json()
-            return response.get("confirmation", {}).get("confirmation_url")
-
-async def check_subscription(user_id: int) -> bool:
-    """Проверяет активна ли подписка у пользователя"""
-    conn = None
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT subscription_end, unlimited_access, created_at 
-                FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            row = cursor.fetchone()
-            
-            if not row:
-                return True  # Разрешаем доступ, если пользователя нет в базе
-                
-            # Проверка бессрочного доступа
-            if row.get('unlimited_access', 0) == 1:
-                return True
-                
-            # Проверка временной подписки
-            if row.get('subscription_end'):
-                try:
-                    subscription_end = row['subscription_end']
-                    if isinstance(subscription_end, str):
-                        subscription_end = datetime.fromisoformat(subscription_end)
-                    elif isinstance(subscription_end, datetime):
-                        pass
-                    else:
-                        return False
-                        
-                    return subscription_end > datetime.now()
-                except (ValueError, TypeError):
-                    print(f"Ошибка парсинга даты подписки: {row['subscription_end']}")
-                    return False
-                
-            # Проверка бесплатного периода
-            if row.get('created_at'):
-                try:
-                    created_at = row['created_at']
-                    if isinstance(created_at, str):
-                        created_at = datetime.fromisoformat(created_at)
-                    elif isinstance(created_at, datetime):
-                        pass
-                    else:
-                        return False
-                        
-                    free_period_end = created_at + timedelta(hours=FREE_TRIAL_HOURS)
-                    return free_period_end > datetime.now()
-                except (ValueError, TypeError):
-                    print(f"Ошибка парсинга даты создания: {row['created_at']}")
-                    return False
-                
-        return False
-    except Exception as e:
-        print(f"Ошибка при проверке подписки: {e}")
-        return True  # В случае ошибки разрешаем доступ
-    finally:
-        if conn:
-            conn.close()
-
-async def update_subscription(user_id: int, months: int = 1) -> None:
-    """Обновляет подписку пользователя"""
-    conn = None
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        with conn.cursor() as cursor:
-            # Проверяем текущую дату окончания подписки
-            cursor.execute("""
-                SELECT subscription_end 
-                FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            row = cursor.fetchone()
-            
-            new_end_date = datetime.now()
-            if row and row['subscription_end']:
-                current_end = datetime.fromisoformat(row['subscription_end'])
-                if current_end > new_end_date:
-                    new_end_date = current_end
-                    
-            new_end_date += timedelta(days=30 * months)
-            
-            cursor.execute("""
-                UPDATE user_profiles 
-                SET 
-                    subscription_end = %s,
-                    unlimited_access = 0
-                WHERE user_id = %s
-            """, (new_end_date.isoformat(), user_id))
-            
-            conn.commit()
-    except Exception as e:
-        print(f"Ошибка при обновлении подписки: {e}")
-        raise
-    finally:
-        if conn:
-            conn.close()
-
-async def grant_unlimited_access(user_id: int) -> None:
-    """Дает пользователю бессрочный доступ"""
-    conn = None
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                UPDATE user_profiles 
-                SET unlimited_access = 1 
-                WHERE user_id = %s
-            """, (user_id,))
-            
-            conn.commit()
-    except Exception as e:
-        print(f"Ошибка при выдаче бессрочного доступа: {e}")
-        raise
-    finally:
-        if conn:
-            conn.close()
-
 
 async def reset_daily_nutrition_if_needed(user_id: int):
     conn = None
@@ -1749,69 +1546,38 @@ async def check_and_create_water_job(context: CallbackContext):
     finally:
         conn.close()
 
-
-async def yookassa_webhook(update: Update, context: CallbackContext) -> None:
-    """Обработчик вебхука от ЮKassa"""
-    try:
-        event_json = json.loads(update.message.text)
-        if event_json.get('event') == 'payment.succeeded':
-            payment = event_json.get('object', {})
-            metadata = payment.get('metadata', {})
-            user_id = metadata.get('user_id')
-
-            if user_id and payment.get('paid'):
-                await update_subscription(user_id)
-                await context.bot.send_message(
-                    chat_id=metadata.get('chat_id'),
-                    text="✅ Подписка успешно активирована! Спасибо за оплату."
-                )
-    except Exception as e:
-        print(f"Ошибка обработки вебхука: {e}")
+async def info(update: Update, context: CallbackContext) -> None:
+    user_id = update.message.from_user.id
+    language = "ru"  # Можно добавить проверку языка пользователя
+    
+    info_text = (
+        "🤖 *NutriBot - ваш персональный фитнес-ассистент*\n\n"
+        "Я помогу вам:\n"
+        "• Следить за питанием и считать КБЖУ 🍎\n"
+        "• Напоминать пить воду 💧\n"
+        "• Давать персонализированные рекомендации по тренировкам 🏋️\n"
+        "• Анализировать ваши фото еды и оценивать состав тела 📸\n"
+        "• Создавать индивидуальные планы питания и тренировок 📝\n\n"
+        "💵 *Тарифы:*\n"
+        "• 1 месяц - 249₽\n"
+        "• 6 месяцев - 1299₽ (экономия 195₽)\n"
+        "• 12 месяцев - 2299₽ (экономия 689₽)\n\n"
+        "Для оформления подписки нажмите кнопку ниже 👇"
+    )
+    
+    keyboard = [
+        [telegram.InlineKeyboardButton("Оформить подписку", callback_data="subscribe")]
+    ]
+    reply_markup = telegram.InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        info_text,
+        parse_mode=telegram.constants.ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
 
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
-    message = update.message
-    user_id = message.from_user.id
-    user_text = (message.caption or message.text or "").strip()
-    
-    # Проверка секретного кода
-    if user_text == ADMIN_SECRET_CODE:
-        try:
-            await grant_unlimited_access(user_id)
-            await message.reply_text("🔓 Вам активирован бессрочный доступ к боту!")
-            return
-        except Exception as e:
-            print(f"Ошибка при активации бессрочного доступа: {e}")
-    
-    # Проверка подписки (только для не-команд)
-    if not (message.text and message.text.startswith('/')):
-        try:
-            has_subscription = await check_subscription(user_id)
-            if not has_subscription:
-                try:
-                    payment_url = await create_payment(user_id, message.chat_id, SUBSCRIPTION_PRICE)
-                    if payment_url:
-                        await message.reply_text(
-                            "🔒 Для доступа к боту требуется подписка.\n\n"
-                            f"💰 Стоимость: {SUBSCRIPTION_PRICE} руб. за {SUBSCRIPTION_PERIOD_DAYS} дней\n\n"
-                            f"👉 [Оплатить подписку]({payment_url})\n\n"
-                            "После оплаты доступ будет автоматически активирован.",
-                            parse_mode="Markdown"
-                        )
-                    else:
-                        await message.reply_text(
-                            "⚠️ Не удалось создать платеж. Попробуйте позже или обратитесь в поддержку."
-                        )
-                    return
-                except Exception as e:
-                    print(f"Ошибка при создании платежа: {e}")
-                    await message.reply_text(
-                        "⚠️ Произошла ошибка при проверке подписки. Пожалуйста, попробуйте позже."
-                    )
-                    return
-        except Exception as e:
-            print(f"Ошибка при проверке подписки: {e}")
-
     message = update.message
     user_id = message.from_user.id
     user_text = message.caption or message.text or ""
@@ -2543,6 +2309,7 @@ def main():
         when=5  # Через 5 секунд после старта
     )
 
+    # Остальной код остается без изменений
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -2568,15 +2335,14 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("profile", show_profile))
+    app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
-    app.add_handler(CommandHandler("subscribe", lambda u, c: create_payment(u.effective_user.id, u.effective_chat.id, SUBSCRIPTION_PRICE)))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'^S05D$'), lambda u, c: grant_unlimited_access(u.effective_user.id)))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'^payment_'), yookassa_webhook))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
 
