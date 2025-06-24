@@ -1546,6 +1546,7 @@ async def check_and_create_water_job(context: CallbackContext):
     finally:
         conn.close()
 
+
 async def info(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     language = "ru"  # Можно добавить проверку языка пользователя
@@ -2344,5 +2345,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
