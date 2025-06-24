@@ -246,13 +246,14 @@ async def create_payment(user_id: int, chat_id: int, price: float) -> str:
         "Idempotence-Key": str(uuid.uuid4()),
         "Content-Type": "application/json"
     }
-    auth = (YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
+    auth = aiohttp.BasicAuth(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
     
-    async with aiohttp.ClientSession(auth=auth) as session:
+    async with aiohttp.ClientSession() as session:
         async with session.post(
             "https://api.yookassa.ru/v3/payments",
             json=payment_data,
-            headers=headers
+            headers=headers,
+            auth=auth
         ) as resp:
             response = await resp.json()
             return response.get("confirmation", {}).get("confirmation_url")
@@ -272,36 +273,56 @@ async def check_subscription(user_id: int) -> bool:
         
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT subscription_end, unlimited_access 
+                SELECT subscription_end, unlimited_access, created_at 
                 FROM user_profiles 
                 WHERE user_id = %s
             """, (user_id,))
             row = cursor.fetchone()
             
             if not row:
-                return False
+                return True  # Разрешаем доступ, если пользователя нет в базе
                 
             # Проверка бессрочного доступа
-            if row.get('unlimited_access'):
+            if row.get('unlimited_access', 0) == 1:
                 return True
                 
             # Проверка временной подписки
             if row.get('subscription_end'):
-                subscription_end = datetime.fromisoformat(row['subscription_end'])
-                return subscription_end > datetime.now()
+                try:
+                    subscription_end = row['subscription_end']
+                    if isinstance(subscription_end, str):
+                        subscription_end = datetime.fromisoformat(subscription_end)
+                    elif isinstance(subscription_end, datetime):
+                        pass
+                    else:
+                        return False
+                        
+                    return subscription_end > datetime.now()
+                except (ValueError, TypeError):
+                    print(f"Ошибка парсинга даты подписки: {row['subscription_end']}")
+                    return False
                 
             # Проверка бесплатного периода
-            cursor.execute("SELECT created_at FROM user_profiles WHERE user_id = %s", (user_id,))
-            created_row = cursor.fetchone()
-            if created_row and created_row['created_at']:
-                created_at = datetime.fromisoformat(created_row['created_at'])
-                free_period_end = created_at + timedelta(hours=FREE_TRIAL_HOURS)
-                return free_period_end > datetime.now()
+            if row.get('created_at'):
+                try:
+                    created_at = row['created_at']
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at)
+                    elif isinstance(created_at, datetime):
+                        pass
+                    else:
+                        return False
+                        
+                    free_period_end = created_at + timedelta(hours=FREE_TRIAL_HOURS)
+                    return free_period_end > datetime.now()
+                except (ValueError, TypeError):
+                    print(f"Ошибка парсинга даты создания: {row['created_at']}")
+                    return False
                 
         return False
     except Exception as e:
         print(f"Ошибка при проверке подписки: {e}")
-        return False
+        return True  # В случае ошибки разрешаем доступ
     finally:
         if conn:
             conn.close()
@@ -1751,26 +1772,45 @@ async def yookassa_webhook(update: Update, context: CallbackContext) -> None:
 async def handle_message(update: Update, context: CallbackContext) -> None:
     message = update.message
     user_id = message.from_user.id
-    user_text = message.caption or message.text or ""
+    user_text = (message.caption or message.text or "").strip()
     
     # Проверка секретного кода
-    if user_text.strip() == ADMIN_SECRET_CODE:
-        await grant_unlimited_access(user_id)
-        await message.reply_text("🔓 Вам активирован бессрочный доступ к боту!")
-        return
+    if user_text == ADMIN_SECRET_CODE:
+        try:
+            await grant_unlimited_access(user_id)
+            await message.reply_text("🔓 Вам активирован бессрочный доступ к боту!")
+            return
+        except Exception as e:
+            print(f"Ошибка при активации бессрочного доступа: {e}")
     
-    # Проверка подписки
-    has_subscription = await check_subscription(user_id)
-    if not has_subscription:
-        payment_url = await create_payment(user_id, message.chat_id, SUBSCRIPTION_PRICE)
-        await message.reply_text(
-            "🔒 Для доступа к боту требуется подписка.\n\n"
-            f"💰 Стоимость: {SUBSCRIPTION_PRICE} руб. за {SUBSCRIPTION_PERIOD_DAYS} дней\n\n"
-            f"👉 [Оплатить подписку]({payment_url})\n\n"
-            "После оплаты доступ будет автоматически активирован.",
-            parse_mode="Markdown"
-        )
-        return
+    # Проверка подписки (только для не-команд)
+    if not (message.text and message.text.startswith('/')):
+        try:
+            has_subscription = await check_subscription(user_id)
+            if not has_subscription:
+                try:
+                    payment_url = await create_payment(user_id, message.chat_id, SUBSCRIPTION_PRICE)
+                    if payment_url:
+                        await message.reply_text(
+                            "🔒 Для доступа к боту требуется подписка.\n\n"
+                            f"💰 Стоимость: {SUBSCRIPTION_PRICE} руб. за {SUBSCRIPTION_PERIOD_DAYS} дней\n\n"
+                            f"👉 [Оплатить подписку]({payment_url})\n\n"
+                            "После оплаты доступ будет автоматически активирован.",
+                            parse_mode="Markdown"
+                        )
+                    else:
+                        await message.reply_text(
+                            "⚠️ Не удалось создать платеж. Попробуйте позже или обратитесь в поддержку."
+                        )
+                    return
+                except Exception as e:
+                    print(f"Ошибка при создании платежа: {e}")
+                    await message.reply_text(
+                        "⚠️ Произошла ошибка при проверке подписки. Пожалуйста, попробуйте позже."
+                    )
+                    return
+        except Exception as e:
+            print(f"Ошибка при проверке подписки: {e}")
 
     message = update.message
     user_id = message.from_user.id
