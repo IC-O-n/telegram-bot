@@ -2019,34 +2019,84 @@ async def info(update: Update, context: CallbackContext) -> None:
 
 
 async def check_payment_status(context: CallbackContext):
-    conn = pymysql.connect(...)
+    conn = None
     try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
         with conn.cursor() as cursor:
+            # Проверяем сначала, есть ли колонка payment_notified
+            cursor.execute("""
+                SELECT COLUMN_NAME 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'user_profiles'
+                AND COLUMN_NAME = 'payment_notified'
+            """)
+            column_exists = cursor.fetchone()
+            
+            if not column_exists:
+                # Если колонки нет - создаем ее
+                cursor.execute("""
+                    ALTER TABLE user_profiles 
+                    ADD COLUMN payment_notified TINYINT DEFAULT 0
+                """)
+                conn.commit()
+            
+            # Ищем пользователей с неуведомленными платежами
             cursor.execute("""
                 SELECT user_id FROM user_profiles 
                 WHERE payment_id IS NOT NULL 
                 AND subscription_status = 'active'
                 AND payment_notified = 0
+                LIMIT 10
             """)
             users = cursor.fetchall()
             
             for user in users:
                 try:
+                    # Получаем язык пользователя для персонализации сообщения
+                    cursor.execute("""
+                        SELECT language FROM user_profiles 
+                        WHERE user_id = %s
+                    """, (user['user_id'],))
+                    user_lang = cursor.fetchone().get('language', 'ru')
+                    
+                    message_text = (
+                        "✅ Ваша подписка активирована! Спасибо за оплату." 
+                        if user_lang == 'ru' else 
+                        "✅ Your subscription has been activated! Thank you for payment."
+                    )
+                    
                     await context.bot.send_message(
                         chat_id=user['user_id'],
-                        text="✅ Ваша подписка активирована! Спасибо за оплату."
+                        text=message_text
                     )
+                    
+                    # Помечаем как уведомленного
                     cursor.execute("""
                         UPDATE user_profiles 
                         SET payment_notified = 1 
                         WHERE user_id = %s
                     """, (user['user_id'],))
                     conn.commit()
+                    
                 except Exception as e:
                     print(f"Ошибка уведомления пользователя {user['user_id']}: {e}")
+                    # Пропускаем этого пользователя и продолжаем с остальными
+                    continue
+                    
+    except Exception as e:
+        print(f"Ошибка в check_payment_status: {e}")
     finally:
-        conn.close()
-
+        if conn:
+            conn.close()
 
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
