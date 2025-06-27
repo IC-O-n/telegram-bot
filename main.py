@@ -16,7 +16,7 @@ from collections import deque
 from telegram import Update, File
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
-    filters, CallbackContext, ConversationHandler
+    filters, CallbackContext, ConversationHandler, CallbackQueryHandler
 )
 import google.generativeai as genai
 from datetime import datetime, time, timedelta
