@@ -307,18 +307,29 @@ async def start_trial_period(user_id: int):
     trial_start = datetime.now()
     trial_end = trial_start + timedelta(hours=FREE_TRIAL_HOURS)
 
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-
+    conn = None
     try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
         with conn.cursor() as cursor:
-            # Обновляем ВСЕ поля подписки
+            # Проверяем, не имеет ли пользователь уже активную подписку
+            cursor.execute("""
+                SELECT subscription_status 
+                FROM user_profiles 
+                WHERE user_id = %s
+                AND subscription_status IN ('active', 'permanent')
+            """, (user_id,))
+            if cursor.fetchone():
+                return  # Уже есть активная подписка
+
+            # Устанавливаем trial период
             cursor.execute("""
                 UPDATE user_profiles
                 SET
@@ -328,28 +339,17 @@ async def start_trial_period(user_id: int):
                     trial_end = %s,
                     subscription_start = %s,
                     subscription_end = %s,
-                    payment_id = NULL,
-                    payment_notified = 0
+                    payment_id = NULL
                 WHERE user_id = %s
             """, (trial_start, trial_end, trial_start, trial_end, user_id))
             conn.commit()
             
-            # Проверяем, что запись обновилась
-            cursor.execute("""
-                SELECT trial_start, trial_end 
-                FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            result = cursor.fetchone()
-            
-            if not result or not result['trial_start']:
-                raise ValueError("Не удалось установить trial период")
-                
     except Exception as e:
         print(f"Ошибка при установке пробного периода: {e}")
-        raise
+        raise  # Пробрасываем исключение дальше
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 async def activate_subscription(user_id: int, sub_type: str, payment_id: str):
@@ -498,25 +498,29 @@ async def download_and_encode(file: File) -> dict:
 async def start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     
-    # Проверяем, есть ли у пользователя уже профиль
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
     try:
+        # Сначала создаём базовую запись, если её нет
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
         with conn.cursor() as cursor:
-            cursor.execute("SELECT user_id FROM user_profiles WHERE user_id = %s", (user_id,))
-            existing_user = cursor.fetchone()
+            # Создаём пустую запись, если её нет
+            cursor.execute("""
+                INSERT IGNORE INTO user_profiles (user_id) 
+                VALUES (%s)
+            """, (user_id,))
+            conn.commit()
             
-            if not existing_user:
-                # Новый пользователь - устанавливаем пробный период
-                await start_trial_period(user_id)
-                
+        # Теперь устанавливаем trial период
+        await start_trial_period(user_id)
+        
+        # Продолжаем стандартный процесс
         await update.message.reply_text(
             "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
             "🇷🇺 Русский - отправь 'ru'\n"
@@ -530,7 +534,8 @@ async def start(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
         return ConversationHandler.END
     finally:
-        conn.close()
+        if 'conn' in locals():
+            conn.close()
 
 
 async def ask_name(update: Update, context: CallbackContext) -> int:
