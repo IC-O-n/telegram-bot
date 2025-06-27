@@ -303,8 +303,9 @@ async def check_subscription(user_id: int) -> Dict[str, Optional[str]]:
 
 
 async def start_trial_period(user_id: int):
-    """Начинает бесплатный пробный период для пользователя"""
-    trial_start = datetime.now()
+    """Начинает бесплатный пробный период для пользователя с учётом часового пояса"""
+    moscow_tz = pytz.timezone('Europe/Moscow')
+    trial_start = datetime.now(moscow_tz)
     trial_end = trial_start + timedelta(hours=FREE_TRIAL_HOURS)
 
     conn = None
@@ -319,17 +320,6 @@ async def start_trial_period(user_id: int):
         )
         
         with conn.cursor() as cursor:
-            # Проверяем, не имеет ли пользователь уже активную подписку
-            cursor.execute("""
-                SELECT subscription_status 
-                FROM user_profiles 
-                WHERE user_id = %s
-                AND subscription_status IN ('active', 'permanent')
-            """, (user_id,))
-            if cursor.fetchone():
-                return  # Уже есть активная подписка
-
-            # Устанавливаем trial период
             cursor.execute("""
                 UPDATE user_profiles
                 SET
@@ -341,16 +331,21 @@ async def start_trial_period(user_id: int):
                     subscription_end = %s,
                     payment_id = NULL
                 WHERE user_id = %s
-            """, (trial_start, trial_end, trial_start, trial_end, user_id))
+            """, (
+                trial_start.replace(tzinfo=None),  # Убираем tzinfo для MySQL
+                trial_end.replace(tzinfo=None),
+                trial_start.replace(tzinfo=None),
+                trial_end.replace(tzinfo=None),
+                user_id
+            ))
             conn.commit()
             
     except Exception as e:
         print(f"Ошибка при установке пробного периода: {e}")
-        raise  # Пробрасываем исключение дальше
+        raise
     finally:
         if conn:
             conn.close()
-
 
 async def activate_subscription(user_id: int, sub_type: str, payment_id: str):
     """Активирует платную подписку для пользователя"""
