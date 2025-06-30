@@ -243,64 +243,79 @@ def save_user_profile(user_id: int, profile: dict):
 
 
 async def check_subscription(user_id: int) -> Dict[str, Optional[str]]:
-    """Проверяет статус подписки пользователя"""
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-
+    """Проверяет статус подписки пользователя с учетом времени"""
+    conn = None
     try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT subscription_status, subscription_type, subscription_end, trial_end
-                FROM user_profiles
+                SELECT 
+                    subscription_status, 
+                    subscription_type,
+                    trial_end,
+                    subscription_end
+                FROM user_profiles 
                 WHERE user_id = %s
             """, (user_id,))
             result = cursor.fetchone()
 
             if not result:
-                return {"status": SubscriptionStatus.EXPIRED.value, "type": None, "end_date": None}
+                return {"status": "expired", "type": None, "end_date": None}
 
             status = result['subscription_status']
             sub_type = result['subscription_type']
-            sub_end = result['subscription_end']
             trial_end = result['trial_end']
+            sub_end = result['subscription_end']
+            now = datetime.now(pytz.timezone('Europe/Moscow'))
 
-            # Если подписка активна, но срок истек - обновляем статус
-            if status == SubscriptionStatus.ACTIVE.value and sub_end and datetime.now() > sub_end:
+            # Перманентный доступ - пропускаем все проверки
+            if status == 'permanent':
+                return {"status": status, "type": sub_type, "end_date": None}
+
+            # Проверка trial периода
+            if status == 'trial' and trial_end and now > trial_end:
                 cursor.execute("""
                     UPDATE user_profiles
-                    SET subscription_status = 'expired'
+                    SET 
+                        subscription_status = 'expired',
+                        subscription_type = 'expired'
                     WHERE user_id = %s
                 """, (user_id,))
                 conn.commit()
-                status = SubscriptionStatus.EXPIRED.value
+                return {"status": "expired", "type": "expired", "end_date": trial_end}
 
-            # Если пробный период активен, но срок истек - обновляем статус
-            elif status == SubscriptionStatus.TRIAL.value and trial_end and datetime.now() > trial_end:
+            # Проверка платной подписки (если вдруг добавлена)
+            if status == 'active' and sub_end and now > sub_end:
                 cursor.execute("""
                     UPDATE user_profiles
-                    SET subscription_status = 'expired'
+                    SET 
+                        subscription_status = 'expired',
+                        subscription_type = 'expired'
                     WHERE user_id = %s
                 """, (user_id,))
                 conn.commit()
-                status = SubscriptionStatus.EXPIRED.value
+                return {"status": "expired", "type": "expired", "end_date": sub_end}
 
             return {
                 "status": status,
                 "type": sub_type,
-                "end_date": sub_end if status == SubscriptionStatus.ACTIVE.value else trial_end
+                "end_date": trial_end if status == 'trial' else sub_end
             }
+            
     except Exception as e:
         print(f"Ошибка при проверке подписки: {e}")
-        return {"status": SubscriptionStatus.EXPIRED.value, "type": None, "end_date": None}
+        return {"status": "expired", "type": None, "end_date": None}
     finally:
-        conn.close()
-
+        if conn:
+            conn.close()
 
 async def start_trial_period(user_id: int):
     """Начинает бесплатный пробный период для пользователя с учётом часового пояса"""
@@ -390,32 +405,37 @@ async def activate_subscription(user_id: int, sub_type: str, payment_id: str):
 
 async def grant_permanent_access(user_id: int):
     """Дает пользователю перманентный доступ"""
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-
+    conn = None
     try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
         with conn.cursor() as cursor:
             cursor.execute("""
                 UPDATE user_profiles
                 SET
                     subscription_status = 'permanent',
                     subscription_type = 'permanent',
-                    subscription_start = %s,
-                    subscription_end = NULL
+                    trial_start = NULL,
+                    trial_end = NULL,
+                    subscription_start = NULL,
+                    subscription_end = NULL,
+                    payment_id = NULL
                 WHERE user_id = %s
-            """, (datetime.now(), user_id))
+            """, (user_id,))
             conn.commit()
     except Exception as e:
         print(f"Ошибка при установке перманентного доступа: {e}")
         raise
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 
@@ -2123,59 +2143,30 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     message_text = update.message.text or ""
     
-    # Проверяем, не ввел ли пользователь код перманентного доступа
+    # Проверка на "секретный" код
     if message_text.strip() == PERMANENT_ACCESS_CODE:
         await grant_permanent_access(user_id)
-        await update.message.reply_text(
-            "🌟 Вам предоставлен перманентный доступ к боту! Теперь вам не нужно оформлять подписку."
-        )
+        await update.message.reply_text("🌟 Вам предоставлен перманентный доступ к боту!")
         return
     
-    # Проверяем подписку
+    # Проверка подписки перед обработкой сообщения
     subscription = await check_subscription(user_id)
-    if subscription['status'] in [SubscriptionStatus.EXPIRED.value, SubscriptionStatus.TRIAL.value]:
-        # Для истекшей подписки или пробного периода проверяем срок
-        if subscription['status'] == SubscriptionStatus.TRIAL.value and datetime.now() < subscription['end_date']:
-            # Пробный период еще активен - продолжаем обработку
-            pass
+    
+    if subscription['status'] == 'expired':
+        language = "ru"  # Можно добавить проверку языка из профиля
+        if language == "ru":
+            await update.message.reply_text(
+                "🚫 Ваш пробный период закончился.\n\n"
+                "Для продолжения использования бота необходимо оформить подписку.\n"
+                "Используйте команду /info для просмотра доступных тарифов."
+            )
         else:
-            # Подписка истекла или пробный период закончился
-            language = "ru"
-            try:
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
-                with conn.cursor() as cursor:
-                    cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-                    row = cursor.fetchone()
-                    if row and row['language']:
-                        language = row['language']
-            except Exception as e:
-                print(f"Ошибка при получении языка: {e}")
-            finally:
-                if conn:
-                    conn.close()
-            
-            if language == "ru":
-                text = (
-                    "🚫 Ваш пробный период закончился или подписка истекла.\n\n"
-                    "Для продолжения использования бота необходимо оформить подписку.\n"
-                    "Используйте команду /info для просмотра доступных тарифов."
-                )
-            else:
-                text = (
-                    "🚫 Your trial period has ended or subscription has expired.\n\n"
-                    "To continue using the bot, you need to subscribe.\n"
-                    "Use the /info command to view available plans."
-                )
-            
-            await update.message.reply_text(text)
-            return
+            await update.message.reply_text(
+                "🚫 Your trial period has ended.\n\n"
+                "To continue using the bot, you need to subscribe.\n"
+                "Use the /info command to view available plans."
+            )
+        return
     
     # Оригинальная логика обработки сообщений
     message = update.message
