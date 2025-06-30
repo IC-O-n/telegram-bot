@@ -276,6 +276,15 @@ async def check_subscription(user_id: int) -> Dict[str, Optional[str]]:
             sub_end = result['subscription_end']
             now = datetime.now(pytz.timezone('Europe/Moscow'))
 
+            moscow_tz = pytz.timezone('Europe/Moscow')
+            now = datetime.now(moscow_tz)
+
+            if trial_end and isinstance(trial_end, datetime):
+                trial_end = moscow_tz.localize(trial_end) if trial_end.tzinfo is None else trial_end.astimezone(moscow_tz)
+
+            if sub_end and isinstance(sub_end, datetime):
+                sub_end = moscow_tz.localize(sub_end) if sub_end.tzinfo is None else sub_end.astimezone(moscow_tz)
+
             # Перманентный доступ - пропускаем все проверки
             if status == 'permanent':
                 return {"status": status, "type": sub_type, "end_date": None}
