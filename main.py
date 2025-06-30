@@ -2000,7 +2000,7 @@ async def info(update: Update, context: CallbackContext) -> None:
         if conn:
             conn.close()
     
-    # Формируем текст о подписке
+    # Формируем текст о подписке (без Markdown разметки)
     if language == "ru":
         if subscription['status'] == SubscriptionStatus.TRIAL.value:
             sub_text = f"🆓 У вас активен пробный период до {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
@@ -2012,7 +2012,7 @@ async def info(update: Update, context: CallbackContext) -> None:
             sub_text = "❌ У вас нет активной подписки"
             
         info_text = (
-            f"🤖 *NutriBot - ваш персональный фитнес-ассистент*\n\n"
+            f"NutriBot - ваш персональный фитнес-ассистент\n\n"
             f"{sub_text}\n\n"
             "Я помогу вам:\n"
             "• Следить за питанием и считать КБЖУ 🍎\n"
@@ -2020,7 +2020,7 @@ async def info(update: Update, context: CallbackContext) -> None:
             "• Давать персонализированные рекомендации по тренировкам 🏋️\n"
             "• Анализировать ваши фото еды и оценивать состав тела 📸\n"
             "• Создавать индивидуальные планы питания и тренировок 📝\n\n"
-            "💵 *Тарифы:*\n"
+            "Тарифы:\n"
             f"• 1 месяц - {SUBSCRIPTION_PRICES['1_month']}₽\n"
             f"• 6 месяцев - {SUBSCRIPTION_PRICES['6_months']}₽ (экономия {SUBSCRIPTION_PRICES['1_month']*6 - SUBSCRIPTION_PRICES['6_months']}₽)\n"
             f"• 12 месяцев - {SUBSCRIPTION_PRICES['12_months']}₽ (экономия {SUBSCRIPTION_PRICES['1_month']*12 - SUBSCRIPTION_PRICES['12_months']}₽)\n\n"
@@ -2037,7 +2037,7 @@ async def info(update: Update, context: CallbackContext) -> None:
             sub_text = "❌ You don't have an active subscription"
             
         info_text = (
-            f"🤖 *NutriBot - your personal fitness assistant*\n\n"
+            f"NutriBot - your personal fitness assistant\n\n"
             f"{sub_text}\n\n"
             "I can help you with:\n"
             "• Tracking nutrition and counting calories 🍎\n"
@@ -2045,7 +2045,7 @@ async def info(update: Update, context: CallbackContext) -> None:
             "• Providing personalized workout recommendations 🏋️\n"
             "• Analyzing your food photos and body composition 📸\n"
             "• Creating individual meal and workout plans 📝\n\n"
-            "💵 *Subscription plans:*\n"
+            "Subscription plans:\n"
             f"• 1 month - {SUBSCRIPTION_PRICES['1_month']}₽\n"
             f"• 6 months - {SUBSCRIPTION_PRICES['6_months']}₽ (save {SUBSCRIPTION_PRICES['1_month']*6 - SUBSCRIPTION_PRICES['6_months']}₽)\n"
             f"• 12 months - {SUBSCRIPTION_PRICES['12_months']}₽ (save {SUBSCRIPTION_PRICES['1_month']*12 - SUBSCRIPTION_PRICES['12_months']}₽)\n\n"
@@ -2060,12 +2060,11 @@ async def info(update: Update, context: CallbackContext) -> None:
     ]
     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
     
+    # Отправляем сообщение без parse_mode или с правильной разметкой
     await update.message.reply_text(
         info_text,
-        parse_mode=telegram.constants.ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
-
 
 
 async def check_payment_status(context: CallbackContext):
