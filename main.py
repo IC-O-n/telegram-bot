@@ -1015,6 +1015,7 @@ async def check_water_reminder_time(context: CallbackContext):
             print(f"Напоминания отключены для пользователя {user_id}")
             return
         
+        weight = row['weight'] if row['weight'] is not None else 70  # 70 кг по умолчанию
         recommended_water = int(row['weight'] * 30)
         
         if row['water_drunk_today'] >= recommended_water:
@@ -1133,8 +1134,8 @@ async def show_profile(update: Update, context: CallbackContext) -> None:
             return
 
         language = row['language']
-        weight = row['weight']
-        recommended_water = int(weight * 30)
+        weight = row['weight'] if row['weight'] is not None else 0
+        recommended_water = int(weight * 30) if weight else 0
         water_drunk = row['water_drunk_today'] if row['water_drunk_today'] is not None else 0
         remaining_water = max(0, recommended_water - water_drunk)
         
@@ -1404,8 +1405,8 @@ def get_user_profile_text(user_id: int) -> str:
             return "Профиль пользователя не найден / User profile not found."
 
         language = row['language']
-        weight = row['weight']
-        recommended_water = int(weight * 30)
+        weight = row['weight'] if row['weight'] is not None else 0
+        recommended_water = int(weight * 30) if weight else 0
         water_drunk = row['water_drunk_today'] if row['water_drunk_today'] is not None else 0
         remaining_water = max(0, recommended_water - water_drunk)
         
