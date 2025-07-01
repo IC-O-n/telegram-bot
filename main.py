@@ -855,118 +855,6 @@ async def ask_water_reminders(update: Update, context: CallbackContext) -> int:
     return ASK_WATER_REMINDERS
 
 
-async def menu_handler(update: Update, context: CallbackContext) -> None:
-    """Обработчик кнопки 'Меню'"""
-    # Удаляем сообщение с кнопкой "Меню"
-    await update.message.delete()
-    
-    # Создаем клавиатуру для меню
-    reply_keyboard = [
-        ["Выпил 250мл воды"],
-        ["Назад"]
-    ]
-    markup = telegram.ReplyKeyboardMarkup(
-        reply_keyboard, 
-        resize_keyboard=True,
-        is_persistent=True
-    )
-    
-    # Отправляем новое сообщение с клавиатурой (без текста кнопки)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="Выберите действие:",
-        reply_markup=markup
-    )
-
-async def water_button_handler(update: Update, context: CallbackContext) -> None:
-    """Обработчик кнопки 'Выпил 250мл воды'"""
-    # Удаляем сообщение с кнопкой "Выпил 250мл воды"
-    await update.message.delete()
-    
-    user_id = update.message.from_user.id
-    
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                UPDATE user_profiles
-                SET water_drunk_today = water_drunk_today + 250
-                WHERE user_id = %s
-            """, (user_id,))
-            conn.commit()
-            
-            # Получаем обновленные данные
-            cursor.execute("""
-                SELECT water_drunk_today, weight, language
-                FROM user_profiles
-                WHERE user_id = %s
-            """, (user_id,))
-            row = cursor.fetchone()
-        
-        recommended_water = int(row['weight'] * 30) if row['weight'] else 2100
-        remaining = max(0, recommended_water - row['water_drunk_today'])
-        
-        if row['language'] == "ru":
-            message = (
-                f"✅ Записал! Выпито {row['water_drunk_today']} мл из {recommended_water} мл.\n"
-                f"Осталось выпить: {remaining} мл."
-            )
-        else:
-            message = (
-                f"✅ Recorded! Drank {row['water_drunk_today']} ml of {recommended_water} ml.\n"
-                f"Remaining: {remaining} ml."
-            )
-        
-        # Отправляем ответ и возвращаем основную клавиатуру
-        reply_keyboard = [["Меню"]]
-        markup = telegram.ReplyKeyboardMarkup(
-            reply_keyboard, 
-            resize_keyboard=True,
-            is_persistent=True
-        )
-        
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=message,
-            reply_markup=markup
-        )
-        
-    except Exception as e:
-        print(f"Ошибка обработки кнопки воды: {e}")
-        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
-    finally:
-        if conn:
-            conn.close()
-
-async def back_button_handler(update: Update, context: CallbackContext) -> None:
-    """Обработчик кнопки 'Назад' - возвращает основную клавиатуру"""
-    # Удаляем сообщение с кнопкой "Назад"
-    await update.message.delete()
-    
-    # Создаем основную клавиатуру
-    reply_keyboard = [
-        ["Меню"]
-    ]
-    markup = telegram.ReplyKeyboardMarkup(
-        reply_keyboard, 
-        resize_keyboard=True,
-        is_persistent=True
-    )
-    
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="Главное меню",
-        reply_markup=markup
-    )
-
 async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
@@ -1007,34 +895,22 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             chat_id=update.message.chat_id,
             user_id=user_id,
             name=str(user_id)
-            )
+        )
         print(f"Создана задача напоминаний для пользователя {user_id}")
-    
-    # Создаем постоянную клавиатуру
-    reply_keyboard = [
-        ["Меню"]
-    ]
-    markup = telegram.ReplyKeyboardMarkup(
-        reply_keyboard, 
-        resize_keyboard=True,
-        is_persistent=True  # Делаем клавиатуру постоянной
-    )
     
     if language == "ru":
         await update.message.reply_text(
             f"Отлично, {name}! Анкета завершена 🎉\n"
             f"На основе твоего веса ({weight} кг) тебе рекомендуется выпивать {recommended_water} мл воды в день.\n"
             f"Я буду напоминать тебе пить воду в течение дня, если ты не отключишь эту функцию.\n"
-            f"Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!",
-            reply_markup=markup
+            f"Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!"
         )
     else:
         await update.message.reply_text(
             f"Great, {name}! Questionnaire completed 🎉\n"
             f"Based on your weight ({weight} kg), your recommended daily water intake is {recommended_water} ml.\n"
             f"I'll remind you to drink water during the day unless you disable this feature.\n"
-            f"You can send me photos, text or documents - I'll help you with analysis and recommendations!",
-            reply_markup=markup
+            f"You can send me photos, text or documents - I'll help you with analysis and recommendations!"
         )
     return ConversationHandler.END
 
@@ -2342,6 +2218,155 @@ async def check_payment_status(context: CallbackContext):
             conn.close()
 
 
+async def menu_command(update: Update, context: CallbackContext) -> None:
+    user_id = update.message.from_user.id
+    
+    # Получаем язык пользователя
+    language = "ru"  # дефолтное значение
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка пользователя: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    if language == "ru":
+        text = "📋 Главное меню управления функциями бота"
+        button_text = "Напоминания"
+    else:
+        text = "📋 Bot's main control menu"
+        button_text = "Reminders"
+    
+    keyboard = [
+        [telegram.InlineKeyboardButton(button_text, callback_data="show_reminders")]
+    ]
+    reply_markup = telegram.InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(text, reply_markup=reply_markup)
+
+async def drank_command(update: Update, context: CallbackContext) -> None:
+    user_id = update.message.from_user.id
+    amount = 250  # Фиксированное количество воды
+    
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
+        with conn.cursor() as cursor:
+            # Обновляем количество выпитой воды
+            cursor.execute("""
+                UPDATE user_profiles
+                SET water_drunk_today = water_drunk_today + %s
+                WHERE user_id = %s
+            """, (amount, user_id))
+            
+            # Получаем обновленные данные для ответа
+            cursor.execute("""
+                SELECT water_drunk_today, weight, language
+                FROM user_profiles
+                WHERE user_id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
+            
+            conn.commit()
+            
+        recommended_water = int(row['weight'] * 30) if row['weight'] else 2100
+        remaining = max(0, recommended_water - row['water_drunk_today'])
+        
+        if row['language'] == "ru":
+            message = (
+                f"✅ Записал! Выпито {row['water_drunk_today']} мл из {recommended_water} мл.\n"
+                f"Осталось выпить: {remaining} мл."
+            )
+        else:
+            message = (
+                f"✅ Recorded! Drank {row['water_drunk_today']} ml of {recommended_water} ml.\n"
+                f"Remaining: {remaining} ml."
+            )
+            
+        await update.message.reply_text(message)
+        
+    except Exception as e:
+        print(f"Ошибка при обработке команды drank: {e}")
+        await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
+    finally:
+        if conn:
+            conn.close()
+
+
+async def show_reminders_handler(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT reminders, language
+                FROM user_profiles
+                WHERE user_id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
+
+        if not row or not row['reminders'] or row['reminders'] == '[]':
+            if row['language'] == "ru":
+                message = "У вас нет активных напоминаний."
+            else:
+                message = "You don't have any active reminders."
+            await query.edit_message_text(text=message)
+            return
+
+        reminders = json.loads(row['reminders'])
+        language = row['language']
+
+        if language == "ru":
+            message = "📅 Ваши текущие напоминания:\n\n"
+            for reminder in reminders:
+                message += f"⏰ {reminder['text']} в {reminder['time']}\n"
+        else:
+            message = "📅 Your current reminders:\n\n"
+            for reminder in reminders:
+                message += f"⏰ {reminder['text']} at {reminder['time']}\n"
+
+        await query.edit_message_text(text=message)
+
+    except Exception as e:
+        print(f"Ошибка при получении напоминаний: {e}")
+        await query.edit_message_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
+    finally:
+        if conn:
+            conn.close()
+
+
 async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
     message_text = update.message.text or ""
@@ -3142,6 +3167,20 @@ TEXT: ...
         print(f"Ошибка при генерации ответа: {e}")
 
 
+
+async def set_bot_commands():
+    commands = [
+        telegram.BotCommand("menu", "Главное меню"),
+        telegram.BotCommand("drank", "Выпил 250мл воды"),
+        telegram.BotCommand("profile", "Показать профиль"),
+        telegram.BotCommand("info", "Информация о подписке"),
+        telegram.BotCommand("water", "Вкл/Выкл напоминания о воде"),
+        telegram.BotCommand("reset", "Сбросить данные")
+    ]
+    application = Application.builder().token(TOKEN).build()
+    await application.bot.set_my_commands(commands)
+
+
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
@@ -3167,6 +3206,7 @@ def main():
 
     # Добавляем обработчик кнопок
     app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CallbackQueryHandler(show_reminders_handler, pattern="^show_reminders$"))
 
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
@@ -3194,18 +3234,20 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("profile", show_profile))
-    app.add_handler(MessageHandler(filters.Regex(r'^Меню$'), menu_handler))
-    app.add_handler(MessageHandler(filters.Regex(r'^Выпил 250мл воды$'), water_button_handler))
-    app.add_handler(MessageHandler(filters.Regex(r'^Назад$'), back_button_handler))
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
+    # Добавляем новые команды
+    app.add_handler(CommandHandler("menu", menu_command))
+    app.add_handler(CommandHandler("drank", drank_command))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+
+    app.run_polling(on_startup=set_bot_commands)
 
     app.run_polling()
 
-
 if __name__ == "__main__":
     main()
+
 
 
