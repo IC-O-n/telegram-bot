@@ -13,8 +13,7 @@ from enum import Enum
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
-from telegram import Update, File, BotCommand, MenuButtonCommands
-from telegram.constants import BotCommandScopeType
+from telegram import Update, File, BotCommand
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, CallbackContext, ConversationHandler, CallbackQueryHandler
@@ -2220,22 +2219,23 @@ async def check_payment_status(context: CallbackContext):
 
 async def post_init(application: Application) -> None:
     """Функция для настройки бота после инициализации"""
-    # Устанавливаем команды с областью видимости и языком
+    # Для русскоязычных пользователей
     await application.bot.set_my_commands(
         commands=[
             BotCommand("drank", "Выпил 250мл воды"),
         ],
-        scope=BotCommandScopeType(),
-        language_code="ru"  # Язык интерфейса
+        scope=BotCommandScopeChat(chat_id=0),  # Для всех чатов
+        language_code="ru"
     )
     
-    # Устанавливаем название меню (работает только через Bot API 6.0+)
-    try:
-        await application.bot.set_chat_menu_button(
-            menu_button=MenuButtonCommands()
-        )
-    except Exception as e:
-        print(f"Не удалось установить название меню: {e}")
+    # Для англоязычных пользователей
+    await application.bot.set_my_commands(
+        commands=[
+            BotCommand("drank", "Drank 250ml water"),
+        ],
+        scope=BotCommandScopeChat(chat_id=0),
+        language_code="en"
+    )
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
