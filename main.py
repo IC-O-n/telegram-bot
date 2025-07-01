@@ -3107,10 +3107,12 @@ TEXT: ...
 
 def main():
     init_db()
-    app = Application.builder().token(TOKEN).build()
-
-    # Добавляем post_init для настройки команд бота
-    app.post_init(post_init)
+    
+    # Создаем Application с post_init обработчиком
+    app = Application.builder() \
+        .token(TOKEN) \
+        .post_init(post_init) \
+        .build()
 
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
@@ -3126,9 +3128,9 @@ def main():
     )
 
     app.job_queue.run_repeating(
-            check_payment_status, 
-            interval=300, 
-            first=10
+        check_payment_status, 
+        interval=300, 
+        first=10
     )
 
     # Добавляем обработчик кнопок
