@@ -2225,7 +2225,7 @@ async def post_init(application: Application) -> None:
         commands=[
             BotCommand("drank", "Выпил 250мл воды"),
         ],
-        scope=BotCommandScopeDefault(),
+        scope=BotCommandScopeType(),
         language_code="ru"  # Язык интерфейса
     )
     
