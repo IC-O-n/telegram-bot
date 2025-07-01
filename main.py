@@ -13,7 +13,7 @@ from enum import Enum
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
-from telegram import Update, File
+from telegram import Update, File, BotCommand
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, CallbackContext, ConversationHandler, CallbackQueryHandler
@@ -2217,13 +2217,19 @@ async def check_payment_status(context: CallbackContext):
         if conn:
             conn.close()
 
+async def post_init(application: Application) -> None:
+    """Функция для настройки бота после инициализации"""
+    await application.bot.set_my_commands([
+        BotCommand("drank", "Выпил 250мл воды"),
+    ])
 
-async def drank(update: Update, context: CallbackContext) -> None:
+async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
     user_id = update.message.from_user.id
     
     # Получаем язык пользователя
     language = "ru"  # дефолтное значение
+    conn = None
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2234,21 +2240,18 @@ async def drank(update: Update, context: CallbackContext) -> None:
             cursorclass=pymysql.cursors.DictCursor
         )
         with conn.cursor() as cursor:
-            cursor.execute("SELECT language, weight FROM user_profiles WHERE user_id = %s", (user_id,))
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
             if row and row['language']:
                 language = row['language']
-            weight = row['weight'] if row and row['weight'] else 70  # 70 кг по умолчанию
     except Exception as e:
         print(f"Ошибка при получении языка пользователя: {e}")
-        weight = 70
     finally:
         if conn:
             conn.close()
 
-    recommended_water = int(weight * 30)
-    water_amount = 250  # Фиксированное количество воды для команды /drank
-
+    # Обновляем количество выпитой воды
+    amount = 250
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2264,28 +2267,28 @@ async def drank(update: Update, context: CallbackContext) -> None:
                 UPDATE user_profiles
                 SET water_drunk_today = water_drunk_today + %s
                 WHERE user_id = %s
-            """, (water_amount, user_id))
+            """, (amount, user_id))
             conn.commit()
 
             # Получаем обновленные данные
             cursor.execute("""
-                SELECT water_drunk_today
+                SELECT water_drunk_today, weight
                 FROM user_profiles
                 WHERE user_id = %s
             """, (user_id,))
             row = cursor.fetchone()
 
-        water_drunk = row['water_drunk_today'] if row else water_amount
-        remaining = max(0, recommended_water - water_drunk)
+        recommended_water = int(row['weight'] * 30) if row['weight'] else 2100
+        remaining = max(0, recommended_water - row['water_drunk_today'])
 
         if language == "ru":
             message = (
-                f"✅ Записал! Выпито {water_drunk} мл из {recommended_water} мл.\n"
+                f"✅ Записал! Выпито {row['water_drunk_today']} мл из {recommended_water} мл.\n"
                 f"Осталось выпить: {remaining} мл."
             )
         else:
             message = (
-                f"✅ Recorded! Drank {water_drunk} ml of {recommended_water} ml.\n"
+                f"✅ Recorded! Drank {row['water_drunk_today']} ml of {recommended_water} ml.\n"
                 f"Remaining: {remaining} ml."
             )
 
@@ -2293,7 +2296,9 @@ async def drank(update: Update, context: CallbackContext) -> None:
 
     except Exception as e:
         print(f"Ошибка обработки команды /drank: {e}")
-        error_msg = "Произошла ошибка. Попробуйте позже." if language == "ru" else "An error occurred. Please try again later."
+        error_msg = "Произошла ошибка. Пожалуйста, попробуйте позже."
+        if language == "en":
+            error_msg = "An error occurred. Please try again later."
         await update.message.reply_text(error_msg)
     finally:
         if conn:
@@ -3104,6 +3109,9 @@ def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
+    # Добавляем post_init для настройки команд бота
+    app.post_init(post_init)
+
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
         check_reminders,
@@ -3118,33 +3126,18 @@ def main():
     )
 
     app.job_queue.run_repeating(
-        check_payment_status, 
-        interval=300, 
-        first=10
+            check_payment_status, 
+            interval=300, 
+            first=10
     )
 
     # Добавляем обработчик кнопок
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # Создаем список команд для бота с подсказками
-    commands = [
-        BotCommand("start", "Начать работу с ботом / Start the bot"),
-        BotCommand("profile", "Показать профиль / Show profile"),
-        BotCommand("info", "Информация о подписке / Subscription info"),
-        BotCommand("reset", "Сбросить данные / Reset data"),
-        BotCommand("water", "Включить/выключить напоминания о воде / Toggle water reminders"),
-        BotCommand("drank", "Зафиксировать 250мл выпитой воды / Record 250ml water drank")
-    ]
+    # Добавляем обработчик команды /drank
+    app.add_handler(CommandHandler("drank", drank_command))
 
-    # Устанавливаем команды бота
-    async def set_commands():
-        await app.bot.set_my_commands(commands)
-
-    # Запускаем установку команд при старте
-    app.run_polling(close_loop=False)
-    app.create_task(set_commands())
-
-    # Остальной код обработчиков
+    # Остальной код остается без изменений
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -3173,12 +3166,9 @@ def main():
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
-    app.add_handler(CommandHandler("drank", drank))  # Добавляем новый обработчик
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
     app.run_polling()
-
-
 
 if __name__ == "__main__":
     main()
