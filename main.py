@@ -2219,23 +2219,9 @@ async def check_payment_status(context: CallbackContext):
 
 async def post_init(application: Application) -> None:
     """Функция для настройки бота после инициализации"""
-    # Для русскоязычных пользователей
-    await application.bot.set_my_commands(
-        commands=[
-            BotCommand("drank", "Выпил 250мл воды"),
-        ],
-        scope=BotCommandScopeChat(chat_id=0),  # Для всех чатов
-        language_code="ru"
-    )
-    
-    # Для англоязычных пользователей
-    await application.bot.set_my_commands(
-        commands=[
-            BotCommand("drank", "Drank 250ml water"),
-        ],
-        scope=BotCommandScopeChat(chat_id=0),
-        language_code="en"
-    )
+    await application.bot.set_my_commands([
+        BotCommand("drank", "Выпил 250мл воды"),
+    ])
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
