@@ -1888,6 +1888,12 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     user_id = query.from_user.id
 
+    if query.data == "start_workout":
+        await query.edit_message_text(
+            text="🚀 Начинаем тренировку!",
+            reply_markup=None
+        )
+
     # Обработка кнопки воды
     if query.data.startswith("water_"):
         try:
@@ -2220,7 +2226,25 @@ async def post_init(application: Application) -> None:
     """Функция для настройки бота после инициализации"""
     await application.bot.set_my_commands([
         BotCommand("drank", "Выпил 250мл воды"),
+        BotCommand("menu", "Меню управления функциями бота"),
     ])
+
+
+async def menu_command(update: Update, context: CallbackContext) -> None:
+    """Обработчик команды /menu - показывает меню управления"""
+    keyboard = [
+        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "📱 *Меню управления ботом*\n\n"
+        "Здесь вы можете управлять основными функциями",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
@@ -3137,6 +3161,8 @@ def main():
 
     # Добавляем обработчик команды /drank
     app.add_handler(CommandHandler("drank", drank_command))
+
+    app.add_handler(CommandHandler("menu", menu_command))
 
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
