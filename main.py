@@ -855,6 +855,98 @@ async def ask_water_reminders(update: Update, context: CallbackContext) -> int:
     return ASK_WATER_REMINDERS
 
 
+async def menu_handler(update: Update, context: CallbackContext) -> None:
+    """Обработчик кнопки 'Меню'"""
+    user_id = update.message.from_user.id
+    language = "ru"  # Можно добавить проверку языка из профиля
+    
+    # Создаем клавиатуру для меню
+    reply_keyboard = [
+        ["Выпил 250мл воды"],
+        ["Назад"]
+    ]
+    markup = telegram.ReplyKeyboardMarkup(
+        reply_keyboard, 
+        resize_keyboard=True,
+        is_persistent=True
+    )
+    
+    await update.message.reply_text(
+        "Выберите действие:",
+        reply_markup=markup
+    )
+
+async def water_button_handler(update: Update, context: CallbackContext) -> None:
+    """Обработчик кнопки 'Выпил 250мл воды'"""
+    user_id = update.message.from_user.id
+    
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                UPDATE user_profiles
+                SET water_drunk_today = water_drunk_today + 250
+                WHERE user_id = %s
+            """, (user_id,))
+            conn.commit()
+            
+            # Получаем обновленные данные
+            cursor.execute("""
+                SELECT water_drunk_today, weight, language
+                FROM user_profiles
+                WHERE user_id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
+        
+        recommended_water = int(row['weight'] * 30) if row['weight'] else 2100
+        remaining = max(0, recommended_water - row['water_drunk_today'])
+        
+        if row['language'] == "ru":
+            message = (
+                f"✅ Записал! Выпито {row['water_drunk_today']} мл из {recommended_water} мл.\n"
+                f"Осталось выпить: {remaining} мл."
+            )
+        else:
+            message = (
+                f"✅ Recorded! Drank {row['water_drunk_today']} ml of {recommended_water} ml.\n"
+                f"Remaining: {remaining} ml."
+            )
+        
+        await update.message.reply_text(message)
+        
+    except Exception as e:
+        print(f"Ошибка обработки кнопки воды: {e}")
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+    finally:
+        if conn:
+            conn.close()
+
+async def back_button_handler(update: Update, context: CallbackContext) -> None:
+    """Обработчик кнопки 'Назад' - возвращает основную клавиатуру"""
+    # Создаем основную клавиатуру
+    reply_keyboard = [
+        ["Меню"]
+    ]
+    markup = telegram.ReplyKeyboardMarkup(
+        reply_keyboard, 
+        resize_keyboard=True,
+        is_persistent=True
+    )
+    
+    await update.message.reply_text(
+        "Главное меню",
+        reply_markup=markup
+    )
+
+
 async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
@@ -895,22 +987,33 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             chat_id=update.message.chat_id,
             user_id=user_id,
             name=str(user_id)
-        )
         print(f"Создана задача напоминаний для пользователя {user_id}")
+    
+    # Создаем постоянную клавиатуру
+    reply_keyboard = [
+        ["Меню"]
+    ]
+    markup = telegram.ReplyKeyboardMarkup(
+        reply_keyboard, 
+        resize_keyboard=True,
+        is_persistent=True  # Делаем клавиатуру постоянной
+    )
     
     if language == "ru":
         await update.message.reply_text(
             f"Отлично, {name}! Анкета завершена 🎉\n"
             f"На основе твоего веса ({weight} кг) тебе рекомендуется выпивать {recommended_water} мл воды в день.\n"
             f"Я буду напоминать тебе пить воду в течение дня, если ты не отключишь эту функцию.\n"
-            f"Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!"
+            f"Ты можешь отправлять мне фото, текст или документы — я помогу тебе с анализом и рекомендациями!",
+            reply_markup=markup
         )
     else:
         await update.message.reply_text(
             f"Great, {name}! Questionnaire completed 🎉\n"
             f"Based on your weight ({weight} kg), your recommended daily water intake is {recommended_water} ml.\n"
             f"I'll remind you to drink water during the day unless you disable this feature.\n"
-            f"You can send me photos, text or documents - I'll help you with analysis and recommendations!"
+            f"You can send me photos, text or documents - I'll help you with analysis and recommendations!",
+            reply_markup=markup
         )
     return ConversationHandler.END
 
@@ -3070,6 +3173,9 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("profile", show_profile))
+    app.add_handler(MessageHandler(filters.Regex(r'^Меню$'), menu_handler))
+    app.add_handler(MessageHandler(filters.Regex(r'^Выпил 250мл воды$'), water_button_handler))
+    app.add_handler(MessageHandler(filters.Regex(r'^Назад$'), back_button_handler))
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
