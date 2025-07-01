@@ -877,7 +877,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_profiles[user_id]["reminders"] = []  # Инициализируем пустой список напоминаний
     
     name = user_profiles[user_id]["name"]
-    weight = user_profiles[user_id].get("weight", 70)  # Добавляем значение по умолчанию
+    weight = user_profiles[user_id]["weight"]  
     recommended_water = int(weight * 30)
     save_user_profile(user_id, user_profiles[user_id])
     
@@ -1015,7 +1015,7 @@ async def check_water_reminder_time(context: CallbackContext):
             print(f"Напоминания отключены для пользователя {user_id}")
             return
         
-        weight = row['weight'] if row['weight'] is not None else 70  # 70 кг по умолчанию
+        weight = row.get('weight') or 70
         recommended_water = int(row['weight'] * 30)
         
         if row['water_drunk_today'] >= recommended_water:
