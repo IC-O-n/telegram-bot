@@ -1080,12 +1080,22 @@ async def check_water_reminder_time(context: CallbackContext):
                     
                     water_to_drink_now = min(250, max(150, recommended_water // 8))
                     
+                    # Создаем кнопку для подтверждения выпитой воды
+                    button_text = f"Выпил {water_to_drink_now} мл" if row['language'] == "ru" else f"Drank {water_to_drink_now} ml"
+                    keyboard = [
+                        [telegram.InlineKeyboardButton(
+                            button_text, 
+                            callback_data=f"water_{water_to_drink_now}"
+                        )]
+                    ]
+                    reply_markup = telegram.InlineKeyboardMarkup(keyboard)
+                    
                     if row['language'] == "ru":
                         message = (
                             f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
                             f"📊 Сегодня выпито: {row['water_drunk_today']} мл из {recommended_water} мл\n"
                             f"🚰 Осталось выпить: {remaining_water} мл\n\n"
-                            f"После того как выпьешь воду, отправь мне сообщение в формате:\n"
+                            f"После того как выпьешь воду, нажми кнопку ниже или отправь мне сообщение в формате:\n"
                             f"'Выпил 250 мл' или 'Drank 300 ml'"
                         )
                     else:
@@ -1093,11 +1103,15 @@ async def check_water_reminder_time(context: CallbackContext):
                             f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
                             f"📊 Today drunk: {row['water_drunk_today']} ml of {recommended_water} ml\n"
                             f"🚰 Remaining: {remaining_water} ml\n\n"
-                            f"After drinking water, send me a message in the format:\n"
+                            f"After drinking water, click the button below or send me a message in the format:\n"
                             f"'Drank 300 ml' or 'Выпил 250 мл'"
                         )
                     
-                    await context.bot.send_message(chat_id=chat_id, text=message)
+                    await context.bot.send_message(
+                        chat_id=chat_id, 
+                        text=message,
+                        reply_markup=reply_markup
+                    )
                     print(f"Напоминание отправлено пользователю {user_id} в {now}")
         
         except Exception as e:
@@ -1872,8 +1886,64 @@ async def check_and_create_water_job(context: CallbackContext):
 async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
-    
+
     user_id = query.from_user.id
+
+    # Обработка кнопки воды
+    if query.data.startswith("water_"):
+        try:
+            amount = int(query.data.split("_")[1])
+
+            # Получаем язык пользователя
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE user_profiles
+                    SET water_drunk_today = water_drunk_today + %s
+                    WHERE user_id = %s
+                """, (amount, user_id))
+                conn.commit()
+
+                # Получаем обновленные данные
+                cursor.execute("""
+                    SELECT water_drunk_today, weight, language
+                    FROM user_profiles
+                    WHERE user_id = %s
+                """, (user_id,))
+                row = cursor.fetchone()
+
+            recommended_water = int(row['weight'] * 30) if row['weight'] else 2100
+            remaining = max(0, recommended_water - row['water_drunk_today'])
+
+            if row['language'] == "ru":
+                message = (
+                    f"✅ Записал! Выпито {row['water_drunk_today']} мл из {recommended_water} мл.\n"
+                    f"Осталось выпить: {remaining} мл."
+                )
+            else:
+                message = (
+                    f"✅ Recorded! Drank {row['water_drunk_today']} ml of {recommended_water} ml.\n"
+                    f"Remaining: {remaining} ml."
+                )
+
+            await query.edit_message_text(text=message)
+
+        except Exception as e:
+            print(f"Ошибка обработки кнопки воды: {e}")
+            await query.edit_message_text("Произошла ошибка. Попробуйте позже.")
+        finally:
+            if conn:
+                conn.close()
+        return
+
     subscription = await check_subscription(user_id)
     
     # Получаем язык пользователя
