@@ -13,7 +13,7 @@ from enum import Enum
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
-from telegram import Update, File, BotCommand
+from telegram import Update, File, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, CallbackContext, ConversationHandler, CallbackQueryHandler
@@ -2245,7 +2245,6 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
         parse_mode="Markdown"
     )
 
-
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
     user_id = update.message.from_user.id
@@ -3163,6 +3162,7 @@ def main():
     app.add_handler(CommandHandler("drank", drank_command))
 
     app.add_handler(CommandHandler("menu", menu_command))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
