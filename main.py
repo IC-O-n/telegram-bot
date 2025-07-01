@@ -3168,21 +3168,24 @@ TEXT: ...
 
 
 
-async def set_bot_commands():
+async def set_bot_commands(application: Application) -> None:
+    """Устанавливает подсказки команд для бота"""
     commands = [
         telegram.BotCommand("menu", "Главное меню"),
         telegram.BotCommand("drank", "Выпил 250мл воды"),
         telegram.BotCommand("profile", "Показать профиль"),
         telegram.BotCommand("info", "Информация о подписке"),
         telegram.BotCommand("water", "Вкл/Выкл напоминания о воде"),
-        telegram.BotCommand("reset", "Сбросить данные")
+        telegram.BotCommand("reset", "Сбросить данные"),
+        telegram.BotCommand("start", "Перезапустить бота")
     ]
-    application = Application.builder().token(TOKEN).build()
     await application.bot.set_my_commands(commands)
-
+    print("Подсказки команд успешно установлены")
 
 def main():
     init_db()
+    
+    # Создаем Application с обработчиком on_startup
     app = Application.builder().token(TOKEN).build()
 
     # Добавляем job для проверки напоминаний
@@ -3199,16 +3202,16 @@ def main():
     )
 
     app.job_queue.run_repeating(
-            check_payment_status, 
-            interval=300, 
-            first=10
+        check_payment_status, 
+        interval=300, 
+        first=10
     )
 
     # Добавляем обработчик кнопок
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(CallbackQueryHandler(show_reminders_handler, pattern="^show_reminders$"))
 
-    # Остальной код остается без изменений
+    # Обработчики команд и сообщений
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -3237,14 +3240,12 @@ def main():
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
-    # Добавляем новые команды
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("drank", drank_command))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
+    # Запускаем бота с on_startup callback
     app.run_polling(on_startup=set_bot_commands)
-
-    app.run_polling()
 
 if __name__ == "__main__":
     main()
