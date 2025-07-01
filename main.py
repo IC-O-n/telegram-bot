@@ -14,7 +14,7 @@ from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
 from telegram import Update, File, BotCommand, MenuButtonCommands
-from telegram.constants import BotCommandScopeDefault
+from telegram.constants import BotCommandScopeType
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, CallbackContext, ConversationHandler, CallbackQueryHandler
