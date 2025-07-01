@@ -2218,7 +2218,8 @@ async def check_payment_status(context: CallbackContext):
             conn.close()
 
 
-async def menu_command(update: Update, context: CallbackContext) -> None:
+async def drank(update: Update, context: CallbackContext) -> None:
+    """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
     user_id = update.message.from_user.id
     
     # Получаем язык пользователя
@@ -2233,34 +2234,21 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             cursorclass=pymysql.cursors.DictCursor
         )
         with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            cursor.execute("SELECT language, weight FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
             if row and row['language']:
                 language = row['language']
+            weight = row['weight'] if row and row['weight'] else 70  # 70 кг по умолчанию
     except Exception as e:
         print(f"Ошибка при получении языка пользователя: {e}")
+        weight = 70
     finally:
         if conn:
             conn.close()
 
-    if language == "ru":
-        text = "📋 Главное меню управления функциями бота"
-        button_text = "Напоминания"
-    else:
-        text = "📋 Bot's main control menu"
-        button_text = "Reminders"
-    
-    keyboard = [
-        [telegram.InlineKeyboardButton(button_text, callback_data="show_reminders")]
-    ]
-    reply_markup = telegram.InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    recommended_water = int(weight * 30)
+    water_amount = 250  # Фиксированное количество воды для команды /drank
 
-async def drank_command(update: Update, context: CallbackContext) -> None:
-    user_id = update.message.from_user.id
-    amount = 250  # Фиксированное количество воды
-    
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2272,96 +2260,41 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
         )
         
         with conn.cursor() as cursor:
-            # Обновляем количество выпитой воды
             cursor.execute("""
                 UPDATE user_profiles
                 SET water_drunk_today = water_drunk_today + %s
                 WHERE user_id = %s
-            """, (amount, user_id))
-            
-            # Получаем обновленные данные для ответа
+            """, (water_amount, user_id))
+            conn.commit()
+
+            # Получаем обновленные данные
             cursor.execute("""
-                SELECT water_drunk_today, weight, language
+                SELECT water_drunk_today
                 FROM user_profiles
                 WHERE user_id = %s
             """, (user_id,))
             row = cursor.fetchone()
-            
-            conn.commit()
-            
-        recommended_water = int(row['weight'] * 30) if row['weight'] else 2100
-        remaining = max(0, recommended_water - row['water_drunk_today'])
-        
-        if row['language'] == "ru":
+
+        water_drunk = row['water_drunk_today'] if row else water_amount
+        remaining = max(0, recommended_water - water_drunk)
+
+        if language == "ru":
             message = (
-                f"✅ Записал! Выпито {row['water_drunk_today']} мл из {recommended_water} мл.\n"
+                f"✅ Записал! Выпито {water_drunk} мл из {recommended_water} мл.\n"
                 f"Осталось выпить: {remaining} мл."
             )
         else:
             message = (
-                f"✅ Recorded! Drank {row['water_drunk_today']} ml of {recommended_water} ml.\n"
+                f"✅ Recorded! Drank {water_drunk} ml of {recommended_water} ml.\n"
                 f"Remaining: {remaining} ml."
             )
-            
+
         await update.message.reply_text(message)
-        
-    except Exception as e:
-        print(f"Ошибка при обработке команды drank: {e}")
-        await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
-    finally:
-        if conn:
-            conn.close()
-
-
-async def show_reminders_handler(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    await query.answer()
-
-    user_id = query.from_user.id
-
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT reminders, language
-                FROM user_profiles
-                WHERE user_id = %s
-            """, (user_id,))
-            row = cursor.fetchone()
-
-        if not row or not row['reminders'] or row['reminders'] == '[]':
-            if row['language'] == "ru":
-                message = "У вас нет активных напоминаний."
-            else:
-                message = "You don't have any active reminders."
-            await query.edit_message_text(text=message)
-            return
-
-        reminders = json.loads(row['reminders'])
-        language = row['language']
-
-        if language == "ru":
-            message = "📅 Ваши текущие напоминания:\n\n"
-            for reminder in reminders:
-                message += f"⏰ {reminder['text']} в {reminder['time']}\n"
-        else:
-            message = "📅 Your current reminders:\n\n"
-            for reminder in reminders:
-                message += f"⏰ {reminder['text']} at {reminder['time']}\n"
-
-        await query.edit_message_text(text=message)
 
     except Exception as e:
-        print(f"Ошибка при получении напоминаний: {e}")
-        await query.edit_message_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
+        print(f"Ошибка обработки команды /drank: {e}")
+        error_msg = "Произошла ошибка. Попробуйте позже." if language == "ru" else "An error occurred. Please try again later."
+        await update.message.reply_text(error_msg)
     finally:
         if conn:
             conn.close()
@@ -3167,25 +3100,8 @@ TEXT: ...
         print(f"Ошибка при генерации ответа: {e}")
 
 
-
-async def set_bot_commands(application: Application) -> None:
-    """Устанавливает подсказки команд для бота"""
-    commands = [
-        telegram.BotCommand("menu", "Главное меню"),
-        telegram.BotCommand("drank", "Выпил 250мл воды"),
-        telegram.BotCommand("profile", "Показать профиль"),
-        telegram.BotCommand("info", "Информация о подписке"),
-        telegram.BotCommand("water", "Вкл/Выкл напоминания о воде"),
-        telegram.BotCommand("reset", "Сбросить данные"),
-        telegram.BotCommand("start", "Перезапустить бота")
-    ]
-    await application.bot.set_my_commands(commands)
-    print("Подсказки команд успешно установлены")
-
 def main():
     init_db()
-    
-    # Создаем Application с обработчиком on_startup
     app = Application.builder().token(TOKEN).build()
 
     # Добавляем job для проверки напоминаний
@@ -3209,9 +3125,26 @@ def main():
 
     # Добавляем обработчик кнопок
     app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(CallbackQueryHandler(show_reminders_handler, pattern="^show_reminders$"))
 
-    # Обработчики команд и сообщений
+    # Создаем список команд для бота с подсказками
+    commands = [
+        BotCommand("start", "Начать работу с ботом / Start the bot"),
+        BotCommand("profile", "Показать профиль / Show profile"),
+        BotCommand("info", "Информация о подписке / Subscription info"),
+        BotCommand("reset", "Сбросить данные / Reset data"),
+        BotCommand("water", "Включить/выключить напоминания о воде / Toggle water reminders"),
+        BotCommand("drank", "Зафиксировать 250мл выпитой воды / Record 250ml water drank")
+    ]
+
+    # Устанавливаем команды бота
+    async def set_commands():
+        await app.bot.set_my_commands(commands)
+
+    # Запускаем установку команд при старте
+    app.run_polling(close_loop=False)
+    app.create_task(set_commands())
+
+    # Остальной код обработчиков
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -3240,12 +3173,12 @@ def main():
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("water", toggle_water_reminders))
-    app.add_handler(CommandHandler("menu", menu_command))
-    app.add_handler(CommandHandler("drank", drank_command))
+    app.add_handler(CommandHandler("drank", drank))  # Добавляем новый обработчик
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    # Запускаем бота с on_startup callback
-    app.run_polling(on_startup=set_bot_commands)
+    app.run_polling()
+
+
 
 if __name__ == "__main__":
     main()
