@@ -1015,8 +1015,9 @@ async def check_water_reminder_time(context: CallbackContext):
             print(f"Напоминания отключены для пользователя {user_id}")
             return
         
-        weight = row['weight'] if row['weight'] is not None else 70  # 70 кг по умолчанию
-        recommended_water = int(row['weight'] * 30)
+        # Устанавливаем вес по умолчанию 70 кг, если weight = NULL
+        weight = row['weight'] if row['weight'] is not None else 70
+        recommended_water = int(weight * 30)
         
         if row['water_drunk_today'] >= recommended_water:
             print(f"Пользователь {user_id} уже выпил достаточное количество воды")
