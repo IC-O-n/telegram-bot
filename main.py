@@ -857,8 +857,8 @@ async def ask_water_reminders(update: Update, context: CallbackContext) -> int:
 
 async def menu_handler(update: Update, context: CallbackContext) -> None:
     """Обработчик кнопки 'Меню'"""
-    user_id = update.message.from_user.id
-    language = "ru"  # Можно добавить проверку языка из профиля
+    # Удаляем сообщение с кнопкой "Меню"
+    await update.message.delete()
     
     # Создаем клавиатуру для меню
     reply_keyboard = [
@@ -871,13 +871,18 @@ async def menu_handler(update: Update, context: CallbackContext) -> None:
         is_persistent=True
     )
     
-    await update.message.reply_text(
-        "Выберите действие:",
+    # Отправляем новое сообщение с клавиатурой (без текста кнопки)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Выберите действие:",
         reply_markup=markup
     )
 
 async def water_button_handler(update: Update, context: CallbackContext) -> None:
     """Обработчик кнопки 'Выпил 250мл воды'"""
+    # Удаляем сообщение с кнопкой "Выпил 250мл воды"
+    await update.message.delete()
+    
     user_id = update.message.from_user.id
     
     try:
@@ -920,7 +925,19 @@ async def water_button_handler(update: Update, context: CallbackContext) -> None
                 f"Remaining: {remaining} ml."
             )
         
-        await update.message.reply_text(message)
+        # Отправляем ответ и возвращаем основную клавиатуру
+        reply_keyboard = [["Меню"]]
+        markup = telegram.ReplyKeyboardMarkup(
+            reply_keyboard, 
+            resize_keyboard=True,
+            is_persistent=True
+        )
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=message,
+            reply_markup=markup
+        )
         
     except Exception as e:
         print(f"Ошибка обработки кнопки воды: {e}")
@@ -931,6 +948,9 @@ async def water_button_handler(update: Update, context: CallbackContext) -> None
 
 async def back_button_handler(update: Update, context: CallbackContext) -> None:
     """Обработчик кнопки 'Назад' - возвращает основную клавиатуру"""
+    # Удаляем сообщение с кнопкой "Назад"
+    await update.message.delete()
+    
     # Создаем основную клавиатуру
     reply_keyboard = [
         ["Меню"]
@@ -941,11 +961,11 @@ async def back_button_handler(update: Update, context: CallbackContext) -> None:
         is_persistent=True
     )
     
-    await update.message.reply_text(
-        "Главное меню",
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Главное меню",
         reply_markup=markup
     )
-
 
 async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
