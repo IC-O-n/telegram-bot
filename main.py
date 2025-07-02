@@ -1891,9 +1891,6 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     user_id = query.from_user.id
 
-    if query.data == "start_workout":
-        return await start_workout(update, context)
-
     # Обработка кнопки воды
     if query.data.startswith("water_"):
         try:
@@ -2277,6 +2274,7 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
     
     return WORKOUT_LOCATION
 
+
 async def ask_workout_duration(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
@@ -2503,6 +2501,7 @@ async def save_workout_comment(update: Update, context: CallbackContext) -> int:
         conn.close()
         
     return ConversationHandler.END
+
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
@@ -3470,6 +3469,7 @@ def main():
             ]   
         },
         fallbacks=[],
+        per_message=False  # Это важно для корректной работы с CallbackQuery
     )
 
     # Добавляем обработчик кнопок
@@ -3507,6 +3507,7 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(workout_conv_handler)
+    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(CommandHandler("profile", show_profile))
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
@@ -3517,6 +3518,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
