@@ -1885,10 +1885,15 @@ async def check_and_create_water_job(context: CallbackContext):
 
 
 
-
 async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
+
+    # Пропускаем callback_data, которые обрабатываются ConversationHandler
+    if query.data in ["gym", "outdoor", "playground", "home", 
+                     "15", "30", "60", "90", "120",
+                     "finish_workout", "add_comment"]:
+        return
 
     user_id = query.from_user.id
 
@@ -2250,11 +2255,17 @@ async def post_init(application: Application) -> None:
 
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
-    query = update.callback_query
-    if query:
+    if update.callback_query:
+        query = update.callback_query
         await query.answer()
+        user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        message_id = query.message.message_id
+    else:
+        user_id = update.effective_user.id
+        chat_id = update.message.chat_id
+        message_id = None
     
-    user_id = update.effective_user.id
     context.user_data['workout_data'] = {}
     
     # Получаем язык пользователя
@@ -2653,7 +2664,6 @@ async def save_workout_comment(update: Update, context: CallbackContext) -> int:
 
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
-    """Обработчик команды /menu - показывает меню управления"""
     keyboard = [
         [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
     ]
@@ -3616,10 +3626,17 @@ def main():
     
     # Добавляем обработчик тренировок ПЕРВЫМ
     workout_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("workout", start_workout)],
+        entry_points=[
+            CommandHandler("workout", start_workout),
+            CallbackQueryHandler(start_workout, pattern="^start_workout$")
+        ],
         states={
-            WORKOUT_LOCATION: [CallbackQueryHandler(set_workout_location, pattern="^(gym|outdoor|playground|home)$")],
-            WORKOUT_DURATION: [CallbackQueryHandler(set_workout_duration, pattern="^(15|30|60|90|120)$")],
+            WORKOUT_LOCATION: [
+                CallbackQueryHandler(set_workout_location, pattern="^(gym|outdoor|playground|home)$")
+            ],
+            WORKOUT_DURATION: [
+                CallbackQueryHandler(set_workout_duration, pattern="^(15|30|60|90|120)$")
+            ],
             WORKOUT_CONFIRMATION: [
                 CallbackQueryHandler(finish_workout, pattern="^finish_workout$"),
                 CallbackQueryHandler(add_workout_comment, pattern="^add_comment$")
