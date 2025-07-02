@@ -1885,27 +1885,19 @@ async def check_and_create_water_job(context: CallbackContext):
 
 
 
+
 async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
 
-    # Пропускаем callback_data, которые обрабатываются ConversationHandler
-    if query.data in ["gym", "outdoor", "playground", "home", 
-                     "15", "30", "60", "90", "120",
-                     "finish_workout", "add_comment"]:
-        return
-
     user_id = query.from_user.id
 
     if query.data == "start_workout":
-        # Перенаправляем на команду /workout
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="Начинаем процесс создания тренировки...",
-            reply_markup=None
-        )
         return await start_workout(update, context)
 
+    
+
+    
     # Обработка кнопки воды
     if query.data.startswith("water_"):
         try:
@@ -2255,17 +2247,11 @@ async def post_init(application: Application) -> None:
 
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
-    if update.callback_query:
-        query = update.callback_query
+    query = update.callback_query
+    if query:
         await query.answer()
-        user_id = query.from_user.id
-        chat_id = query.message.chat_id
-        message_id = query.message.message_id
-    else:
-        user_id = update.effective_user.id
-        chat_id = update.message.chat_id
-        message_id = None
     
+    user_id = update.effective_user.id
     context.user_data['workout_data'] = {}
     
     # Получаем язык пользователя
@@ -3631,12 +3617,8 @@ def main():
             CallbackQueryHandler(start_workout, pattern="^start_workout$")
         ],
         states={
-            WORKOUT_LOCATION: [
-                CallbackQueryHandler(set_workout_location, pattern="^(gym|outdoor|playground|home)$")
-            ],
-            WORKOUT_DURATION: [
-                CallbackQueryHandler(set_workout_duration, pattern="^(15|30|60|90|120)$")
-            ],
+            WORKOUT_LOCATION: [CallbackQueryHandler(set_workout_location, pattern="^(gym|outdoor|playground|home)$")],
+            WORKOUT_DURATION: [CallbackQueryHandler(set_workout_duration, pattern="^(15|30|60|90|120)$")],
             WORKOUT_CONFIRMATION: [
                 CallbackQueryHandler(finish_workout, pattern="^finish_workout$"),
                 CallbackQueryHandler(add_workout_comment, pattern="^add_comment$")
@@ -3668,8 +3650,7 @@ def main():
         first=10
     )
 
-    # Добавляем обработчик кнопок
-    app.add_handler(CallbackQueryHandler(button_handler))
+   
 
     # Добавляем обработчик команды /drank
     app.add_handler(CommandHandler("drank", drank_command))
@@ -3712,6 +3693,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
