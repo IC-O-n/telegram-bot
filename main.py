@@ -2312,11 +2312,12 @@ async def set_workout_location(update: Update, context: CallbackContext) -> int:
     await query.answer()
     
     location = query.data
-    context.user_data['workout_data']['location'] = location
+    context.user_data['workout_data'] = {'location': location}  # Сохраняем данные в context.user_data
     
     # Получаем язык пользователя
     user_id = query.from_user.id
     language = "ru"
+    conn = None
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2340,26 +2341,27 @@ async def set_workout_location(update: Update, context: CallbackContext) -> int:
     # Создаем клавиатуру для выбора продолжительности
     if language == "ru":
         keyboard = [
-            [InlineKeyboardButton("15 минут", callback_data="15")],
-            [InlineKeyboardButton("30 минут", callback_data="30")],
-            [InlineKeyboardButton("1 час", callback_data="60")],
-            [InlineKeyboardButton("1.5 часа", callback_data="90")],
-            [InlineKeyboardButton("2 часа", callback_data="120")]
+            [InlineKeyboardButton("15 минут", callback_data="duration_15")],
+            [InlineKeyboardButton("30 минут", callback_data="duration_30")],
+            [InlineKeyboardButton("1 час", callback_data="duration_60")],
+            [InlineKeyboardButton("1.5 часа", callback_data="duration_90")],
+            [InlineKeyboardButton("2 часа", callback_data="duration_120")]
         ]
         text = "⏱ Выберите продолжительность тренировки:"
     else:
         keyboard = [
-            [InlineKeyboardButton("15 minutes", callback_data="15")],
-            [InlineKeyboardButton("30 minutes", callback_data="30")],
-            [InlineKeyboardButton("1 hour", callback_data="60")],
-            [InlineKeyboardButton("1.5 hours", callback_data="90")],
-            [InlineKeyboardButton("2 hours", callback_data="120")]
+            [InlineKeyboardButton("15 minutes", callback_data="duration_15")],
+            [InlineKeyboardButton("30 minutes", callback_data="duration_30")],
+            [InlineKeyboardButton("1 hour", callback_data="duration_60")],
+            [InlineKeyboardButton("1.5 hours", callback_data="duration_90")],
+            [InlineKeyboardButton("2 hours", callback_data="duration_120")]
         ]
         text = "⏱ Choose workout duration:"
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text=text, reply_markup=reply_markup)
     return WORKOUT_DURATION
+
 
 async def set_workout_duration(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
@@ -3624,10 +3626,15 @@ def main():
     
     # Добавляем обработчик тренировок ПЕРВЫМ
     workout_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("workout", start_workout)],
+        entry_points=[CommandHandler("workout", start_workout),
+                    CallbackQueryHandler(start_workout, pattern="^start_workout$")],
         states={
-            WORKOUT_LOCATION: [CallbackQueryHandler(set_workout_location, pattern="^(gym|outdoor|playground|home)$")],
-            WORKOUT_DURATION: [CallbackQueryHandler(set_workout_duration, pattern="^(15|30|60|90|120)$")],
+            WORKOUT_LOCATION: [
+                CallbackQueryHandler(set_workout_location, pattern="^(gym|outdoor|playground|home)$")
+            ],
+            WORKOUT_DURATION: [
+                CallbackQueryHandler(set_workout_duration, pattern="^duration_")
+            ],
             WORKOUT_CONFIRMATION: [
                 CallbackQueryHandler(finish_workout, pattern="^finish_workout$"),
                 CallbackQueryHandler(add_workout_comment, pattern="^add_comment$")
@@ -3635,6 +3642,7 @@ def main():
             WORKOUT_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_workout_comment)]
         },
         fallbacks=[],
+        per_message=False  # Явно указываем этот параметр
     )
     
     app.add_handler(workout_conv_handler)
