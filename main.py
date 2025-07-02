@@ -2259,8 +2259,16 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
     
     # Получаем язык пользователя
     language = "ru"
+    conn = None  # Инициализируем переменную заранее
     try:
-        conn = pymysql.connect(...)
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
         with conn.cursor() as cursor:
             cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
