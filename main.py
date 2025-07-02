@@ -2239,31 +2239,28 @@ async def post_init(application: Application) -> None:
 
 
 # Добавим новые состояния для диалога о тренировке
+# В начале файла с другими состояниями
 (
-    WORKOUT_LOCATION, 
-    WORKOUT_DURATION,
-    WORKOUT_CONFIRMATION,
-    WORKOUT_COMMENT
-) = range(16, 20)
+    ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
+    ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, 
+    ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS,
+    WORKOUT_LOCATION, WORKOUT_DURATION, WORKOUT_CONFIRMATION, WORKOUT_COMMENT
+) = range(20)
+
+
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
-    await query.answer()
+    if query:
+        await query.answer()
     
-    user_id = query.from_user.id
+    user_id = update.effective_user.id
     context.user_data['workout_data'] = {}
     
     # Получаем язык пользователя
     language = "ru"
     try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
+        conn = pymysql.connect(...)
         with conn.cursor() as cursor:
             cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
             row = cursor.fetchone()
@@ -2294,7 +2291,12 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
         text = "🏋️ Choose workout location:"
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    
+    if query:
+        await query.edit_message_text(text=text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text=text, reply_markup=reply_markup)
+    
     return WORKOUT_LOCATION
 
 async def set_workout_location(update: Update, context: CallbackContext) -> int:
@@ -3610,18 +3612,14 @@ TEXT: ...
 def main():
     init_db()
     
-    # Создаем Application с post_init обработчиком
-    app = Application.builder() \
-        .token(TOKEN) \
-        .post_init(post_init) \
-        .build()
-
-    # Добавляем обработчики для тренировок
+    app = Application.builder().token(TOKEN).post_init(post_init).build()
+    
+    # Добавляем обработчик тренировок ПЕРВЫМ
     workout_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("workout", start_workout)],
         states={
-            WORKOUT_LOCATION: [CallbackQueryHandler(set_workout_location)],
-            WORKOUT_DURATION: [CallbackQueryHandler(set_workout_duration)],
+            WORKOUT_LOCATION: [CallbackQueryHandler(set_workout_location, pattern="^(gym|outdoor|playground|home)$")],
+            WORKOUT_DURATION: [CallbackQueryHandler(set_workout_duration, pattern="^(15|30|60|90|120)$")],
             WORKOUT_CONFIRMATION: [
                 CallbackQueryHandler(finish_workout, pattern="^finish_workout$"),
                 CallbackQueryHandler(add_workout_comment, pattern="^add_comment$")
@@ -3632,6 +3630,7 @@ def main():
     )
     
     app.add_handler(workout_conv_handler)
+
 
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
