@@ -36,8 +36,8 @@ FREE_TRIAL_HOURS = 24  # Продолжительность бесплатног
 PERMANENT_ACCESS_CODE = "S05D"  # Код для перманентного доступа
 
 # Ключи ЮКассы
-YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
-YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
+YOOKASSA_SECRET_KEY = "live_K90ck_kpGCHi2r9GoAnvoTWLZ5j-wcJK7cKaG8c_2ZU"
+YOOKASSA_SHOP_ID = "1111515"
 
 # Класс для статусов подписки
 class SubscriptionStatus(Enum):
