@@ -149,6 +149,7 @@ def init_db():
 
 
 
+
 def save_user_profile(user_id: int, profile: dict):
     conn = None
     try:
