@@ -35,7 +35,7 @@ SUBSCRIPTION_PRICES = {
 FREE_TRIAL_HOURS = 24  # Продолжительность бесплатного периода в часах
 PERMANENT_ACCESS_CODE = "S05D"  # Код для перманентного доступа
 
-# Ключи ЮКассы (из secret.txt)
+# Ключи ЮКассы
 YOOKASSA_SECRET_KEY = "live_K90ck_kpGCHi2r9GoAnvoTWLZ5j-wcJK7cKaG8c_2ZU"
 YOOKASSA_SHOP_ID = "1111515"
 
@@ -105,6 +105,7 @@ def init_db():
                     last_nutrition_update DATE,
                     reminders TEXT,
                     meal_history JSON,
+                    workout_history JSON DEFAULT ('{}'),
                     subscription_status ENUM('trial', 'active', 'expired', 'permanent') DEFAULT 'trial',
                     subscription_type VARCHAR(20),
                     subscription_start DATETIME,
@@ -126,7 +127,7 @@ def init_db():
             
             # Добавляем новые колонки, если их нет
             new_columns = [
-                ('workout_history', "ALTER TABLE user_profiles ADD COLUMN workout_history JSON DEFAULT '{}'"),
+                ('workout_history', "ALTER TABLE user_profiles ADD COLUMN workout_history JSON DEFAULT ('{}')"),
                 ('subscription_status', "ALTER TABLE user_profiles ADD COLUMN subscription_status ENUM('trial', 'active', 'expired', 'permanent') DEFAULT 'trial'"),
                 ('subscription_type', "ALTER TABLE user_profiles ADD COLUMN subscription_type VARCHAR(20)"),
                 ('subscription_start', "ALTER TABLE user_profiles ADD COLUMN subscription_start DATETIME"),
@@ -146,8 +147,6 @@ def init_db():
         raise
     finally:
         conn.close()
-
-
 
 
 def save_user_profile(user_id: int, profile: dict):
@@ -1885,11 +1884,22 @@ async def check_and_create_water_job(context: CallbackContext):
         conn.close()
 
 
+
+
 async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
 
     user_id = query.from_user.id
+
+    if query.data == "start_workout":
+        # Перенаправляем на команду /workout
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Начинаем процесс создания тренировки...",
+            reply_markup=None
+        )
+        return await start_workout(update, context)
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2227,12 +2237,425 @@ async def post_init(application: Application) -> None:
     ])
 
 
+
+# Добавим новые состояния для диалога о тренировке
+# В начале файла с другими состояниями
+(
+    ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
+    ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, 
+    ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS,
+    WORKOUT_LOCATION, WORKOUT_DURATION, WORKOUT_CONFIRMATION, WORKOUT_COMMENT
+) = range(20)
+
+
+
+async def start_workout(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    if query:
+        await query.answer()
+    
+    user_id = update.effective_user.id
+    context.user_data['workout_data'] = {}
+    
+    # Получаем язык пользователя
+    language = "ru"
+    try:
+        conn = pymysql.connect(...)
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
+    # Создаем клавиатуру для выбора места тренировки
+    if language == "ru":
+        keyboard = [
+            [InlineKeyboardButton("В зале", callback_data="gym")],
+            [InlineKeyboardButton("На природе", callback_data="outdoor")],
+            [InlineKeyboardButton("На спортплощадке", callback_data="playground")],
+            [InlineKeyboardButton("Дома", callback_data="home")]
+        ]
+        text = "🏋️ Выберите место тренировки:"
+    else:
+        keyboard = [
+            [InlineKeyboardButton("Gym", callback_data="gym")],
+            [InlineKeyboardButton("Outdoor", callback_data="outdoor")],
+            [InlineKeyboardButton("Playground", callback_data="playground")],
+            [InlineKeyboardButton("Home", callback_data="home")]
+        ]
+        text = "🏋️ Choose workout location:"
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if query:
+        await query.edit_message_text(text=text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text=text, reply_markup=reply_markup)
+    
+    return WORKOUT_LOCATION
+
+async def set_workout_location(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    location = query.data
+    context.user_data['workout_data']['location'] = location
+    
+    # Получаем язык пользователя
+    user_id = query.from_user.id
+    language = "ru"
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
+    # Создаем клавиатуру для выбора продолжительности
+    if language == "ru":
+        keyboard = [
+            [InlineKeyboardButton("15 минут", callback_data="15")],
+            [InlineKeyboardButton("30 минут", callback_data="30")],
+            [InlineKeyboardButton("1 час", callback_data="60")],
+            [InlineKeyboardButton("1.5 часа", callback_data="90")],
+            [InlineKeyboardButton("2 часа", callback_data="120")]
+        ]
+        text = "⏱ Выберите продолжительность тренировки:"
+    else:
+        keyboard = [
+            [InlineKeyboardButton("15 minutes", callback_data="15")],
+            [InlineKeyboardButton("30 minutes", callback_data="30")],
+            [InlineKeyboardButton("1 hour", callback_data="60")],
+            [InlineKeyboardButton("1.5 hours", callback_data="90")],
+            [InlineKeyboardButton("2 hours", callback_data="120")]
+        ]
+        text = "⏱ Choose workout duration:"
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    return WORKOUT_DURATION
+
+async def set_workout_duration(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    duration = int(query.data)
+    context.user_data['workout_data']['duration'] = duration
+    
+    # Получаем профиль пользователя для генерации тренировки
+    user_id = query.from_user.id
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT gender, age, weight, height, goal, activity, 
+                       diet, health, equipment, target_metric, unique_facts,
+                       language, workout_history
+                FROM user_profiles 
+                WHERE user_id = %s
+            """, (user_id,))
+            profile = cursor.fetchone()
+    except Exception as e:
+        print(f"Ошибка при получении профиля: {e}")
+        await query.edit_message_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
+        return ConversationHandler.END
+    finally:
+        if conn:
+            conn.close()
+    
+    if not profile:
+        await query.edit_message_text("Профиль не найден. Пройдите анкету с помощью /start.")
+        return ConversationHandler.END
+    
+    language = profile['language'] or "ru"
+    
+    # Формируем запрос для генерации тренировки
+    workout_prompt = {
+        "location": context.user_data['workout_data']['location'],
+        "duration": duration,
+        "user_profile": {
+            "gender": profile['gender'],
+            "age": profile['age'],
+            "weight": profile['weight'],
+            "height": profile['height'],
+            "goal": profile['goal'],
+            "activity": profile['activity'],
+            "diet": profile['diet'],
+            "health": profile['health'],
+            "equipment": profile['equipment'],
+            "target_metric": profile['target_metric'],
+            "unique_facts": profile['unique_facts'],
+            "previous_workouts": json.loads(profile['workout_history']) if profile['workout_history'] else {}
+        }
+    }
+    
+    # Генерируем тренировку с помощью Gemini
+    try:
+        response = model.generate_content([
+            {"text": "Сгенерируй персонализированную тренировку на основе следующих данных:"},
+            {"text": json.dumps(workout_prompt, ensure_ascii=False)},
+            {"text": """
+            Формат ответа должен быть:
+            
+            SQL: INSERT INTO workout_history (user_id, workout_data) VALUES (%s, %s)
+            TEXT: 
+            🏋️ Ваша персонализированная тренировка:
+            
+            [Подробное описание тренировки с упражнениями, подходами и повторениями]
+            
+            💡 Советы: [персонализированные советы по выполнению]
+            """}
+        ])
+        
+        response_text = response.text.strip()
+        
+        # Извлекаем SQL и TEXT части
+        sql_part = None
+        text_part = None
+        
+        sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
+        if sql_match:
+            sql_part = sql_match.group(1).strip()
+            
+        text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
+        if text_matches:
+            text_part = text_matches[-1].strip()
+        
+        if not text_part:
+            text_part = "Я подготовил для вас тренировку, но произошла ошибка при форматировании."
+        
+        # Сохраняем тренировку в базу данных
+        if sql_part:
+            try:
+                workout_data = {
+                    "location": context.user_data['workout_data']['location'],
+                    "duration": duration,
+                    "exercises": text_part,
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "comment": ""
+                }
+                
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
+                with conn.cursor() as cursor:
+                    # Получаем текущую историю тренировок
+                    cursor.execute("SELECT workout_history FROM user_profiles WHERE user_id = %s", (user_id,))
+                    result = cursor.fetchone()
+                    workout_history = json.loads(result['workout_history']) if result and result['workout_history'] else {}
+                    
+                    # Добавляем новую тренировку (сохраняем только последние 3)
+                    workout_id = str(uuid.uuid4())
+                    workout_history[workout_id] = workout_data
+                    
+                    # Оставляем только последние 3 тренировки
+                    if len(workout_history) > 3:
+                        # Удаляем самые старые записи
+                        sorted_workouts = sorted(workout_history.items(), key=lambda x: x[1]['date'])
+                        for key, _ in sorted_workouts[:-3]:
+                            del workout_history[key]
+                    
+                    # Обновляем базу данных
+                    cursor.execute("""
+                        UPDATE user_profiles 
+                        SET workout_history = %s 
+                        WHERE user_id = %s
+                    """, (json.dumps(workout_history), user_id))
+                    conn.commit()
+            except Exception as e:
+                print(f"Ошибка при сохранении тренировки: {e}")
+            finally:
+                if conn:
+                    conn.close()
+        
+        # Добавляем кнопки для завершения тренировки и добавления комментария
+        if language == "ru":
+            keyboard = [
+                [InlineKeyboardButton("Добавить комментарий", callback_data="add_comment")],
+                [InlineKeyboardButton("Завершить тренировку", callback_data="finish_workout")]
+            ]
+        else:
+            keyboard = [
+                [InlineKeyboardButton("Add comment", callback_data="add_comment")],
+                [InlineKeyboardButton("Finish workout", callback_data="finish_workout")]
+            ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text=text_part, reply_markup=reply_markup)
+        
+        # Сохраняем ID тренировки для возможного комментария
+        context.user_data['current_workout_id'] = workout_id
+        
+        return WORKOUT_CONFIRMATION
+        
+    except Exception as e:
+        print(f"Ошибка при генерации тренировки: {e}")
+        await query.edit_message_text("Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже.")
+        return ConversationHandler.END
+
+async def finish_workout(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    language = "ru"
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
+    if language == "ru":
+        text = "🏁 Тренировка завершена! Хорошая работа! 💪"
+    else:
+        text = "🏁 Workout completed! Great job! 💪"
+    
+    await query.edit_message_text(text=text)
+    return ConversationHandler.END
+
+async def add_workout_comment(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    language = "ru"
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
+    if language == "ru":
+        text = "💬 Пожалуйста, напишите ваш комментарий к тренировке:"
+    else:
+        text = "💬 Please write your comment about the workout:"
+    
+    await query.edit_message_text(text=text)
+    return WORKOUT_COMMENT
+
+async def save_workout_comment(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    comment = update.message.text
+    
+    if 'current_workout_id' not in context.user_data:
+        await update.message.reply_text("Произошла ошибка. Пожалуйста, начните тренировку заново.")
+        return ConversationHandler.END
+    
+    workout_id = context.user_data['current_workout_id']
+    
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            # Получаем текущую историю тренировок
+            cursor.execute("SELECT workout_history FROM user_profiles WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            workout_history = json.loads(result['workout_history']) if result and result['workout_history'] else {}
+            
+            # Добавляем комментарий к текущей тренировке
+            if workout_id in workout_history:
+                workout_history[workout_id]['comment'] = comment
+                
+                # Обновляем базу данных
+                cursor.execute("""
+                    UPDATE user_profiles 
+                    SET workout_history = %s 
+                    WHERE user_id = %s
+                """, (json.dumps(workout_history), user_id))
+                conn.commit()
+                
+                # Получаем язык пользователя
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+                row = cursor.fetchone()
+                language = row['language'] if row and row['language'] else "ru"
+                
+                if language == "ru":
+                    text = "💬 Ваш комментарий сохранен! Спасибо за обратную связь!"
+                else:
+                    text = "💬 Your comment has been saved! Thank you for feedback!"
+                
+                await update.message.reply_text(text)
+            else:
+                await update.message.reply_text("Тренировка не найдена. Комментарий не сохранен.")
+    except Exception as e:
+        print(f"Ошибка при сохранении комментария: {e}")
+        await update.message.reply_text("Произошла ошибка при сохранении комментария.")
+    finally:
+        if conn:
+            conn.close()
+    
+    return ConversationHandler.END
+
+
+
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
     keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
-        [InlineKeyboardButton("💧 Водный баланс", callback_data="water_balance"),
-         InlineKeyboardButton("📊 Питание", callback_data="nutrition")]
+        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2243,265 +2666,6 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-
-# Добавим новые состояния для ConversationHandler
-(
-    WORKOUT_LOCATION, 
-    WORKOUT_DURATION,
-    WORKOUT_COMMENT
-) = range(16, 19)  # Продолжаем нумерацию после существующих состояний
-
-async def start_workout(update: Update, context: CallbackContext) -> int:
-    query = update.callback_query
-    await query.answer()
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("🏢 В зале", callback_data="gym"),
-            InlineKeyboardButton("🌳 На природе", callback_data="nature")
-        ],
-        [
-            InlineKeyboardButton("🏟️ На спортплощадке", callback_data="playground"),
-            InlineKeyboardButton("🏠 Домашняя", callback_data="home")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        text="🏋️ Выберите место проведения тренировки:",
-        reply_markup=reply_markup
-    )
-    
-    return WORKOUT_LOCATION
-
-
-async def ask_workout_duration(update: Update, context: CallbackContext) -> int:
-    query = update.callback_query
-    await query.answer()
-    
-    location = query.data
-    context.user_data['workout_location'] = location
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("15 мин", callback_data="15"),
-            InlineKeyboardButton("30 мин", callback_data="30"),
-            InlineKeyboardButton("1 час", callback_data="60")
-        ],
-        [
-            InlineKeyboardButton("1.5 часа", callback_data="90"),
-            InlineKeyboardButton("2 часа", callback_data="120")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        text="⏱ Выберите продолжительность тренировки:",
-        reply_markup=reply_markup
-    )
-    
-    return WORKOUT_DURATION
-
-async def generate_workout(update: Update, context: CallbackContext) -> int:
-    query = update.callback_query
-    await query.answer()
-    
-    duration = query.data
-    context.user_data['workout_duration'] = duration
-    
-    user_id = query.from_user.id
-    
-    # Получаем данные пользователя
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT * FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            user_data = cursor.fetchone()
-            
-            if not user_data:
-                await query.edit_message_text("Профиль не найден. Пройдите анкету с /start")
-                return ConversationHandler.END
-                
-            # Формируем данные для промпта
-            workout_data = {
-                "location": context.user_data['workout_location'],
-                "duration": context.user_data['workout_duration'],
-                "user_profile": {
-                    "gender": user_data['gender'],
-                    "age": user_data['age'],
-                    "weight": user_data['weight'],
-                    "height": user_data['height'],
-                    "goal": user_data['goal'],
-                    "activity": user_data['activity'],
-                    "health": user_data['health'],
-                    "equipment": user_data['equipment'],
-                    "target_metric": user_data['target_metric']
-                }
-            }
-            
-            # Получаем историю тренировок
-            workout_history = json.loads(user_data['workout_history']) if user_data['workout_history'] else {}
-            
-            # Отправляем запрос к Gemini
-            prompt = f"""
-            Сгенерируйте персонализированную тренировку на основе следующих данных:
-            
-            Место: {workout_data['location']}
-            Продолжительность: {workout_data['duration']} минут
-            Профиль пользователя: {json.dumps(workout_data['user_profile'], ensure_ascii=False)}
-            История тренировок: {json.dumps(workout_history, ensure_ascii=False)}
-            
-            Формат ответа:
-            SQL: INSERT INTO workout_history...
-            TEXT: [Текст тренировки с упражнениями, подходами и повторениями]
-            """
-            
-            response = model.generate_content([{"text": prompt}])
-            response_text = response.text.strip()
-            
-            # Обрабатываем SQL часть
-            sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
-            if sql_match:
-                sql_part = sql_match.group(1).strip()
-                
-                # Обновляем workout_history в базе
-                try:
-                    if "UPDATE" in sql_part.upper():
-                        sql_part = sql_part.replace('?', '%s')
-                        cursor.execute(sql_part, (user_id,))
-                    elif "INSERT" in sql_part.upper():
-                        # Добавляем новую тренировку в историю
-                        new_workout = {
-                            "location": workout_data['location'],
-                            "duration": workout_data['duration'],
-                            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            "exercises": "generated_by_gemini",  # Будет заменено фактическими данными
-                            "comment": ""
-                        }
-                        
-                        if not workout_history:
-                            workout_history = {"workouts": []}
-                        elif "workouts" not in workout_history:
-                            workout_history["workouts"] = []
-                            
-                        workout_history["workouts"].append(new_workout)
-                        
-                        # Ограничиваем историю последними 3 тренировками
-                        if len(workout_history["workouts"]) > 3:
-                            workout_history["workouts"] = workout_history["workouts"][-3:]
-                            
-                        cursor.execute("""
-                            UPDATE user_profiles 
-                            SET workout_history = %s 
-                            WHERE user_id = %s
-                        """, (json.dumps(workout_history), user_id))
-                        
-                    conn.commit()
-                except Exception as e:
-                    print(f"Ошибка при выполнении SQL: {e}")
-            
-            # Извлекаем текст тренировки
-            text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
-            if text_matches:
-                workout_text = text_matches[-1].strip()
-            else:
-                workout_text = "Не удалось сгенерировать тренировку. Попробуйте позже."
-                
-            # Добавляем кнопки для комментария и завершения
-            keyboard = [
-                [
-                    InlineKeyboardButton("💬 Комментарий к тренировке", callback_data="add_comment"),
-                    InlineKeyboardButton("✅ Завершить", callback_data="finish_workout")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                text=workout_text,
-                reply_markup=reply_markup
-            )
-            
-            return WORKOUT_COMMENT
-            
-    finally:
-        conn.close()
-
-async def handle_workout_comment(update: Update, context: CallbackContext) -> int:
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "finish_workout":
-        await query.edit_message_text(
-            text="🏁 Тренировка завершена! Хорошая работа!",
-            reply_markup=None
-        )
-        return ConversationHandler.END
-    elif query.data == "add_comment":
-        await query.edit_message_text(
-            text="💬 Напишите ваш комментарий к тренировке (например, какие упражнения были слишком легкими/тяжелыми, какие ощущения и т.д.):"
-        )
-        return WORKOUT_COMMENT
-
-async def save_workout_comment(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
-    comment = update.message.text
-    
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT workout_history FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            result = cursor.fetchone()
-            
-            if result and result['workout_history']:
-                workout_history = json.loads(result['workout_history'])
-                
-                if "workouts" in workout_history and workout_history["workouts"]:
-                    # Добавляем комментарий к последней тренировке
-                    workout_history["workouts"][-1]["comment"] = comment
-                    
-                    cursor.execute("""
-                        UPDATE user_profiles 
-                        SET workout_history = %s 
-                        WHERE user_id = %s
-                    """, (json.dumps(workout_history), user_id))
-                    conn.commit()
-                    
-        await update.message.reply_text(
-            "💬 Ваш комментарий сохранён и будет учтён при следующей тренировке!"
-        )
-        
-    except Exception as e:
-        print(f"Ошибка при сохранении комментария: {e}")
-        await update.message.reply_text(
-            "Произошла ошибка при сохранении комментария. Попробуйте позже."
-        )
-    finally:
-        conn.close()
-        
-    return ConversationHandler.END
-
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
@@ -3174,49 +3338,64 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 
 29. Генерация тренировок:
-   - При получении запроса на генерацию тренировки учитывай:
-     1. Место проведения (зал, природа, спортплощадка, дом)
-     2. Продолжительность тренировки
-     3. Данные пользователя (пол, возраст, вес, рост, цели, здоровье, оборудование)
-     4. Историю предыдущих тренировок (особенно комментарии)
+   - Когда пользователь запрашивает тренировку (через команду /workout), ты получаешь JSON с данными:
+     {
+       "location": "gym|outdoor|playground|home",
+       "duration": minutes,
+       "user_profile": {
+         "gender": "м|ж",
+         "age": number,
+         "weight": kg,
+         "height": cm,
+         "goal": "похудеть|набрать массу|рельеф|ЗОЖ",
+         "activity": "новичок|средний|продвинутый",
+         "diet": "особенности питания",
+         "health": "ограничения по здоровью",
+         "equipment": "доступный инвентарь",
+         "target_metric": "конкретная цель",
+         "unique_facts": "уникальные факты",
+         "previous_workouts": {
+           "workout_id": {
+             "location": "...",
+             "duration": minutes,
+             "exercises": "описание",
+             "date": "YYYY-MM-DD HH:MM:SS",
+             "comment": "комментарий пользователя"
+           }
+         }
+       }
+     }
 
-   - Формат тренировки:
-     * Разминка: 5-10 минут
-     * Основная часть: упражнения с подходами и повторениями
-     * Заминка: 5 минут
-
-   - Для каждого упражнения указывай:
-     * Название
-     * Количество подходов
-     * Количество повторений
-     * Отдых между подходами
-     * Альтернативные варианты (если есть ограничения)
-
-   - Учитывай комментарии из предыдущих тренировок:
-     * Если была жалоба на сложность - уменьшай нагрузку
-     * Если была жалоба на легкость - увеличивай нагрузку
-     * Если были травмы - исключи опасные упражнения
+   - На основе этих данных сгенерируй персонализированную тренировку:
+     1. Учитывай место тренировки (зал, улица и т.д.)
+     2. Учитывай продолжительность (распредели нагрузку)
+     3. Учитывай все данные профиля (цели, здоровье и т.д.)
+     4. Учитывай предыдущие тренировки и комментарии к ним
+     5. Для новичков делай более простые упражнения
+     6. Для продвинутых - более сложные с прогрессией
+     7. Если есть ограничения по здоровью - исключи опасные упражнения
+     8. Если есть комментарии о сложности - скорректируй нагрузку
 
    - Формат ответа:
-     SQL: UPDATE user_profiles SET workout_history = %s WHERE user_id = %s
-     TEXT:
+     SQL: INSERT INTO workout_history (user_id, workout_data) VALUES (%s, %s)
+     TEXT: 
      🏋️ Ваша персонализированная тренировка:
+     
+     [Подробное описание тренировки с упражнениями, подходами и повторениями]
+     
+     💡 Советы: [персонализированные советы по выполнению]
 
-     🔥 Разминка:
-     - [упражнения]
+   - Пример структуры workout_data для SQL:
+     {
+       "location": "...",
+       "duration": minutes,
+       "exercises": "описание",
+       "date": "YYYY-MM-DD HH:MM:SS",
+       "comment": ""
+     }
 
-     💪 Основная часть:
-     1. [упражнение] - [подходы]x[повторения], отдых [секунды]
-     2. [упражнение] - [подходы]x[повторения], отдых [секунды]
-     ...
+   - Сохраняй только последние 3 тренировки пользователя
 
-     🧘 Заминка:
-     - [упражнения]
-
-     💡 Советы:
-     - [персонализированные советы]
-
-     💬 После тренировки можете оставить комментарий - это поможет улучшить следующие тренировки!
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
@@ -3433,11 +3612,25 @@ TEXT: ...
 def main():
     init_db()
     
-    # Создаем Application с post_init обработчиком
-    app = Application.builder() \
-        .token(TOKEN) \
-        .post_init(post_init) \
-        .build()
+    app = Application.builder().token(TOKEN).post_init(post_init).build()
+    
+    # Добавляем обработчик тренировок ПЕРВЫМ
+    workout_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("workout", start_workout)],
+        states={
+            WORKOUT_LOCATION: [CallbackQueryHandler(set_workout_location, pattern="^(gym|outdoor|playground|home)$")],
+            WORKOUT_DURATION: [CallbackQueryHandler(set_workout_duration, pattern="^(15|30|60|90|120)$")],
+            WORKOUT_CONFIRMATION: [
+                CallbackQueryHandler(finish_workout, pattern="^finish_workout$"),
+                CallbackQueryHandler(add_workout_comment, pattern="^add_comment$")
+            ],
+            WORKOUT_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_workout_comment)]
+        },
+        fallbacks=[],
+    )
+    
+    app.add_handler(workout_conv_handler)
+
 
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
@@ -3456,20 +3649,6 @@ def main():
         check_payment_status, 
         interval=300, 
         first=10
-    )
-
-    workout_conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_workout, pattern="^start_workout$")],
-        states={
-            WORKOUT_LOCATION: [CallbackQueryHandler(ask_workout_duration)],
-            WORKOUT_DURATION: [CallbackQueryHandler(generate_workout)],
-            WORKOUT_COMMENT: [
-                CallbackQueryHandler(handle_workout_comment),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, save_workout_comment)
-            ]   
-        },
-        fallbacks=[],
-        per_message=False  # Это важно для корректной работы с CallbackQuery
     )
 
     # Добавляем обработчик кнопок
@@ -3506,8 +3685,6 @@ def main():
     )
 
     app.add_handler(conv_handler)
-    app.add_handler(workout_conv_handler)
-    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(CommandHandler("profile", show_profile))
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
