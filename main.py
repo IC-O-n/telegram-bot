@@ -2468,21 +2468,19 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
 async def generate_workout(update: Update, context: CallbackContext) -> int:
     # Определяем, откуда пришел запрос
     if context.user_data.get('awaiting_special_requests', False):
-        # Это текстовое сообщение с пожеланиями
         user_input = update.message.text
         context.user_data['workout_special_requests'] = user_input
         context.user_data['awaiting_special_requests'] = False
         chat_id = update.message.chat_id
     else:
-        # Это callback-запрос без пожеланий
         query = update.callback_query
         await query.answer()
         chat_id = query.message.chat_id
 
-    # Получаем данные пользователя
     user_id = update.effective_user.id
-    conn = None
+    
     try:
+        # Получаем данные пользователя
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
             user='x91345bo_nutrbot',
@@ -2491,6 +2489,7 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
+        
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT language, gender, activity, equipment, health, goal 
@@ -2508,66 +2507,52 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
 
         language = row['language'] or "ru"
         gender = row['gender'] or "м"
-        activity = row['activity'] or "Новичок"
+        activity = row['activity'] or "Средний"
         equipment = row['equipment'] or ""
         health = row['health'] or ""
-        goal = row['goal'] or ""
+        goal = row['goal'] or "ЗОЖ"
+        
+        # Получаем параметры тренировки из context.user_data
+        location = context.user_data.get('workout_location', 'playground')
+        duration = context.user_data.get('workout_duration', '90')
+        special_requests = context.user_data.get('workout_special_requests', 'Хочу сделать упор на ноги')
 
-        # Формируем промпт
-        location_map = {
-            "ru": {
-                "gym": "в зале",
-                "outdoor": "на природе",
-                "playground": "на спортплощадке",
-                "home": "дома"
-            },
-            "en": {
-                "gym": "in the gym",
-                "outdoor": "outdoors",
-                "playground": "on the playground",
-                "home": "at home"
-            }
-        }
-
-        location = location_map.get(language, location_map["ru"]).get(
-            context.user_data.get('workout_location', 'gym'),
-            location_map.get(language, location_map["ru"])["gym"]
+        # Формируем промпт для Gemini
+        prompt = (
+            f"Сгенерируй подробную тренировку для мужчины среднего уровня подготовки. "
+            f"Цель: {goal}. "
+            f"Место тренировки: {location}. "
+            f"Продолжительность: {duration} минут. "
+            f"Оборудование: {equipment}. "
+            f"Ограничения по здоровью: {health}. "
+            f"Пожелания: {special_requests}.\n\n"
+            "Формат ответа:\n"
+            "🏋️ *Название тренировки*\n\n"
+            "📍 *Место:* [место]\n"
+            "⏱ *Длительность:* [время]\n"
+            "🎯 *Фокус:* [группы мышц]\n\n"
+            "🔥 *Разминка (10-15 мин):*\n"
+            "- [Упражнение] - [подходы/повторы/описание]\n\n"
+            "💪 *Основная часть:*\n"
+            "- [Упражнение] - [подходы/повторы/описание]\n\n"
+            "🧘 *Заминка (5-10 мин):*\n"
+            "- [Растяжка] - [время/описание]\n\n"
+            "💡 *Рекомендации:*\n"
+            "- [Совет 1]\n"
+            "- [Совет 2]"
         )
 
-        duration = context.user_data.get('workout_duration', '30')
-        special_requests = context.user_data.get('workout_special_requests', '')
-
-        prompt_parts = [
-            f"Сгенерируй для меня тренировку {location} продолжительностью {duration} минут.",
-            f"Я {gender}, уровень подготовки: {activity}.",
-            f"Моя цель: {goal}.",
-            f"Имеющееся оборудование: {equipment}.",
-            f"Ограничения по здоровью: {health}."
-        ]
-
-        if special_requests:
-            prompt_parts.append(f"Мои пожелания: {special_requests}.")
-
-        prompt = " ".join(prompt_parts)
-
-        # Отправляем промпт как обычное сообщение
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=prompt
-        )
-
-        # Обрабатываем как обычное сообщение
-        fake_message = Message(
-            message_id=update.update_id + 1,
-            date=datetime.now(),
-            chat=Chat(chat_id, type='private'),
-            text=prompt,
-            from_user=update.effective_user,
-            bot=context.bot  # Важно: привязываем бота к сообщению
-        )
-
-        fake_update = Update(update.update_id + 1, message=fake_message)
-        await handle_message(fake_update, context)
+        # Отправляем запрос к Gemini
+        response = model.generate_content(prompt)
+        
+        if response.text:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=response.text,
+                parse_mode="Markdown"
+            )
+        else:
+            raise ValueError("Пустой ответ от модели")
 
     except Exception as e:
         print(f"Ошибка при генерации тренировки: {e}")
