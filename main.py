@@ -39,15 +39,6 @@ PERMANENT_ACCESS_CODE = "S05D"  # Код для перманентного до�
 YOOKASSA_SECRET_KEY = "live_K90ck_kpGCHi2r9GoAnvoTWLZ5j-wcJK7cKaG8c_2ZU"
 YOOKASSA_SHOP_ID = "1111515"
 
-
-(
-    ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
-    ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, 
-    ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS,
-    WORKOUT_LOCATION, WORKOUT_DURATION, WORKOUT_SPECIAL_WISHES, WORKOUT_WISHES_TEXT
-) = range(20)
-
-
 # Класс для статусов подписки
 class SubscriptionStatus(Enum):
     TRIAL = "trial"
@@ -1898,19 +1889,9 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     user_id = query.from_user.id
 
     if query.data == "start_workout":
-        # Create a fake update with message for the start_workout handler
-        fake_update = Update(
-            update.update_id + 1,  # Use a new update_id
-            message=Message(
-                message_id=query.message.message_id + 1,  # New message_id
-                date=datetime.now(),
-                chat=query.message.chat,
-                from_user=query.from_user,
-                text="/workout"
-            )
-        )
-        await start_workout(fake_update, context)
+        await start_workout(update, context)
         return
+
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2264,16 +2245,24 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
     )
 
 
-async def start_workout(update: Update, context: CallbackContext) -> int:
-    # Get user_id from either message or callback_query
-    if update.message:
-        user_id = update.message.from_user.id
-    elif update.callback_query:
-        user_id = update.callback_query.from_user.id
-    else:
-        print("No user_id found in update")
-        return ConversationHandler.END
+# Добавляем новые состояния в начало файла, где объявлены другие состояния
+(
+    ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
+    ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, 
+    ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS,
+    WORKOUT_LOCATION, WORKOUT_DURATION, WORKOUT_SPECIAL_WISHES, WORKOUT_WISHES_TEXT
+) = range(20)
 
+
+async def start_workout(update: Update, context: CallbackContext) -> int:
+    # Получаем user_id и message в зависимости от типа update
+    if update.callback_query:
+        user_id = update.callback_query.from_user.id
+        message = update.callback_query.message
+    else:
+        user_id = update.message.from_user.id
+        message = update.message
+    
     language = "ru"  # По умолчанию русский
     
     # Получаем язык пользователя из базы данных
@@ -2319,28 +2308,27 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Send message differently depending on how the command was initiated
-    if update.message:
-        await update.message.reply_text(
+    # Отправляем сообщение в зависимости от типа update
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
             "🏋️ Где будет проходить тренировка?" if language == "ru" else "🏋️ Where will the workout take place?",
             reply_markup=reply_markup
         )
-    elif update.callback_query:
-        await update.callback_query.edit_message_text(
+    else:
+        await message.reply_text(
             "🏋️ Где будет проходить тренировка?" if language == "ru" else "🏋️ Where will the workout take place?",
             reply_markup=reply_markup
         )
     
     return WORKOUT_LOCATION
 
-
 async def handle_workout_location(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
-
+    
     user_id = query.from_user.id
     context.user_data['workout_location'] = query.data
-
+    
     # Получаем язык пользователя
     language = "ru"
     try:
@@ -2362,7 +2350,7 @@ async def handle_workout_location(update: Update, context: CallbackContext) -> i
     finally:
         if conn:
             conn.close()
-
+    
     # Создаем клавиатуру для выбора продолжительности
     keyboard = [
         [InlineKeyboardButton("15 мин", callback_data="15")],
@@ -2371,23 +2359,23 @@ async def handle_workout_location(update: Update, context: CallbackContext) -> i
         [InlineKeyboardButton("1.5 часа", callback_data="90")],
         [InlineKeyboardButton("2 часа", callback_data="120")]
     ]
-
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
-
+    
     await query.edit_message_text(
         "⏱ Выберите продолжительность тренировки:" if language == "ru" else "⏱ Choose workout duration:",
         reply_markup=reply_markup
     )
-
+    
     return WORKOUT_DURATION
 
 async def handle_workout_duration(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
-
+    
     user_id = query.from_user.id
     context.user_data['workout_duration'] = int(query.data)
-
+    
     # Получаем язык пользователя
     language = "ru"
     try:
@@ -2409,29 +2397,29 @@ async def handle_workout_duration(update: Update, context: CallbackContext) -> i
     finally:
         if conn:
             conn.close()
-
+    
     # Создаем клавиатуру для вопроса о пожеланиях
     keyboard = [
         [InlineKeyboardButton("Да", callback_data="yes")],
         [InlineKeyboardButton("Нет", callback_data="no")]
     ]
-
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
-
+    
     await query.edit_message_text(
         "Есть особые пожелания?" if language == "ru" else "Any special wishes?",
         reply_markup=reply_markup
     )
-
+    
     return WORKOUT_SPECIAL_WISHES
 
 async def handle_workout_wishes(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
-
+    
     user_id = query.from_user.id
     choice = query.data
-
+    
     # Получаем язык пользователя
     language = "ru"
     try:
@@ -2453,7 +2441,7 @@ async def handle_workout_wishes(update: Update, context: CallbackContext) -> int
     finally:
         if conn:
             conn.close()
-
+    
     if choice == "yes":
         await query.edit_message_text(
             "Напишите ваши пожелания:" if language == "ru" else "Please write your wishes:"
@@ -2466,13 +2454,13 @@ async def handle_workout_wishes(update: Update, context: CallbackContext) -> int
 async def handle_workout_wishes_text(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     context.user_data['workout_wishes'] = update.message.text
-
+    
     await generate_workout(update, context)
     return ConversationHandler.END
 
 async def generate_workout(update: Update, context: CallbackContext):
     user_id = update.callback_query.from_user.id if hasattr(update, 'callback_query') else update.message.from_user.id
-
+    
     # Получаем данные пользователя
     try:
         conn = pymysql.connect(
@@ -2486,7 +2474,7 @@ async def generate_workout(update: Update, context: CallbackContext):
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT gender, age, weight, height, goal, activity, diet, health, equipment, target_metric, language
-                FROM user_profiles
+                FROM user_profiles 
                 WHERE user_id = %s
             """, (user_id,))
             user_data = cursor.fetchone()
@@ -2500,9 +2488,9 @@ async def generate_workout(update: Update, context: CallbackContext):
     finally:
         if conn:
             conn.close()
-
+    
     language = user_data.get('language', 'ru')
-
+    
     # Показываем сообщение о генерации тренировки
     if hasattr(update, 'callback_query'):
         await update.callback_query.edit_message_text(
@@ -2512,11 +2500,11 @@ async def generate_workout(update: Update, context: CallbackContext):
         await update.message.reply_text(
             "Идет процесс создания тренировки..." if language == "ru" else "Generating workout..."
         )
-
+    
     # Формируем промпт для генерации тренировки
     workout_prompt = f"""
     Сгенерируй персонализированную тренировку на основе следующих данных:
-
+    
     Место тренировки: {context.user_data['workout_location']}
     Продолжительность: {context.user_data['workout_duration']} минут
     Пол: {user_data['gender']}
@@ -2528,41 +2516,41 @@ async def generate_workout(update: Update, context: CallbackContext):
     Ограничения по здоровью: {user_data['health']}
     Доступный инвентарь: {user_data['equipment']}
     Целевая метрика: {user_data['target_metric']}
-
+    
     {"Особые пожелания: " + context.user_data.get('workout_wishes', 'нет') if 'workout_wishes' in context.user_data else "Особых пожеланий нет"}
-
+    
     Сгенерируй тренировку в следующем формате:
-
+    
     🏋️ Название тренировки:
     (Краткое описание цели тренировки)
-
+    
     ⏱ Продолжительность: X минут
-
+    
     🔥 Разминка (5-10 минут):
     - Упражнение 1: описание, подходы/повторения
     - Упражнение 2: описание, подходы/повторения
-
+    
     💪 Основная часть:
     - Упражнение 1: описание, подходы/повторения
     - Упражнение 2: описание, подходы/повторения
     - ...
-
+    
     🧘 Заминка (5-10 минут):
     - Упражнение 1: описание, продолжительность
     - Упражнение 2: описание, продолжительность
-
+    
     💡 Советы:
     - Совет 1
     - Совет 2
-
+    
     Ответ предоставь на языке: {language}
     """
-
+    
     try:
         # Используем модель Gemini для генерации тренировки
         response = model.generate_content(workout_prompt)
         workout_plan = response.text
-
+        
         # Отправляем сгенерированную тренировку пользователю
         await context.bot.send_message(
             chat_id=user_id,
@@ -3488,9 +3476,6 @@ def main():
         first=10
     )
 
-
-    app.add_handler(CommandHandler("workout", start_workout))
-
     workout_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("workout", start_workout)],
         states={
@@ -3504,6 +3489,9 @@ def main():
 
     # Добавляем обработчик кнопок
     app.add_handler(CallbackQueryHandler(button_handler))
+
+    app.add_handler(CommandHandler("workout", start_workout))
+    app.add_handler(workout_conv_handler)
 
     # Добавляем обработчик команды /drank
     app.add_handler(CommandHandler("drank", drank_command))
@@ -3536,7 +3524,6 @@ def main():
     )
 
     app.add_handler(conv_handler)
-    app.add_handler(workout_conv_handler)
     app.add_handler(CommandHandler("profile", show_profile))
     app.add_handler(CommandHandler("info", info))
     app.add_handler(CommandHandler("reset", reset))
