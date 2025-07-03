@@ -2470,8 +2470,8 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         notes_text = " (Есть особые пожелания)" if profile['language'] == "ru" else " (Has special requests)"
     
     workout_prompt = (
-        f"Сгенерируй для меня тренировку {location_map[context.user_data['workout_location']} "
-        f"продолжительностью {duration_map[context.user_data['workout_duration']}. "
+        f"Сгенерируй для меня тренировку {location_map[context.user_data['workout_location']]} "
+        f"продолжительностью {duration_map[context.user_data['workout_duration']]}. "
         f"Мои данные: пол - {profile['gender']}, цель - {profile['goal']}, "
         f"уровень активности - {profile['activity']}, оборудование - {profile['equipment']}, "
         f"состояние здоровья - {profile['health']}.{notes_text}"
@@ -2479,8 +2479,8 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
     
     if profile['language'] == "en":
         workout_prompt = (
-            f"Generate a workout for me {location_map[context.user_data['workout_location']} "
-            f"with a duration of {duration_map[context.user_data['workout_duration']}. "
+            f"Generate a workout for me {location_map[context.user_data['workout_location']]} "
+            f"with a duration of {duration_map[context.user_data['workout_duration']]}. "
             f"My data: gender - {profile['gender']}, goal - {profile['goal']}, "
             f"activity level - {profile['activity']}, equipment - {profile['equipment']}, "
             f"health condition - {profile['health']}.{notes_text}"
