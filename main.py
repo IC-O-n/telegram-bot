@@ -1897,6 +1897,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         await handle_workout_location(update, context)
         return
 
+    if query.data in ["15", "30", "60", "90", "120"]:
+        await handle_workout_duration(update, context)
+        return
+
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
