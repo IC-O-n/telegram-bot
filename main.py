@@ -2486,13 +2486,22 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             f"health condition - {profile['health']}.{notes_text}"
         )
     
-    # Отправляем промпт в handle_message как обычное сообщение
-    message = update.callback_query.message
-    message.text = workout_prompt
-    await handle_message(message, context)
+    # Вместо передачи в handle_message, генерируем ответ напрямую
+    try:
+        response = model.generate_content([{"text": workout_prompt}])
+        response_text = response.text.strip()
+        
+        # Отправляем ответ пользователю
+        await query.edit_message_text(text=response_text)
+        
+    except Exception as e:
+        print(f"Ошибка при генерации тренировки: {e}")
+        error_msg = "Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже."
+        if profile['language'] == "en":
+            error_msg = "An error occurred while generating the workout. Please try again later."
+        await query.edit_message_text(text=error_msg)
     
     return ConversationHandler.END
-
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
