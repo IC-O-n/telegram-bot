@@ -2460,27 +2460,29 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
         text = "📝 Write your special requests for the workout (e.g. 'focus on back', 'no jumps' etc.):"
 
     await query.edit_message_text(text=text)
+    
+    # Сохраняем данные для следующего шага
+    context.user_data['awaiting_special_requests'] = True
     return WORKOUT_GENERATE
 
 async def generate_workout(update: Update, context: CallbackContext) -> int:
     # Определяем, откуда пришел запрос
-    if update.message and update.message.text:
+    if context.user_data.get('awaiting_special_requests', False):
         # Это текстовое сообщение с пожеланиями
         user_input = update.message.text
         context.user_data['workout_special_requests'] = user_input
+        context.user_data['awaiting_special_requests'] = False
         chat_id = update.message.chat_id
-        message_to_reply = update.message
     else:
         # Это callback-запрос без пожеланий
         query = update.callback_query
         await query.answer()
         chat_id = query.message.chat_id
-        message_to_reply = query.message
 
     # Получаем данные пользователя
+    user_id = update.effective_user.id
     conn = None
     try:
-        user_id = update.effective_user.id
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
             user='x91345bo_nutrbot',
@@ -2548,27 +2550,23 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
 
         prompt = " ".join(prompt_parts)
 
-        # Создаем обычное сообщение с промптом
+        # Отправляем промпт как обычное сообщение
         await context.bot.send_message(
             chat_id=chat_id,
             text=prompt
         )
 
-        # Обрабатываем как обычное сообщение через handle_message
+        # Обрабатываем как обычное сообщение
         fake_message = Message(
-            message_id=message_to_reply.message_id + 1,
+            message_id=update.update_id + 1,
             date=datetime.now(),
-            chat=message_to_reply.chat,
+            chat=Chat(chat_id, type='private'),
             text=prompt,
-            from_user=update.effective_user
+            from_user=update.effective_user,
+            bot=context.bot  # Важно: привязываем бота к сообщению
         )
-        
-        # Создаем искусственное обновление
+
         fake_update = Update(update.update_id + 1, message=fake_message)
-        
-        # Устанавливаем бота для искусственного обновления
-        fake_update._bot = context.bot
-        
         await handle_message(fake_update, context)
 
     except Exception as e:
