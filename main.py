@@ -2221,6 +2221,16 @@ async def check_payment_status(context: CallbackContext):
         if conn:
             conn.close()
 
+
+def clean_markdown(text):
+    """Удаляет или экранирует непарные символы Markdown"""
+    # Экранируем символы, которые могут быть ошибочно интерпретированы как разметка
+    for char in ['*', '_', '`', '[']:
+        if text.count(char) % 2 != 0:
+            text = text.replace(char, f'\\{char}')
+    return text
+
+
 async def post_init(application: Application) -> None:
     """Функция для настройки бота после инициализации"""
     await application.bot.set_my_commands([
@@ -2515,17 +2525,17 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         # Получаем параметры тренировки из context.user_data
         location = context.user_data.get('workout_location', 'playground')
         duration = context.user_data.get('workout_duration', '90')
-        special_requests = context.user_data.get('workout_special_requests', 'Хочу сделать упор на ноги')
+        special_requests = context.user_data.get('workout_special_requests', '')
 
         # Формируем промпт для Gemini
         prompt = (
-            f"Сгенерируй подробную тренировку для мужчины среднего уровня подготовки. "
+            f"Сгенерируй подробную тренировку для {'мужчины' if gender == 'м' else 'женщины'} {activity} уровня подготовки. "
             f"Цель: {goal}. "
             f"Место тренировки: {location}. "
             f"Продолжительность: {duration} минут. "
             f"Оборудование: {equipment}. "
             f"Ограничения по здоровью: {health}. "
-            f"Пожелания: {special_requests}.\n\n"
+            f"{'Пожелания: ' + special_requests if special_requests else ''}\n\n"
             "Формат ответа:\n"
             "🏋️ *Название тренировки*\n\n"
             "📍 *Место:* [место]\n"
@@ -2546,11 +2556,23 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         response = model.generate_content(prompt)
         
         if response.text:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=response.text,
-                parse_mode="Markdown"
-            )
+            # Очищаем текст от проблемных символов Markdown
+            cleaned_text = clean_markdown(response.text)
+            
+            try:
+                # Пробуем отправить с разметкой Markdown
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=cleaned_text,
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                print(f"Ошибка при отправке с Markdown: {e}")
+                # Если не получилось, отправляем без разметки
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=cleaned_text
+                )
         else:
             raise ValueError("Пустой ответ от модели")
 
