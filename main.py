@@ -2425,12 +2425,12 @@ async def ask_special_requests(update: Update, context: CallbackContext) -> int:
 async def get_special_requests(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
-    
+
     if query.data == "no":
-        # Если нет особых пожеланий, сразу генерируем тренировку
+        # Если нет пожеланий, сразу генерируем тренировку
         return await generate_workout(update, context)
-    
-    # Получаем язык пользователя
+
+    # Запрашиваем пожелания
     user_id = query.from_user.id
     language = "ru"
     
@@ -2453,25 +2453,31 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     finally:
         if conn:
             conn.close()
-    
-    # Запрашиваем пожелания
+
     if language == "ru":
         text = "📝 Напишите ваши пожелания к тренировке (например: 'хочу проработать спину', 'без прыжков' и т.д.):"
     else:
         text = "📝 Write your special requests for the workout (e.g. 'focus on back', 'no jumps' etc.):"
-    
+
     await query.edit_message_text(text=text)
     return WORKOUT_GENERATE
 
 async def generate_workout(update: Update, context: CallbackContext) -> int:
-    # Получаем ввод пользователя, если он есть
+    # Определяем, откуда пришел запрос
     if update.message and update.message.text:
-        context.user_data['workout_special_requests'] = update.message.text
-    
-    user_id = update.effective_user.id
-    
-    # Получаем данные пользователя из базы
+        # Это текстовое сообщение с пожеланиями
+        user_input = update.message.text
+        context.user_data['workout_special_requests'] = user_input
+        chat_id = update.message.chat_id
+        message_to_reply = update.message
+    else:
+        # Это callback-запрос без пожеланий
+        chat_id = update.callback_query.message.chat_id
+        message_to_reply = update.callback_query.message
+
+    # Получаем данные пользователя
     try:
+        user_id = update.effective_user.id
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
             user='x91345bo_nutrbot',
@@ -2487,27 +2493,27 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
                 WHERE user_id = %s
             """, (user_id,))
             row = cursor.fetchone()
-            
+
         if not row:
-            await update.effective_message.reply_text("Профиль не найден. Пожалуйста, завершите анкету с помощью /start")
+            await message_to_reply.reply_text("Профиль не найден. Пожалуйста, завершите анкету с помощью /start")
             return ConversationHandler.END
-            
+
         language = row['language'] or "ru"
         gender = row['gender'] or "м"
         activity = row['activity'] or "Новичок"
         equipment = row['equipment'] or ""
         health = row['health'] or ""
         goal = row['goal'] or ""
-        
+
     except Exception as e:
         print(f"Ошибка при получении данных пользователя: {e}")
-        await update.effective_message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
+        await message_to_reply.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
         return ConversationHandler.END
     finally:
         if conn:
             conn.close()
-    
-    # Формируем тексты в зависимости от языка
+
+    # Формируем промпт
     location_map = {
         "ru": {
             "gym": "в зале",
@@ -2522,16 +2528,15 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             "home": "at home"
         }
     }
-    
+
     location = location_map.get(language, location_map["ru"]).get(
-        context.user_data.get('workout_location', 'gym'), 
+        context.user_data.get('workout_location', 'gym'),
         location_map.get(language, location_map["ru"])["gym"]
     )
-    
+
     duration = context.user_data.get('workout_duration', '30')
     special_requests = context.user_data.get('workout_special_requests', '')
-    
-    # Формируем промпт для генерации тренировки
+
     prompt_parts = [
         f"Сгенерируй для меня тренировку {location} продолжительностью {duration} минут.",
         f"Я {gender}, уровень подготовки: {activity}.",
@@ -2539,42 +2544,35 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         f"Имеющееся оборудование: {equipment}.",
         f"Ограничения по здоровью: {health}."
     ]
-    
+
     if special_requests:
         prompt_parts.append(f"Мои пожелания: {special_requests}.")
-    
+
     prompt = " ".join(prompt_parts)
-    
-    # Создаем искусственное сообщение для обработки
-    if update.message:
-        # Если это обычное сообщение (пожелания пользователя)
-        message = update.message
-        message.text = prompt
-    else:
-        # Если это callback (пропуск пожеланий)
-        message = Message(
-            message_id=update.callback_query.message.message_id + 1,
-            date=datetime.now(),
-            chat=update.callback_query.message.chat,
-            text=prompt,
-            from_user=update.callback_query.from_user
-        )
-    
+
+    # Создаем искусственное сообщение
+    fake_message = Message(
+        message_id=message_to_reply.message_id + 1,
+        date=datetime.now(),
+        chat=message_to_reply.chat,
+        text=prompt,
+        from_user=update.effective_user
+    )
+
     # Создаем искусственное обновление
-    new_update = Update(update.update_id + 1, message=message)
-    
+    fake_update = Update(update.update_id + 1, message=fake_message)
+
     # Обрабатываем как обычное сообщение
     try:
-        await handle_message(new_update, context)
+        await handle_message(fake_update, context)
     except Exception as e:
         print(f"Ошибка при генерации тренировки: {e}")
         error_msg = "Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже."
         if language == "en":
             error_msg = "An error occurred while generating the workout. Please try again later."
-        await update.effective_message.reply_text(error_msg)
-    
-    return ConversationHandler.END
+        await message_to_reply.reply_text(error_msg)
 
+    return ConversationHandler.END
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
