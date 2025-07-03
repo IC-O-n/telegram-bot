@@ -2478,7 +2478,6 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     context.user_data['awaiting_special_requests'] = True
     return WORKOUT_GENERATE
 
-
 async def generate_workout(update: Update, context: CallbackContext) -> int:
     # Определяем, откуда пришел запрос
     if context.user_data.get('awaiting_special_requests', False):
@@ -2490,9 +2489,6 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         query = update.callback_query
         await query.answer()
         chat_id = query.message.chat_id
-
-    # Получаем пожелания только если они есть
-    special_requests = context.user_data.get('workout_special_requests', '')
 
     user_id = update.effective_user.id
     
@@ -2536,7 +2532,6 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
 
         # Формируем промпт для Gemini
         prompt = (
-            f"⚠️ ВАЖНО: Все твои ответы должны быть короче 4096 символов. Если информации слишком много - выбирай самое важное."
             f"Сгенерируй подробную тренировку для {'мужчины' if gender == 'м' else 'женщины'} {activity} уровня подготовки. "
             f"Цель: {goal}. "
             f"Место тренировки: {location}. "
@@ -3629,6 +3624,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
