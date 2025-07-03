@@ -2437,10 +2437,9 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     await query.answer()
 
     if query.data == "no":
-        # Очищаем предыдущие пожелания
+        # Если нет пожеланий, удаляем возможные предыдущие пожелания
         if 'workout_special_requests' in context.user_data:
             del context.user_data['workout_special_requests']
-        # Если нет пожеланий, сразу генерируем тренировку
         return await generate_workout(update, context)
 
     # Запрашиваем пожелания
@@ -2468,9 +2467,9 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
             conn.close()
 
     if language == "ru":
-        text = "📝 Напишите ваши пожелания к тренировке (например: 'хочу проработать спину', 'без прыжков' и т.д.):"
+        text = "📝 Напишите ваши пожелания к тренировке (например: 'хочу проработать спину', 'без прыжков' и т.д.):\n\nЭти пожелания будут учтены только для текущей тренировки."
     else:
-        text = "📝 Write your special requests for the workout (e.g. 'focus on back', 'no jumps' etc.):"
+        text = "📝 Write your special requests for the workout (e.g. 'focus on back', 'no jumps' etc.):\n\nThese requests will be considered only for this workout."
 
     await query.edit_message_text(text=text)
     
@@ -2529,6 +2528,10 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         location = context.user_data.get('workout_location', 'playground')
         duration = context.user_data.get('workout_duration', '90')
         special_requests = context.user_data.get('workout_special_requests', '')
+        
+        # Очищаем пожелания после использования
+        if 'workout_special_requests' in context.user_data:
+            del context.user_data['workout_special_requests']
 
         # Формируем промпт для Gemini
         prompt = (
@@ -2591,6 +2594,11 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
     finally:
         if conn:
             conn.close()
+
+    # Очищаем все данные о тренировке после генерации
+    for key in ['workout_location', 'workout_duration', 'workout_special_requests', 'awaiting_special_requests']:
+        if key in context.user_data:
+            del context.user_data[key]
 
     return ConversationHandler.END
 
