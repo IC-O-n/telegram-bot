@@ -2426,11 +2426,21 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
     if query.data == "no":
-        return await generate_workout(update, context)
+        # Создаем пустое сообщение для перехода
+        message = Message(
+            message_id=query.message.message_id + 1,
+            date=datetime.now(),
+            chat=query.message.chat,
+            text="",
+            from_user=query.from_user
+        )
+        new_update = Update(update.update_id + 1, message=message)
+        return await generate_workout(new_update, context)
     
-    language = "ru"  # Получаем из базы данных
+    user_id = query.from_user.id
+    language = "ru"
+    
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2460,12 +2470,11 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     return WORKOUT_GENERATE
 
 async def generate_workout(update: Update, context: CallbackContext) -> int:
-    user_id = update.callback_query.from_user.id if update.callback_query else update.message.from_user.id
-    special_requests = ""
+    user_input = update.message.text if update.message else None
+    if user_input:
+        context.user_data['workout_special_requests'] = user_input
     
-    if update.message:
-        special_requests = update.message.text
-        context.user_data['workout_special_requests'] = special_requests
+    user_id = update.effective_user.id
     
     # Получаем данные пользователя
     language = "ru"
@@ -2519,8 +2528,8 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             "home": "at home"
         }
     
-    location = location_map.get(context.user_data['workout_location'], "в зале")
-    duration = context.user_data['workout_duration']
+    location = location_map.get(context.user_data.get('workout_location', 'gym'), "в зале")
+    duration = context.user_data.get('workout_duration', '30')
     
     prompt = (
         f"Сгенерируй для меня тренировку {location} продолжительностью {duration} минут. "
@@ -2530,13 +2539,25 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         f"Ограничения по здоровью: {health}. "
     )
     
+    special_requests = context.user_data.get('workout_special_requests', '')
     if special_requests:
         prompt += f"Мои пожелания: {special_requests}."
     
-    # Отправляем промпт в handle_message как обычное сообщение
-    update.message = update.message if update.message else update.callback_query.message
-    update.message.text = prompt
-    await handle_message(update, context)
+    # Создаем новое сообщение для обработки
+    message = update.message or update.callback_query.message
+    new_update = Update(
+        update.update_id + 1,  # Используем новый ID
+        message=Message(
+            message.message_id + 1,
+            date=datetime.now(),
+            chat=message.chat,
+            text=prompt,
+            from_user=message.from_user
+        )
+    )
+    
+    # Обрабатываем как обычное сообщение
+    await handle_message(new_update, context)
     
     return ConversationHandler.END
 
