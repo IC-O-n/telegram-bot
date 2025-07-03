@@ -57,14 +57,11 @@ user_histories = {}
 user_profiles = {}
 
 (
-    
     ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
     ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, 
-    ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS,
-    
-    
-    WORKOUT_LOCATION, WORKOUT_DURATION, WORKOUT_EXTRA, WORKOUT_GENERATE
-) = range(20)
+    ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS
+) = range(16)
+
 
 
 def init_db():
@@ -1891,71 +1888,11 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     user_id = query.from_user.id
 
-
-
     if query.data == "start_workout":
-        # Создаем клавиатуру для выбора места тренировки
-        keyboard = [
-            [InlineKeyboardButton("🏋️ В зале", callback_data="workout_gym")],
-            [InlineKeyboardButton("🌳 На природе", callback_data="workout_nature")],
-            [InlineKeyboardButton("🏟 На спортплощадке", callback_data="workout_playground")],
-            [InlineKeyboardButton("🏠 Дома", callback_data="workout_home")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
         await query.edit_message_text(
-            text="Выберите место тренировки:",
-            reply_markup=reply_markup
+            text="🚀 Начинаем тренировку!",
+            reply_markup=None
         )
-        return WORKOUT_LOCATION
-    
-    # Обработка выбора места тренировки
-    if query.data.startswith("workout_"):
-        context.user_data['workout_location'] = query.data.replace("workout_", "")
-        
-        # Создаем клавиатуру для выбора продолжительности
-        keyboard = [
-            [InlineKeyboardButton("15 минут", callback_data="duration_15")],
-            [InlineKeyboardButton("30 минут", callback_data="duration_30")],
-            [InlineKeyboardButton("1 час", callback_data="duration_60")],
-            [InlineKeyboardButton("1.5 часа", callback_data="duration_90")],
-            [InlineKeyboardButton("2 часа", callback_data="duration_120")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            text="Выберите продолжительность тренировки:",
-            reply_markup=reply_markup
-        )
-        return WORKOUT_DURATION
-    
-    # Обработка выбора продолжительности
-    if query.data.startswith("duration_"):
-        context.user_data['workout_duration'] = int(query.data.replace("duration_", ""))
-        
-        # Спрашиваем про особые пожелания
-        keyboard = [
-            [InlineKeyboardButton("Да", callback_data="extra_yes")],
-            [InlineKeyboardButton("Нет", callback_data="extra_no")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            text="Есть особые пожелания?",
-            reply_markup=reply_markup
-        )
-        return WORKOUT_EXTRA
-    
-    # Обработка особых пожеланий
-    if query.data.startswith("extra_"):
-        if query.data == "extra_yes":
-            await query.edit_message_text(
-                text="Пожалуйста, напишите ваши пожелания к тренировке:"
-            )
-            return WORKOUT_GENERATE
-        else:
-            context.user_data['workout_extra'] = ""
-            return await generate_workout(update, context)
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2308,97 +2245,6 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
         parse_mode="Markdown"
     )
 
-
-async def start_workout(update: Update, context: CallbackContext) -> int:
-    # Создаем клавиатуру для выбора места тренировки
-    keyboard = [
-        [InlineKeyboardButton("🏋️ В зале", callback_data="workout_gym")],
-        [InlineKeyboardButton("🌳 На природе", callback_data="workout_nature")],
-        [InlineKeyboardButton("🏟 На спортплощадке", callback_data="workout_playground")],
-        [InlineKeyboardButton("🏠 Дома", callback_data="workout_home")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        text="Выберите место тренировки:",
-        reply_markup=reply_markup
-    )
-    return WORKOUT_LOCATION
-
-
-async def generate_workout(update: Update, context: CallbackContext) -> int:
-    user_id = update.callback_query.from_user.id if update.callback_query else update.message.from_user.id
-
-    # Получаем данные о пользователе
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT gender, goal, activity, equipment, health
-                FROM user_profiles
-                WHERE user_id = %s
-            """, (user_id,))
-            profile = cursor.fetchone()
-
-        if not profile:
-            await update.message.reply_text("Профиль не найден. Пожалуйста, пройдите анкету с помощью /start")
-            return ConversationHandler.END
-
-        # Получаем данные о тренировке
-        location = context.user_data.get('workout_location', 'home')
-        duration = context.user_data.get('workout_duration', 30)
-        extra = context.user_data.get('workout_extra', '')
-
-        # Формируем промпт для Gemini
-        location_names = {
-            'gym': 'в зале',
-            'nature': 'на природе',
-            'playground': 'на спортплощадке',
-            'home': 'дома'
-        }
-
-        prompt = (
-            f"Сгенерируй для меня тренировку {location_names.get(location, 'дома')} "
-            f"продолжительностью {duration} минут. "
-            f"Мои данные: пол - {profile['gender']}, цель - {profile['goal']}, "
-            f"уровень активности - {profile['activity']}, оборудование - {profile['equipment']}, "
-            f"ограничения по здоровью - {profile['health']}. "
-            f"{'Особые пожелания: ' + extra if extra else 'Нет особых пожеланий'}"
-        )
-
-        # Отправляем запрос к Gemini
-        response = model.generate_content([{"text": prompt}])
-
-        # Отправляем результат пользователю
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                text=response.text,
-                parse_mode="Markdown"
-            )
-        else:
-            await update.message.reply_text(
-                text=response.text,
-                parse_mode="Markdown"
-            )
-
-    except Exception as e:
-        print(f"Ошибка при генерации тренировки: {e}")
-        await update.message.reply_text("Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже.")
-    finally:
-        if conn:
-            conn.close()
-
-    return ConversationHandler.END
-
-
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
     user_id = update.message.from_user.id
@@ -2509,10 +2355,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                 "Use the /info command to view available plans."
             )
         return
-
-    if context.user_data.get('_conversation_state') == WORKOUT_GENERATE:
-        context.user_data['workout_extra'] = update.message.text
-        return await generate_workout(update, context)
     
     # Оригинальная логика обработки сообщений
     message = update.message
@@ -3073,67 +2915,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
      * Временные ограничения (если указаны)
 
 
-29. Генерация тренировок:
-   - Если пользователь запрашивает тренировку (через команду /workout или кнопку):
-     1. Всегда учитывай:
-        * Место тренировки (зал, природа, спортплощадка, дом)
-        * Продолжительность тренировки
-        * Пол пользователя (gender)
-        * Цели (goal)
-        * Оборудование (equipment)
-        * Ограничения по здоровью (health)
-        * Уровень активности (activity)
-        * Особые пожелания (если есть)
-     2. Формат ответа:
-        TEXT:
-        🏋️ *Ваша персонализированная тренировка*
-
-        📌 *Место:* [место]
-        ⏱ *Длительность:* [время]
-        🎯 *Фокус:* [основные группы мышц/цель]
-
-        🔥 *Разминка (5-10 мин):*
-        - [Упражнение 1] - [подходы/повторы]
-        - [Упражнение 2] - [подходы/повторы]
-
-        💪 *Основная часть:*
-        - [Упражнение 1] - [подходы/повторы] [смайлик]
-        - [Упражнение 2] - [подходы/повторы] [смайлик]
-        - [Упражнение 3] - [подходы/повторы] [смайлик]
-
-        ❄️ *Заминка (5 мин):*
-        - [Растяжка 1]
-        - [Растяжка 2]
-
-        💡 *Совет:* [персонализированный совет]
-
-        ⚠️ *Важно:* [предупреждение если нужно]
-
-   - Для мужчин:
-     * Акцент на: грудь, спину, ноги, пресс
-     * Примеры: подтягивания, отжимания, приседания, жимы
-
-   - Для женщин:
-     * Акцент на: ягодицы, ноги, пресс, руки
-     * Примеры: приседания, выпады, планки, ягодичные мостики
-
-   - Для дома:
-     * Используй: вес тела, резинки, гантели (если есть)
-     * Примеры: берпи, скручивания, отжимания
-
-   - Для зала:
-     * Используй все доступное оборудование
-     * Комбинируй свободные веса и тренажеры
-
-   - Для спортплощадки:
-     * Используй: турник, брусья, рукоход
-     * Примеры: подтягивания, отжимания на брусьях
-
-   - Для природы:
-     * Используй: скамейки, деревья, рельеф
-     * Примеры: отжимания, приседания, спринты
-
-
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
 
 ⚠️ Всегда строго учитывай известные факты о пользователе из его профиля И контекст текущего диалога.
@@ -3385,7 +3166,7 @@ def main():
 
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)], CommandHandler("workout", start_workout)],
+        entry_points=[CommandHandler("start", start)],
         states={
             ASK_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
@@ -3403,10 +3184,6 @@ def main():
             ASK_WAKEUP_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_sleep_time)],
             ASK_SLEEP_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_water_reminders)],
             ASK_WATER_REMINDERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish_questionnaire)],
-            WORKOUT_LOCATION: [CallbackQueryHandler(button_handler)],
-            WORKOUT_DURATION: [CallbackQueryHandler(button_handler)],
-            WORKOUT_EXTRA: [CallbackQueryHandler(button_handler)],
-            WORKOUT_GENERATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)]
         },
         fallbacks=[],
     )
