@@ -1898,8 +1898,18 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     user_id = query.from_user.id
 
     if query.data == "start_workout":
-        # Перенаправляем на команду /workout
-        await start_workout(update, context)
+        # Create a fake update with message for the start_workout handler
+        fake_update = Update(
+            update.update_id + 1,  # Use a new update_id
+            message=Message(
+                message_id=query.message.message_id + 1,  # New message_id
+                date=datetime.now(),
+                chat=query.message.chat,
+                from_user=query.from_user,
+                text="/workout"
+            )
+        )
+        await start_workout(fake_update, context)
         return
 
     # Обработка кнопки воды
@@ -2255,7 +2265,15 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
 
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
-    user_id = update.message.from_user.id
+    # Get user_id from either message or callback_query
+    if update.message:
+        user_id = update.message.from_user.id
+    elif update.callback_query:
+        user_id = update.callback_query.from_user.id
+    else:
+        print("No user_id found in update")
+        return ConversationHandler.END
+
     language = "ru"  # По умолчанию русский
     
     # Получаем язык пользователя из базы данных
@@ -2301,12 +2319,20 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
-        "🏋️ Где будет проходить тренировка?" if language == "ru" else "🏋️ Where will the workout take place?",
-        reply_markup=reply_markup
-    )
+    # Send message differently depending on how the command was initiated
+    if update.message:
+        await update.message.reply_text(
+            "🏋️ Где будет проходить тренировка?" if language == "ru" else "🏋️ Where will the workout take place?",
+            reply_markup=reply_markup
+        )
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(
+            "🏋️ Где будет проходить тренировка?" if language == "ru" else "🏋️ Where will the workout take place?",
+            reply_markup=reply_markup
+        )
     
     return WORKOUT_LOCATION
+
 
 async def handle_workout_location(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
