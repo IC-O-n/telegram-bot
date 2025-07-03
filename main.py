@@ -2367,10 +2367,9 @@ async def set_workout_duration(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
-    # Извлекаем число из строки вида "duration_30"
+    # Извлекаем продолжительность из callback_data
     try:
-        duration_str = query.data.split('_')[1]
-        duration = int(duration_str)
+        duration = int(query.data.split('_')[1])
     except (IndexError, ValueError) as e:
         print(f"Ошибка при обработке длительности тренировки: {e}")
         await query.edit_message_text("Произошла ошибка. Пожалуйста, выберите продолжительность еще раз.")
@@ -2378,8 +2377,9 @@ async def set_workout_duration(update: Update, context: CallbackContext) -> int:
     
     context.user_data['workout_data']['duration'] = duration
     
-    # Получаем профиль пользователя для генерации тренировки
+    # Получаем профиль пользователя
     user_id = query.from_user.id
+    conn = None
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2405,12 +2405,12 @@ async def set_workout_duration(update: Update, context: CallbackContext) -> int:
     finally:
         if conn:
             conn.close()
-    
+
     if not profile:
         await query.edit_message_text("Профиль не найден. Пройдите анкету с помощью /start.")
         return ConversationHandler.END
     
-    language = profile['language'] or "ru"
+    language = profile.get('language', 'ru')
     
     # Формируем запрос для генерации ОДНОЙ тренировки
     workout_prompt = {
@@ -2430,117 +2430,92 @@ async def set_workout_duration(update: Update, context: CallbackContext) -> int:
             "unique_facts": profile['unique_facts'],
             "previous_workouts": json.loads(profile['workout_history']) if profile['workout_history'] else {}
         },
-        "instructions": "Сгенерируйте ОДНУ тренировку на указанное время с учетом места тренировки. Не предлагайте программу на неделю."
+        "instructions": "Сгенерируй ОДНУ тренировку на указанное время с учетом места. Формат:\n\nРазминка (X мин):\n- Упражнения\n\nОсновная часть:\n- Упражнения (подходы x повторения)\n\nЗаминка (X мин):\n- Упражнения\n\nСоветы:"
     }
     
-    # Генерируем тренировку с помощью Gemini
+    # Генерируем тренировку
     try:
         response = model.generate_content([
-            {"text": "Сгенерируй ОДНУ персонализированную тренировку на основе следующих данных:"},
-            {"text": json.dumps(workout_prompt, ensure_ascii=False)},
-            {"text": """
-            Формат ответа должен быть:
-            
-            SQL: INSERT INTO workout_history (user_id, workout_data) VALUES (%s, %s)
-            TEXT: 
-            🏋️ Ваша персонализированная тренировка:
-            
-            [Описание ОДНОЙ тренировки с упражнениями, подходами и повторениями]
-            
-            💡 Советы: [персонализированные советы по выполнению]
-            """}
+            {"text": "Сгенерируй ОДНУ персонализированную тренировку:"},
+            {"text": json.dumps(workout_prompt, ensure_ascii=False)}
         ])
         
         response_text = response.text.strip()
         
-        # Извлекаем SQL и TEXT части
-        sql_part = None
-        text_part = None
+        # Обрабатываем ответ (без SQL части)
+        text_part = response_text if response_text else "Не удалось сгенерировать тренировку. Попробуйте позже."
         
-        sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
-        if sql_match:
-            sql_part = sql_match.group(1).strip()
-            
-        text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
-        if text_matches:
-            text_part = text_matches[-1].strip()
+        # Сохраняем тренировку в базу
+        workout_id = str(uuid.uuid4())  # Генерируем ID здесь
+        workout_data = {
+            "location": context.user_data['workout_data']['location'],
+            "duration": duration,
+            "exercises": text_part,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "comment": ""
+        }
         
-        if not text_part:
-            text_part = "Я подготовил для вас тренировку, но произошла ошибка при форматировании."
-        
-        # Сохраняем тренировку в базу данных
-        if sql_part:
-            try:
-                workout_data = {
-                    "location": context.user_data['workout_data']['location'],
-                    "duration": duration,
-                    "exercises": text_part,
-                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "comment": ""
-                }
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT workout_history FROM user_profiles WHERE user_id = %s
+                """, (user_id,))
+                result = cursor.fetchone()
+                workout_history = json.loads(result['workout_history']) if result and result['workout_history'] else {}
                 
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
-                with conn.cursor() as cursor:
-                    # Получаем текущую историю тренировок
-                    cursor.execute("SELECT workout_history FROM user_profiles WHERE user_id = %s", (user_id,))
-                    result = cursor.fetchone()
-                    workout_history = json.loads(result['workout_history']) if result and result['workout_history'] else {}
-                    
-                    # Добавляем новую тренировку (сохраняем только последние 3)
-                    workout_id = str(uuid.uuid4())
-                    workout_history[workout_id] = workout_data
-                    
-                    # Оставляем только последние 3 тренировки
-                    if len(workout_history) > 3:
-                        # Удаляем самые старые записи
-                        sorted_workouts = sorted(workout_history.items(), key=lambda x: x[1]['date'])
-                        for key, _ in sorted_workouts[:-3]:
-                            del workout_history[key]
-                    
-                    # Обновляем базу данных
-                    cursor.execute("""
-                        UPDATE user_profiles 
-                        SET workout_history = %s 
-                        WHERE user_id = %s
-                    """, (json.dumps(workout_history), user_id))
-                    conn.commit()
-            except Exception as e:
-                print(f"Ошибка при сохранении тренировки: {e}")
-            finally:
-                if conn:
-                    conn.close()
+                workout_history[workout_id] = workout_data
+                
+                # Оставляем только последние 3 тренировки
+                if len(workout_history) > 3:
+                    sorted_workouts = sorted(workout_history.items(), key=lambda x: x[1]['date'])
+                    for key, _ in sorted_workouts[:-3]:
+                        del workout_history[key]
+                
+                cursor.execute("""
+                    UPDATE user_profiles 
+                    SET workout_history = %s 
+                    WHERE user_id = %s
+                """, (json.dumps(workout_history), user_id))
+                conn.commit()
+        except Exception as e:
+            print(f"Ошибка при сохранении тренировки: {e}")
+        finally:
+            if conn:
+                conn.close()
         
-        # Добавляем кнопки для завершения тренировки и добавления комментария
-        if language == "ru":
-            keyboard = [
-                [InlineKeyboardButton("Добавить комментарий", callback_data="add_comment")],
-                [InlineKeyboardButton("Завершить тренировку", callback_data="finish_workout")]
-            ]
-        else:
-            keyboard = [
-                [InlineKeyboardButton("Add comment", callback_data="add_comment")],
-                [InlineKeyboardButton("Finish workout", callback_data="finish_workout")]
-            ]
-        
+        # Создаем клавиатуру
+        keyboard = [
+            [InlineKeyboardButton(
+                "Добавить комментарий" if language == 'ru' else "Add comment", 
+                callback_data="add_comment"
+            )],
+            [InlineKeyboardButton(
+                "Завершить" if language == 'ru' else "Finish", 
+                callback_data="finish_workout"
+            )]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await query.edit_message_text(text=text_part, reply_markup=reply_markup)
-        
-        # Сохраняем ID тренировки для возможного комментария
         context.user_data['current_workout_id'] = workout_id
-        
         return WORKOUT_CONFIRMATION
         
     except Exception as e:
         print(f"Ошибка при генерации тренировки: {e}")
-        await query.edit_message_text("Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже.")
+        error_msg = "Произошла ошибка при генерации тренировки. Попробуйте позже."
+        if language != 'ru':
+            error_msg = "Error generating workout. Please try again."
+        await query.edit_message_text(error_msg)
         return ConversationHandler.END
+
 
 async def finish_workout(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
