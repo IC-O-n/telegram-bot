@@ -2369,7 +2369,7 @@ async def set_workout_duration(update: Update, context: CallbackContext) -> int:
     
     # Извлекаем число из строки вида "duration_30"
     try:
-        duration_str = query.data.split('_')[1]  # Получаем "30" из "duration_30"
+        duration_str = query.data.split('_')[1]
         duration = int(duration_str)
     except (IndexError, ValueError) as e:
         print(f"Ошибка при обработке длительности тренировки: {e}")
@@ -2412,7 +2412,7 @@ async def set_workout_duration(update: Update, context: CallbackContext) -> int:
     
     language = profile['language'] or "ru"
     
-    # Формируем запрос для генерации тренировки
+    # Формируем запрос для генерации ОДНОЙ тренировки
     workout_prompt = {
         "location": context.user_data['workout_data']['location'],
         "duration": duration,
@@ -2429,13 +2429,14 @@ async def set_workout_duration(update: Update, context: CallbackContext) -> int:
             "target_metric": profile['target_metric'],
             "unique_facts": profile['unique_facts'],
             "previous_workouts": json.loads(profile['workout_history']) if profile['workout_history'] else {}
-        }
+        },
+        "instructions": "Сгенерируйте ОДНУ тренировку на указанное время с учетом места тренировки. Не предлагайте программу на неделю."
     }
     
     # Генерируем тренировку с помощью Gemini
     try:
         response = model.generate_content([
-            {"text": "Сгенерируй персонализированную тренировку на основе следующих данных:"},
+            {"text": "Сгенерируй ОДНУ персонализированную тренировку на основе следующих данных:"},
             {"text": json.dumps(workout_prompt, ensure_ascii=False)},
             {"text": """
             Формат ответа должен быть:
@@ -2444,7 +2445,7 @@ async def set_workout_duration(update: Update, context: CallbackContext) -> int:
             TEXT: 
             🏋️ Ваша персонализированная тренировка:
             
-            [Подробное описание тренировки с упражнениями, подходами и повторениями]
+            [Описание ОДНОЙ тренировки с упражнениями, подходами и повторениями]
             
             💡 Советы: [персонализированные советы по выполнению]
             """}
