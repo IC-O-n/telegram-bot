@@ -2463,16 +2463,31 @@ async def handle_workout_wishes(update: Update, context: CallbackContext) -> int
         return ConversationHandler.END
 
 async def handle_workout_wishes_text(update: Update, context: CallbackContext) -> int:
+    print("DEBUG: Обработчик handle_workout_wishes_text вызван")  # Отладочное сообщение
     user_id = update.message.from_user.id
-    context.user_data['workout_wishes'] = update.message.text
+    wishes_text = update.message.text
+    print(f"DEBUG: Получены пожелания: {wishes_text}")  # Отладочное сообщение
     
-    # Добавляем отладочный вывод
-    print(f"Получены пожелания: {context.user_data['workout_wishes']}")
+    context.user_data['workout_wishes'] = wishes_text
+    
+    # Добавляем информацию о пожеланиях в контекст для generate_workout
+    context.user_data['workout_special_wishes'] = wishes_text
     
     await generate_workout(update, context)
     return ConversationHandler.END
 
 async def generate_workout(update: Update, context: CallbackContext):
+    print("DEBUG: Начало генерации тренировки")  # Отладочное сообщение
+
+    # Получаем данные из context.user_data
+    workout_data = {
+        'location': context.user_data.get('workout_location'),
+        'duration': context.user_data.get('workout_duration'),
+        'wishes': context.user_data.get('workout_special_wishes', 'Нет особых пожеланий'),
+        # Добавьте другие параметры по необходимости
+    }
+    print(f"DEBUG: Данные для тренировки: {workout_data}")
+
     user_id = update.callback_query.from_user.id if hasattr(update, 'callback_query') else update.message.from_user.id
     
     # Получаем данные пользователя
@@ -3491,7 +3506,10 @@ def main():
     )
 
     workout_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("workout", start_workout)],
+        entry_points=[
+            CommandHandler("workout", start_workout),
+            CallbackQueryHandler(start_workout, pattern="^start_workout$")
+        ],
         states={
             WORKOUT_LOCATION: [CallbackQueryHandler(handle_workout_location)],
             WORKOUT_DURATION: [CallbackQueryHandler(handle_workout_duration)],
@@ -3501,11 +3519,12 @@ def main():
         fallbacks=[],
     )
 
-    # Добавляем обработчик кнопок
-    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(workout_conv_handler)
+
+    
 
     app.add_handler(CommandHandler("workout", start_workout))
-    app.add_handler(workout_conv_handler)
+    
 
     # Добавляем обработчик команды /drank
     app.add_handler(CommandHandler("drank", drank_command))
