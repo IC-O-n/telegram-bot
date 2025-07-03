@@ -13,7 +13,7 @@ from enum import Enum
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
-from telegram import Update, File, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, File, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, CallbackContext, ConversationHandler, CallbackQueryHandler
