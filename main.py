@@ -2437,6 +2437,9 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     await query.answer()
 
     if query.data == "no":
+        # Очищаем предыдущие пожелания
+        if 'workout_special_requests' in context.user_data:
+            del context.user_data['workout_special_requests']
         # Если нет пожеланий, сразу генерируем тренировку
         return await generate_workout(update, context)
 
@@ -2475,6 +2478,7 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     context.user_data['awaiting_special_requests'] = True
     return WORKOUT_GENERATE
 
+
 async def generate_workout(update: Update, context: CallbackContext) -> int:
     # Определяем, откуда пришел запрос
     if context.user_data.get('awaiting_special_requests', False):
@@ -2486,6 +2490,9 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         query = update.callback_query
         await query.answer()
         chat_id = query.message.chat_id
+
+    # Получаем пожелания только если они есть
+    special_requests = context.user_data.get('workout_special_requests', '')
 
     user_id = update.effective_user.id
     
