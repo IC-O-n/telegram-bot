@@ -1901,6 +1901,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         await handle_workout_duration(update, context)
         return
 
+    if query.data in ["yes", "no"]:
+        await handle_workout_wishes(update, context)
+        return
+
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
