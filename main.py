@@ -2472,10 +2472,13 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         message_to_reply = update.message
     else:
         # Это callback-запрос без пожеланий
-        chat_id = update.callback_query.message.chat_id
-        message_to_reply = update.callback_query.message
+        query = update.callback_query
+        await query.answer()
+        chat_id = query.message.chat_id
+        message_to_reply = query.message
 
     # Получаем данные пользователя
+    conn = None
     try:
         user_id = update.effective_user.id
         conn = pymysql.connect(
@@ -2495,7 +2498,10 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             row = cursor.fetchone()
 
         if not row:
-            await message_to_reply.reply_text("Профиль не найден. Пожалуйста, завершите анкету с помощью /start")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Профиль не найден. Пожалуйста, завершите анкету с помощью /start"
+            )
             return ConversationHandler.END
 
         language = row['language'] or "ru"
@@ -2505,72 +2511,78 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         health = row['health'] or ""
         goal = row['goal'] or ""
 
-    except Exception as e:
-        print(f"Ошибка при получении данных пользователя: {e}")
-        await message_to_reply.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
-        return ConversationHandler.END
-    finally:
-        if conn:
-            conn.close()
-
-    # Формируем промпт
-    location_map = {
-        "ru": {
-            "gym": "в зале",
-            "outdoor": "на природе",
-            "playground": "на спортплощадке",
-            "home": "дома"
-        },
-        "en": {
-            "gym": "in the gym",
-            "outdoor": "outdoors",
-            "playground": "on the playground",
-            "home": "at home"
+        # Формируем промпт
+        location_map = {
+            "ru": {
+                "gym": "в зале",
+                "outdoor": "на природе",
+                "playground": "на спортплощадке",
+                "home": "дома"
+            },
+            "en": {
+                "gym": "in the gym",
+                "outdoor": "outdoors",
+                "playground": "on the playground",
+                "home": "at home"
+            }
         }
-    }
 
-    location = location_map.get(language, location_map["ru"]).get(
-        context.user_data.get('workout_location', 'gym'),
-        location_map.get(language, location_map["ru"])["gym"]
-    )
+        location = location_map.get(language, location_map["ru"]).get(
+            context.user_data.get('workout_location', 'gym'),
+            location_map.get(language, location_map["ru"])["gym"]
+        )
 
-    duration = context.user_data.get('workout_duration', '30')
-    special_requests = context.user_data.get('workout_special_requests', '')
+        duration = context.user_data.get('workout_duration', '30')
+        special_requests = context.user_data.get('workout_special_requests', '')
 
-    prompt_parts = [
-        f"Сгенерируй для меня тренировку {location} продолжительностью {duration} минут.",
-        f"Я {gender}, уровень подготовки: {activity}.",
-        f"Моя цель: {goal}.",
-        f"Имеющееся оборудование: {equipment}.",
-        f"Ограничения по здоровью: {health}."
-    ]
+        prompt_parts = [
+            f"Сгенерируй для меня тренировку {location} продолжительностью {duration} минут.",
+            f"Я {gender}, уровень подготовки: {activity}.",
+            f"Моя цель: {goal}.",
+            f"Имеющееся оборудование: {equipment}.",
+            f"Ограничения по здоровью: {health}."
+        ]
 
-    if special_requests:
-        prompt_parts.append(f"Мои пожелания: {special_requests}.")
+        if special_requests:
+            prompt_parts.append(f"Мои пожелания: {special_requests}.")
 
-    prompt = " ".join(prompt_parts)
+        prompt = " ".join(prompt_parts)
 
-    # Создаем искусственное сообщение
-    fake_message = Message(
-        message_id=message_to_reply.message_id + 1,
-        date=datetime.now(),
-        chat=message_to_reply.chat,
-        text=prompt,
-        from_user=update.effective_user
-    )
+        # Создаем обычное сообщение с промптом
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=prompt
+        )
 
-    # Создаем искусственное обновление
-    fake_update = Update(update.update_id + 1, message=fake_message)
-
-    # Обрабатываем как обычное сообщение
-    try:
+        # Обрабатываем как обычное сообщение через handle_message
+        fake_message = Message(
+            message_id=message_to_reply.message_id + 1,
+            date=datetime.now(),
+            chat=message_to_reply.chat,
+            text=prompt,
+            from_user=update.effective_user
+        )
+        
+        # Создаем искусственное обновление
+        fake_update = Update(update.update_id + 1, message=fake_message)
+        
+        # Устанавливаем бота для искусственного обновления
+        fake_update._bot = context.bot
+        
         await handle_message(fake_update, context)
+
     except Exception as e:
         print(f"Ошибка при генерации тренировки: {e}")
         error_msg = "Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже."
         if language == "en":
             error_msg = "An error occurred while generating the workout. Please try again later."
-        await message_to_reply.reply_text(error_msg)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=error_msg
+        )
+    finally:
+        if conn:
+            conn.close()
 
     return ConversationHandler.END
 
