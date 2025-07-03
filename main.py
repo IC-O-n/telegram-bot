@@ -39,7 +39,6 @@ PERMANENT_ACCESS_CODE = "S05D"  # Код для перманентного до�
 YOOKASSA_SECRET_KEY = "live_K90ck_kpGCHi2r9GoAnvoTWLZ5j-wcJK7cKaG8c_2ZU"
 YOOKASSA_SHOP_ID = "1111515"
 
-
 # Класс для статусов подписки
 class SubscriptionStatus(Enum):
     TRIAL = "trial"
@@ -61,8 +60,8 @@ user_profiles = {}
     ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
     ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, 
     ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS,
-    ASK_WORKOUT_LOCATION, ASK_WORKOUT_DURATION, ASK_WORKOUT_NOTES
-) = range(19)
+    WORKOUT_LOCATION, WORKOUT_DURATION, WORKOUT_SPECIAL_REQUESTS, WORKOUT_GENERATE
+) = range(20)
 
 
 
@@ -1892,15 +1891,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if query.data == "start_workout":
         return await start_workout(update, context)
-    
-    elif query.data.startswith("location_"):
-        return await ask_workout_duration(update, context)
-    
-    elif query.data.startswith("duration_"):
-        return await ask_workout_notes(update, context)
-    
-    elif query.data.startswith("notes_"):
-        return await generate_workout(update, context)
+
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2254,12 +2245,13 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
     )
 
 
+
 async def start_workout(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
-    language = "ru"  # По умолчанию, можно получить из базы
+    language = "ru"  # Получаем из базы данных
     
     try:
         conn = pymysql.connect(
@@ -2282,37 +2274,46 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
             conn.close()
     
     keyboard = [
-        [InlineKeyboardButton("🏋️ В зале", callback_data="location_gym")],
-        [InlineKeyboardButton("🌳 На природе", callback_data="location_nature")],
-        [InlineKeyboardButton("🏟 На спортплощадке", callback_data="location_playground")],
-        [InlineKeyboardButton("🏠 Дома", callback_data="location_home")]
+        [
+            InlineKeyboardButton("В зале", callback_data="gym"),
+            InlineKeyboardButton("На природе", callback_data="outdoor"),
+        ],
+        [
+            InlineKeyboardButton("На спортплощадке", callback_data="playground"),
+            InlineKeyboardButton("Дома", callback_data="home"),
+        ]
     ]
     
     if language == "en":
         keyboard = [
-            [InlineKeyboardButton("🏋️ Gym", callback_data="location_gym")],
-            [InlineKeyboardButton("🌳 Nature", callback_data="location_nature")],
-            [InlineKeyboardButton("🏟 Playground", callback_data="location_playground")],
-            [InlineKeyboardButton("🏠 Home", callback_data="location_home")]
+            [
+                InlineKeyboardButton("Gym", callback_data="gym"),
+                InlineKeyboardButton("Outdoor", callback_data="outdoor"),
+            ],
+            [
+                InlineKeyboardButton("Playground", callback_data="playground"),
+                InlineKeyboardButton("Home", callback_data="home"),
+            ]
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    text = "📍 Где будет проходить тренировка?" if language == "ru" else "📍 Where will the workout take place?"
-    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    if language == "ru":
+        text = "🏋️ Где будет проходить тренировка?"
+    else:
+        text = "🏋️ Where will the workout take place?"
     
-    return ASK_WORKOUT_LOCATION
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    return WORKOUT_LOCATION
 
-async def ask_workout_duration(update: Update, context: CallbackContext) -> int:
+async def select_workout_duration(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
-    location = query.data.split("_")[1]
-    context.user_data['workout_location'] = location
+    context.user_data['workout_location'] = query.data
     
-    language = "ru"  # По умолчанию, можно получить из базы
-    
+    language = "ru"  # Получаем из базы данных
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2334,39 +2335,48 @@ async def ask_workout_duration(update: Update, context: CallbackContext) -> int:
             conn.close()
     
     keyboard = [
-        [InlineKeyboardButton("15 мин", callback_data="duration_15")],
-        [InlineKeyboardButton("30 мин", callback_data="duration_30")],
-        [InlineKeyboardButton("1 час", callback_data="duration_60")],
-        [InlineKeyboardButton("1.5 часа", callback_data="duration_90")],
-        [InlineKeyboardButton("2 часа", callback_data="duration_120")]
+        [
+            InlineKeyboardButton("15 мин", callback_data="15"),
+            InlineKeyboardButton("30 мин", callback_data="30"),
+            InlineKeyboardButton("1 час", callback_data="60"),
+        ],
+        [
+            InlineKeyboardButton("1.5 часа", callback_data="90"),
+            InlineKeyboardButton("2 часа", callback_data="120"),
+        ]
     ]
     
     if language == "en":
         keyboard = [
-            [InlineKeyboardButton("15 min", callback_data="duration_15")],
-            [InlineKeyboardButton("30 min", callback_data="duration_30")],
-            [InlineKeyboardButton("1 hour", callback_data="duration_60")],
-            [InlineKeyboardButton("1.5 hours", callback_data="duration_90")],
-            [InlineKeyboardButton("2 hours", callback_data="duration_120")]
+            [
+                InlineKeyboardButton("15 min", callback_data="15"),
+                InlineKeyboardButton("30 min", callback_data="30"),
+                InlineKeyboardButton("1 hour", callback_data="60"),
+            ],
+            [
+                InlineKeyboardButton("1.5 hours", callback_data="90"),
+                InlineKeyboardButton("2 hours", callback_data="120"),
+            ]
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    text = "⏱ Выберите продолжительность тренировки:" if language == "ru" else "⏱ Choose workout duration:"
-    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    if language == "ru":
+        text = "⏱ Выберите продолжительность тренировки:"
+    else:
+        text = "⏱ Choose workout duration:"
     
-    return ASK_WORKOUT_DURATION
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    return WORKOUT_DURATION
 
-async def ask_workout_notes(update: Update, context: CallbackContext) -> int:
+async def ask_special_requests(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
-    duration = query.data.split("_")[1]
-    context.user_data['workout_duration'] = duration
+    context.user_data['workout_duration'] = query.data
     
-    language = "ru"  # По умолчанию, можно получить из базы
-    
+    language = "ru"  # Получаем из базы данных
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2388,32 +2398,83 @@ async def ask_workout_notes(update: Update, context: CallbackContext) -> int:
             conn.close()
     
     keyboard = [
-        [InlineKeyboardButton("✅ Да", callback_data="notes_yes")],
-        [InlineKeyboardButton("❌ Нет", callback_data="notes_no")]
+        [
+            InlineKeyboardButton("Да", callback_data="yes"),
+            InlineKeyboardButton("Нет", callback_data="no"),
+        ]
     ]
     
     if language == "en":
         keyboard = [
-            [InlineKeyboardButton("✅ Yes", callback_data="notes_yes")],
-            [InlineKeyboardButton("❌ No", callback_data="notes_no")]
+            [
+                InlineKeyboardButton("Yes", callback_data="yes"),
+                InlineKeyboardButton("No", callback_data="no"),
+            ]
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    text = "Есть особые пожелания к тренировке?" if language == "ru" else "Any special requests for the workout?"
-    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    if language == "ru":
+        text = "❓ Есть особые пожелания к тренировке?"
+    else:
+        text = "❓ Any special requests for the workout?"
     
-    return ASK_WORKOUT_NOTES
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    return WORKOUT_SPECIAL_REQUESTS
+
+async def get_special_requests(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    if query.data == "no":
+        return await generate_workout(update, context)
+    
+    language = "ru"  # Получаем из базы данных
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
+    if language == "ru":
+        text = "📝 Напишите ваши пожелания к тренировке (например: 'хочу проработать спину', 'без прыжков' и т.д.):"
+    else:
+        text = "📝 Write your special requests for the workout (e.g. 'focus on back', 'no jumps' etc.):"
+    
+    await query.edit_message_text(text=text)
+    return WORKOUT_GENERATE
 
 async def generate_workout(update: Update, context: CallbackContext) -> int:
-    query = update.callback_query
-    await query.answer()
+    user_id = update.callback_query.from_user.id if update.callback_query else update.message.from_user.id
+    special_requests = ""
     
-    user_id = query.from_user.id
-    notes = query.data.split("_")[1]
-    context.user_data['workout_notes'] = notes
+    if update.message:
+        special_requests = update.message.text
+        context.user_data['workout_special_requests'] = special_requests
     
     # Получаем данные пользователя
+    language = "ru"
+    gender = "м"
+    activity = "Новичок"
+    equipment = ""
+    health = ""
+    goal = ""
+    
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2425,83 +2486,61 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         )
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT name, gender, goal, activity, equipment, health, language 
+                SELECT language, gender, activity, equipment, health, goal 
                 FROM user_profiles 
                 WHERE user_id = %s
             """, (user_id,))
-            profile = cursor.fetchone()
+            row = cursor.fetchone()
+            if row:
+                language = row['language'] or "ru"
+                gender = row['gender'] or "м"
+                activity = row['activity'] or "Новичок"
+                equipment = row['equipment'] or ""
+                health = row['health'] or ""
+                goal = row['goal'] or ""
     except Exception as e:
-        print(f"Ошибка при получении профиля: {e}")
-        await query.edit_message_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
-        return ConversationHandler.END
+        print(f"Ошибка при получении данных пользователя: {e}")
     finally:
         if conn:
             conn.close()
     
-    if not profile:
-        await query.edit_message_text("Профиль не найден. Пожалуйста, заполните анкету с помощью /start.")
-        return ConversationHandler.END
-    
-    # Формируем промпт для Gemini
+    # Формируем промпт для генерации тренировки
     location_map = {
         "gym": "в зале",
-        "nature": "на природе",
+        "outdoor": "на природе",
         "playground": "на спортплощадке",
         "home": "дома"
     }
-    if profile['language'] == "en":
+    if language == "en":
         location_map = {
             "gym": "in the gym",
-            "nature": "in nature",
+            "outdoor": "outdoors",
             "playground": "on the playground",
             "home": "at home"
         }
     
-    duration_map = {
-        "15": "15 минут" if profile['language'] == "ru" else "15 minutes",
-        "30": "30 минут" if profile['language'] == "ru" else "30 minutes",
-        "60": "1 час" if profile['language'] == "ru" else "1 hour",
-        "90": "1.5 часа" if profile['language'] == "ru" else "1.5 hours",
-        "120": "2 часа" if profile['language'] == "ru" else "2 hours"
-    }
+    location = location_map.get(context.user_data['workout_location'], "в зале")
+    duration = context.user_data['workout_duration']
     
-    notes_text = ""
-    if notes == "yes":
-        notes_text = " (Есть особые пожелания)" if profile['language'] == "ru" else " (Has special requests)"
-    
-    workout_prompt = (
-        f"Сгенерируй для меня тренировку {location_map[context.user_data['workout_location']]} "
-        f"продолжительностью {duration_map[context.user_data['workout_duration']]}. "
-        f"Мои данные: пол - {profile['gender']}, цель - {profile['goal']}, "
-        f"уровень активности - {profile['activity']}, оборудование - {profile['equipment']}, "
-        f"состояние здоровья - {profile['health']}.{notes_text}"
+    prompt = (
+        f"Сгенерируй для меня тренировку {location} продолжительностью {duration} минут. "
+        f"Я {gender}, уровень подготовки: {activity}. "
+        f"Моя цель: {goal}. "
+        f"Имеющееся оборудование: {equipment}. "
+        f"Ограничения по здоровью: {health}. "
     )
     
-    if profile['language'] == "en":
-        workout_prompt = (
-            f"Generate a workout for me {location_map[context.user_data['workout_location']]} "
-            f"with a duration of {duration_map[context.user_data['workout_duration']]}. "
-            f"My data: gender - {profile['gender']}, goal - {profile['goal']}, "
-            f"activity level - {profile['activity']}, equipment - {profile['equipment']}, "
-            f"health condition - {profile['health']}.{notes_text}"
-        )
+    if special_requests:
+        prompt += f"Мои пожелания: {special_requests}."
     
-    # Вместо передачи в handle_message, генерируем ответ напрямую
-    try:
-        response = model.generate_content([{"text": workout_prompt}])
-        response_text = response.text.strip()
-        
-        # Отправляем ответ пользователю
-        await query.edit_message_text(text=response_text)
-        
-    except Exception as e:
-        print(f"Ошибка при генерации тренировки: {e}")
-        error_msg = "Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже."
-        if profile['language'] == "en":
-            error_msg = "An error occurred while generating the workout. Please try again later."
-        await query.edit_message_text(text=error_msg)
+    # Отправляем промпт в handle_message как обычное сообщение
+    update.message = update.message if update.message else update.callback_query.message
+    update.message.text = prompt
+    await handle_message(update, context)
     
     return ConversationHandler.END
+
+
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
@@ -3174,65 +3213,63 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 
 29. Генерация тренировок:
-   - Если пользователь запрашивает тренировку (через команду /workout или кнопку):
-     1. Всегда учитывай:
-        * Пол пользователя (gender)
-        * Цель (goal)
-        * Уровень активности (activity)
-        * Оборудование (equipment)
-        * Состояние здоровья (health)
-        * Временные ограничения (duration)
-     2. Формат ответа:
+   - Если пользователь запрашивает тренировку (команда /workout или кнопка "Начать тренировку"):
+     1. Формат ответа:
         TEXT:
-        🏋️ *Тренировка для [имя пользователя]*
+        🏋️ *Ваша персонализированная тренировка*
 
-        📍 *Место:* [место тренировки]
-        ⏱ *Длительность:* [время]
-        🎯 *Фокус:* [целевые группы мышц/цель]
+        📌 *Место:* [место тренировки]
+        ⏱ *Длительность:* [время тренировки]
+        🎯 *Фокус:* [группы мышц/цель]
 
         🔥 *Разминка (5-10 мин):*
-        • [Упражнение 1] - [подходы/повторы]
-        • [Упражнение 2] - [подходы/повторы]
+        - [Упражнение 1] - [подходы/повторы]
+        - [Упражнение 2] - [подходы/повторы]
 
         💪 *Основная часть:*
-        • [Упражнение 3] - [подходы/повторы]
-        • [Упражнение 4] - [подходы/повторы]
-        • [Упражнение 5] - [подходы/повторы]
+        - [Упражнение 3] - [подходы/повторы]
+        - [Упражнение 4] - [подходы/повторы]
+        - [Упражнение 5] - [подходы/повторы]
 
         🧘 *Заминка (5 мин):*
-        • [Растяжка 1] - [время]
-        • [Растяжка 2] - [время]
+        - [Растяжка 1] - [время]
+        - [Растяжка 2] - [время]
 
-        💡 *Совет:* [персонализированный совет]
+        💡 *Рекомендации:*
+        - [Персональный совет 1]
+        - [Персональный совет 2]
 
-        ⚠️ *Меры предосторожности:* [если есть ограничения по здоровью]
+        ⚠️ *Важно:* [Предупреждение если нужно]
 
-        📌 *Примечания:* [особые пожелания пользователя, если были указаны]
+   - Учитывай при генерации:
+     * Пол пользователя (gender)
+     * Уровень подготовки (activity)
+     * Имеющееся оборудование (equipment)
+     * Состояние здоровья (health)
+     * Цели (goal)
+     * Указанные пожелания
+     * Выбранную продолжительность
 
-   - Для мужчин:
-     * Акцент на базовые упражнения (приседания, жимы, тяги)
-     * Больше силовой нагрузки
-     * Меньше изоляции (если не указано иное)
+   - Для мужчин делай акцент на:
+     * Базовые многосуставные упражнения
+     * Прогрессию нагрузок
+     * Развитие силы и массы
 
-   - Для женщин:
-     * Акцент на тонус и рельеф
-     * Больше многоповторных упражнений
-     * Включение кардио-элементов (если не указано иное)
+   - Для женщин делай акцент на:
+     * Функциональные упражнения
+     * Проработку всех групп мышц
+     * Тонус и рельеф
 
-   - Учитывай оборудование:
-     * Зал: полный доступ к оборудованию
-     * Спортплощадка: турники, брусья
-     * Дома: только имеющийся инвентарь
-     * Природа: только вес тела
+   - Разделяй упражнения по группам мышц:
+     * Верх тела (грудь, спина, плечи, руки)
+     * Низ тела (квадрицепсы, бицепсы бедер, ягодицы)
+     * Кор (пресс, поясница)
 
-   - Временные ограничения:
-     * 15-30 мин: круговые тренировки
-     * 1 ч: разделение на группы мышц
-     * 1.5-2 ч: полная проработка + растяжка
-
-   - Особые пожелания:
-     * Если пользователь указал "да" - включи их в тренировку
-     * Если "нет" - следуй стандартным рекомендациям
+   - Всегда указывай:
+     * Количество подходов
+     * Количество повторений
+     * Отдых между подходами
+     * Технику выполнения (кратко)
 
 
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
@@ -3478,9 +3515,13 @@ def main():
     workout_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_workout, pattern="^start_workout$")],
         states={
-            ASK_WORKOUT_LOCATION: [CallbackQueryHandler(ask_workout_duration, pattern="^location_")],
-            ASK_WORKOUT_DURATION: [CallbackQueryHandler(ask_workout_notes, pattern="^duration_")],
-            ASK_WORKOUT_NOTES: [CallbackQueryHandler(generate_workout, pattern="^notes_")],
+            WORKOUT_LOCATION: [CallbackQueryHandler(select_workout_duration)],
+            WORKOUT_DURATION: [CallbackQueryHandler(ask_special_requests)],
+            WORKOUT_SPECIAL_REQUESTS: [
+                CallbackQueryHandler(get_special_requests, pattern="^yes$"),
+                CallbackQueryHandler(generate_workout, pattern="^no$"),
+            ],
+            WORKOUT_GENERATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, generate_workout)],
         },
         fallbacks=[],
     )
