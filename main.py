@@ -2466,6 +2466,9 @@ async def handle_workout_wishes_text(update: Update, context: CallbackContext) -
     user_id = update.message.from_user.id
     context.user_data['workout_wishes'] = update.message.text
     
+    # Добавляем отладочный вывод
+    print(f"Получены пожелания: {context.user_data['workout_wishes']}")
+    
     await generate_workout(update, context)
     return ConversationHandler.END
 
