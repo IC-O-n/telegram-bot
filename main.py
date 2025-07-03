@@ -1890,6 +1890,12 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if query.data == "start_workout":
         await start_workout(update, context)
+        return
+
+    # Обработка выбора места тренировки
+    if query.data in ["gym", "outdoors", "sports_ground", "home"]:
+        await handle_workout_location(update, context)
+        return
 
 
     # Обработка кнопки воды
@@ -2244,15 +2250,12 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
     )
 
 
-# Добавляем новые состояния в начало файла, где объявлены другие состояния
-
 (
     ASK_LANGUAGE, ASK_NAME, ASK_GENDER, ASK_AGE, ASK_WEIGHT, ASK_HEIGHT,
     ASK_GOAL, ASK_ACTIVITY, ASK_DIET_PREF, ASK_HEALTH, ASK_EQUIPMENT, 
     ASK_TARGET, ASK_TIMEZONE, ASK_WAKEUP_TIME, ASK_SLEEP_TIME, ASK_WATER_REMINDERS,
     WORKOUT_LOCATION, WORKOUT_DURATION, WORKOUT_SPECIAL_WISHES, WORKOUT_WISHES_TEXT
 ) = range(20)
-
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
     # Получаем user_id и message в зависимости от типа update
@@ -3477,10 +3480,7 @@ def main():
     )
 
     workout_conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("workout", start_workout),
-            CallbackQueryHandler(start_workout, pattern="^start_workout$")
-        ],
+        entry_points=[CommandHandler("workout", start_workout)],
         states={
             WORKOUT_LOCATION: [CallbackQueryHandler(handle_workout_location)],
             WORKOUT_DURATION: [CallbackQueryHandler(handle_workout_duration)],
