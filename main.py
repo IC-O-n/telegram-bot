@@ -2441,16 +2441,33 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
         if 'workout_special_requests' in context.user_data:
             del context.user_data['workout_special_requests']
         
-        # Отправляем сообщение о генерации
-        language = "ru"  # Можно добавить проверку языка из профиля
-        if language == "ru":
-            generating_msg = await query.edit_message_text("⚙ Генерация тренировки...")
-        else:
-            generating_msg = await query.edit_message_text("⚙ Generating workout...")
+        # Получаем язык пользователя
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (query.from_user.id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
         
-        # Сохраняем ID сообщения для последующего удаления
-        context.user_data['generating_msg_id'] = generating_msg.message_id
+        # Сначала обновляем сообщение с вопросом, показывая "Генерация..."
+        generating_text = "⚙ Генерация тренировки..." if language == "ru" else "⚙ Generating workout..."
+        await query.edit_message_text(text=generating_text)
         
+        # Затем вызываем генерацию тренировки
         return await generate_workout(update, context)
 
     # Запрашиваем пожелания
@@ -2502,21 +2519,9 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             await query.answer()
         chat_id = query.message.chat_id if query else update.message.chat_id
         from_query = bool(query)
-
-    user_id = update.effective_user.id
     
     try:
-        # Удаляем сообщение "Генерация тренировки..." если оно есть
-        if 'generating_msg_id' in context.user_data:
-            try:
-                await context.bot.delete_message(
-                    chat_id=chat_id,
-                    message_id=context.user_data['generating_msg_id']
-                )
-            except Exception as e:
-                print(f"Не удалось удалить сообщение: {e}")
-            finally:
-                del context.user_data['generating_msg_id']
+        
 
         # Получаем данные пользователя
         conn = pymysql.connect(
