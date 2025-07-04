@@ -1891,6 +1891,58 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if query.data == "start_workout":
         return await start_workout(update, context)
+        
+    if query.data == "nutrition_analysis":
+        # Получаем язык пользователя
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+        
+        # Создаем сообщение от имени пользователя
+        analysis_text = "Анализ питания" if language == "ru" else "Nutrition analysis"
+        
+        # Создаем объект Message, имитирующий сообщение от пользователя
+        user_message = Message(
+            message_id=query.message.message_id + 1,  # Следующий ID сообщения
+            date=datetime.now(),
+            chat=query.message.chat,
+            from_user=query.from_user,
+            text=analysis_text,
+            bot=context.bot  # Добавляем бота к сообщению
+        )
+        
+        # Создаем новый Update с этим сообщением
+        new_update = Update(
+            update_id=update.update_id + 1,
+            message=user_message
+        )
+        
+        # Вызываем обработчик сообщений
+        await handle_message(new_update, context)
+        
+        # Удаляем сообщение с кнопками (опционально)
+        try:
+            await query.delete_message()
+        except Exception as e:
+            print(f"Ошибка при удалении сообщения: {e}")
+        return
 
 
     # Обработка кнопки воды
@@ -2242,7 +2294,8 @@ async def post_init(application: Application) -> None:
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
     keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
+        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
+        [InlineKeyboardButton("🍎 Анализ питания", callback_data="nutrition_analysis")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
