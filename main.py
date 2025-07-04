@@ -1338,16 +1338,6 @@ async def reset(update: Update, context: CallbackContext) -> None:
 
 async def toggle_water_reminders(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
-
-    if update.message:
-        user_id = update.message.from_user.id
-        chat_id = update.message.chat_id
-    elif update.callback_query:
-        user_id = update.callback_query.from_user.id
-        chat_id = update.callback_query.message.chat_id
-    else:
-        return
-
     conn = None
     try:
         conn = pymysql.connect(
@@ -1897,23 +1887,20 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id  # Get user_id from query instead of update.message
+    user_id = query.from_user.id
 
     if query.data == "start_workout":
         return await start_workout(update, context)
-
-    if query.data == "toggle_water":
-        # Create a fake update with message for the toggle_water_reminders function
-        fake_update = Update(
-            update.update_id,
-            message=Message(
-                message_id=query.message.message_id,
-                date=query.message.date,
-                chat=query.message.chat,
-                from_user=query.from_user,
-            )
+        
+    if query.data == "toggle_water_from_menu":
+        # Эмулируем отправку команды /water от имени пользователя
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="/water"
         )
-        return await toggle_water_reminders(fake_update, context)
+        # Удаляем старое меню
+        await query.delete_message()
+        return
 
 
     # Обработка кнопки воды
@@ -2266,10 +2253,11 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
     user_id = update.message.from_user.id
     
-    # Получаем текущее состояние напоминаний о воде из базы данных
+    # Получаем статус напоминаний о воде из базы данных
     water_reminders_enabled = False
     language = "ru"  # дефолтное значение
     
+    conn = None
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2287,33 +2275,34 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
                 if row['language']:
                     language = row['language']
     except Exception as e:
-        print(f"Ошибка при получении состояния напоминаний: {e}")
+        print(f"Ошибка при получении статуса напоминаний: {e}")
     finally:
         if conn:
             conn.close()
     
-    # Формируем текст кнопки в зависимости от текущего состояния
-    if language == "ru":
-        water_button_text = "🔴 Отключить напоминания о воде" if water_reminders_enabled else "🟢 Включить напоминания о воде"
-        menu_text = "📱 *Меню управления ботом*\n\nЗдесь вы можете управлять основными функциями"
+    # Создаем кнопку для воды в зависимости от текущего статуса
+    if water_reminders_enabled:
+        water_button_text = "💧 Отключить напоминания о воде" if language == "ru" else "💧 Disable water reminders"
     else:
-        water_button_text = "🔴 Disable water reminders" if water_reminders_enabled else "🟢 Enable water reminders"
-        menu_text = "📱 *Bot control menu*\n\nHere you can manage main functions"
+        water_button_text = "💧 Включить напоминания о воде" if language == "ru" else "💧 Enable water reminders"
     
     keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start workout", 
-                             callback_data="start_workout")],
-        [InlineKeyboardButton(water_button_text, callback_data="toggle_water")]
+        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
+        [InlineKeyboardButton(water_button_text, callback_data="toggle_water_from_menu")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    menu_text = "📱 *Меню управления ботом*\n\n" + (
+        "Здесь вы можете управлять основными функциями" if language == "ru" 
+        else "Here you can manage the main functions"
+    )
     
     await update.message.reply_text(
         menu_text,
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-
 
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
