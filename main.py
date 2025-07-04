@@ -2436,23 +2436,27 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
 
-    # Удаляем сообщение с вопросом о пожеланиях
-    try:
-        await context.bot.delete_message(
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id
-        )
-    except Exception as e:
-        print(f"Не удалось удалить сообщение: {e}")
+    # Получаем chat_id и message_id для удаления
+    chat_id = query.message.chat_id
+    message_id = query.message.message_id
 
     if query.data == "no":
+        # Удаляем сообщение с вопросом
+        try:
+            await context.bot.delete_message(
+                chat_id=chat_id,
+                message_id=message_id
+            )
+        except Exception as e:
+            print(f"Не удалось удалить сообщение: {e}")
+
         # Если нет пожеланий, удаляем возможные предыдущие пожелания
         if 'workout_special_requests' in context.user_data:
             del context.user_data['workout_special_requests']
         
         # Отправляем сообщение "Генерация тренировки..."
         generating_msg = await context.bot.send_message(
-            chat_id=query.message.chat_id,
+            chat_id=chat_id,
             text="⚙️ Генерация тренировки..."
         )
         
@@ -2461,6 +2465,15 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
         
         # Генерируем тренировку
         return await generate_workout(update, context)
+
+    # Если ответ "да" - удаляем сообщение с вопросом и запрашиваем пожелания
+    try:
+        await context.bot.delete_message(
+            chat_id=chat_id,
+            message_id=message_id
+        )
+    except Exception as e:
+        print(f"Не удалось удалить сообщение: {e}")
 
     # Запрашиваем пожелания
     user_id = query.from_user.id
@@ -2492,7 +2505,7 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
         text = "📝 Write your special requests for the workout (e.g. 'focus on back', 'no jumps' etc.):\n\nThese requests will be considered only for this workout."
 
     await context.bot.send_message(
-        chat_id=query.message.chat_id,
+        chat_id=chat_id,
         text=text
     )
     
