@@ -1338,6 +1338,16 @@ async def reset(update: Update, context: CallbackContext) -> None:
 
 async def toggle_water_reminders(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+
+    if update.message:
+        user_id = update.message.from_user.id
+        chat_id = update.message.chat_id
+    elif update.callback_query:
+        user_id = update.callback_query.from_user.id
+        chat_id = update.callback_query.message.chat_id
+    else:
+        return
+
     conn = None
     try:
         conn = pymysql.connect(
@@ -1887,14 +1897,23 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    user_id = query.from_user.id  # Get user_id from query instead of update.message
 
     if query.data == "start_workout":
         return await start_workout(update, context)
 
     if query.data == "toggle_water":
-        # Просто вызываем обработчик команды /water
-        return await toggle_water_reminders(update, context)
+        # Create a fake update with message for the toggle_water_reminders function
+        fake_update = Update(
+            update.update_id,
+            message=Message(
+                message_id=query.message.message_id,
+                date=query.message.date,
+                chat=query.message.chat,
+                from_user=query.from_user,
+            )
+        )
+        return await toggle_water_reminders(fake_update, context)
 
 
     # Обработка кнопки воды
