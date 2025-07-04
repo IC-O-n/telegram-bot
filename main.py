@@ -1914,13 +1914,24 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         finally:
             if conn:
                 conn.close()
-        
-        # Отправляем сообщение с запросом анализа питания
+    
+        # Создаем сообщение от имени пользователя
         analysis_text = "Анализ питания" if language == "ru" else "Nutrition analysis"
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
+    
+        # Создаем объект Message, имитирующий сообщение от пользователя
+        user_message = Message(
+            message_id=query.message.message_id + 1,  # Следующий ID сообщения
+            date=datetime.now(),
+            chat=query.message.chat,
+            from_user=query.from_user,
             text=analysis_text
         )
+    
+        # Вызываем обработчик сообщений с этим сообщением
+        await handle_message(Update(update_id=update.update_id + 1, message=user_message), context)
+    
+        # Удаляем сообщение с кнопками (опционально)
+        await query.delete_message()
         return
 
 
