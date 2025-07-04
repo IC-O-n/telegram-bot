@@ -1930,6 +1930,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                     chat_id=query.message.chat_id,
                     user_id=user_id,
                     name=str(user_id)
+                    )
                 print(f"Создана задача напоминаний для пользователя {user_id}")
             
             # Формируем ответное сообщение
