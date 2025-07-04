@@ -2459,14 +2459,17 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
             if conn:
                 conn.close()
 
-        # Сначала редактируем текущее сообщение
+        # Редактируем текущее сообщение на "Генерация тренировки..."
         generating_text = "⚙ Генерация тренировки..." if language == "ru" else "⚙ Generating workout..."
-        await query.edit_message_text(text=generating_text)
+        generating_msg = await query.edit_message_text(text=generating_text)
         
-        # Затем вызываем генерацию тренировки
+        # Сохраняем ID сообщения для последующего редактирования
+        context.user_data['generating_msg_id'] = generating_msg.message_id
+        
+        # Вызываем генерацию тренировки
         return await generate_workout(update, context)
 
-    # Остальной код остается без изменений
+    # Остальной код для ответа "да" остается без изменений
     user_id = query.from_user.id
     language = "ru"
     
@@ -2497,7 +2500,6 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
 
     await query.edit_message_text(text=text)
     
-    # Сохраняем данные для следующего шага
     context.user_data['awaiting_special_requests'] = True
     return WORKOUT_GENERATE
 
@@ -2515,6 +2517,7 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             await query.answer()
         chat_id = query.message.chat_id if query else update.message.chat_id
         from_query = bool(query)
+        generating_msg_id = context.user_data.get('generating_msg_id')
 
     user_id = update.effective_user.id
     
@@ -2538,10 +2541,17 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             row = cursor.fetchone()
 
         if not row:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="Профиль не найден. Пожалуйста, завершите анкету с помощью /start"
-            )
+            if from_query and generating_msg_id:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=generating_msg_id,
+                    text="Профиль не найден. Пожалуйста, завершите анкету с помощью /start"
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Профиль не найден. Пожалуйста, завершите анкету с помощью /start"
+                )
             return ConversationHandler.END
 
         language = row['language'] or "ru"
@@ -2556,19 +2566,9 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             del context.user_data['workout_special_requests']
 
         # Формируем промпт для Gemini
-        if location == 'home':
-            equipment = row['equipment'] or "без инвентаря"
-        elif location in ['gym', 'playground', 'outdoor']:
-            equipment = {
-                'gym': "любое оборудование зала",
-                'playground': "турник и брусья",
-                'outdoor': "вес тела"
-            }[location]
-    
-        # Формируем строгий промпт с учетом пожеланий
         prompt = f"""
         Сгенерируй тренировку СТРОГО по следующим правилам:
-        - Место: {location} ({equipment})
+        - Место: {location} ({row['equipment'] or "без инвентаря"})
         - Длительность: {duration} минут
         - Уровень: {row['activity'] or "Средний"}
         - Пол: {row['gender'] or "м"}
@@ -2607,31 +2607,31 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             # Очищаем текст от проблемных символов Markdown
             cleaned_text = clean_markdown(response.text)
             
-            try:
-                # Отправляем результат
-                if from_query:
+            # Отправляем результат, редактируя сообщение "Генерация тренировки..."
+            if from_query and generating_msg_id:
+                try:
                     await context.bot.edit_message_text(
                         chat_id=chat_id,
-                        message_id=query.message.message_id,
+                        message_id=generating_msg_id,
                         text=cleaned_text,
                         parse_mode="Markdown"
                     )
-                else:
+                except Exception as e:
+                    print(f"Ошибка при отправке с Markdown: {e}")
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=generating_msg_id,
+                        text=cleaned_text
+                    )
+            else:
+                try:
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text=cleaned_text,
                         parse_mode="Markdown"
                     )
-            except Exception as e:
-                print(f"Ошибка при отправке с Markdown: {e}")
-                # Если не получилось, отправляем без разметки
-                if from_query:
-                    await context.bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=query.message.message_id,
-                        text=cleaned_text
-                    )
-                else:
+                except Exception as e:
+                    print(f"Ошибка при отправке с Markdown: {e}")
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text=cleaned_text
@@ -2645,10 +2645,10 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         if language == "en":
             error_msg = "An error occurred while generating the workout. Please try again later."
         
-        if from_query:
+        if from_query and generating_msg_id:
             await context.bot.edit_message_text(
                 chat_id=chat_id,
-                message_id=query.message.message_id,
+                message_id=generating_msg_id,
                 text=error_msg
             )
         else:
@@ -2659,6 +2659,10 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
     finally:
         if conn:
             conn.close()
+        
+        # Удаляем ID сообщения из контекста
+        if 'generating_msg_id' in context.user_data:
+            del context.user_data['generating_msg_id']
 
     # Очищаем все данные о тренировке после генерации
     for key in ['workout_location', 'workout_duration', 'workout_special_requests', 'awaiting_special_requests']:
