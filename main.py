@@ -2254,7 +2254,13 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
         parse_mode="Markdown"
     )
 
-
+async def show_generating_message(chat_id: int, context: CallbackContext, language: str = "ru") -> Message:
+    """Отправляет сообщение о генерации с анимированной шестеренкой"""
+    text = "⚙ Генерация тренировки..." if language == "ru" else "⚙ Generating workout..."
+    return await context.bot.send_message(
+        chat_id=chat_id,
+        text=text
+    )
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
@@ -2437,9 +2443,38 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     await query.answer()
 
     if query.data == "no":
-        # Если нет пожеланий, удаляем возможные предыдущие пожелания
+        # Удаляем возможные предыдущие пожелания
         if 'workout_special_requests' in context.user_data:
             del context.user_data['workout_special_requests']
+        
+        # Получаем язык пользователя
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (query.from_user.id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+        
+        # Редактируем сообщение вместо отправки нового
+        await query.edit_message_text(
+            text="⚙ Генерация тренировки..." if language == "ru" else "⚙ Generating workout..."
+        )
+        
+        # Запускаем генерацию тренировки
         return await generate_workout(update, context)
 
     # Запрашиваем пожелания
@@ -2477,6 +2512,7 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     context.user_data['awaiting_special_requests'] = True
     return WORKOUT_GENERATE
 
+
 async def generate_workout(update: Update, context: CallbackContext) -> int:
     # Определяем, откуда пришел запрос
     if context.user_data.get('awaiting_special_requests', False):
@@ -2484,10 +2520,65 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         context.user_data['workout_special_requests'] = user_input
         context.user_data['awaiting_special_requests'] = False
         chat_id = update.message.chat_id
+        
+        # Получаем язык пользователя
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (update.effective_user.id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+        
+        # Отправляем сообщение о генерации и сохраняем его ID
+        generating_msg = await update.message.reply_text(
+            "⚙ Генерация тренировки..." if language == "ru" else "⚙ Generating workout..."
+        )
+        context.user_data['generating_msg_id'] = generating_msg.message_id
     else:
         query = update.callback_query
         await query.answer()
         chat_id = query.message.chat_id
+        
+        # Получаем язык пользователя
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (query.from_user.id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+        
+        # Редактируем предыдущее сообщение на индикатор генерации
+        await query.edit_message_text(
+            text="⚙ Генерация тренировки..." if language == "ru" else "⚙ Generating workout..."
+        )
 
     user_id = update.effective_user.id
     
@@ -2551,13 +2642,6 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         - Уровень: {activity}
         - Пол: {gender}
         - Цель: {goal}
-
-        ЗАПРЕЩЕНО:
-            - Добавлять любые слова перед 🏋️
-            - Указывать уровень подготовки или пол
-            - Использовать скобки в названии
-            - Добавлять пояснения вне шаблона
-
         - Формат вывода ДОЛЖЕН БЫТЬ ТОЧНО как в примере ниже
     
         Пример:
@@ -2590,6 +2674,17 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             # Очищаем текст от проблемных символов Markdown
             cleaned_text = clean_markdown(response.text)
             
+            # Удаляем сообщение о генерации, если оно было отправлено
+            if 'generating_msg_id' in context.user_data:
+                try:
+                    await context.bot.delete_message(
+                        chat_id=chat_id,
+                        message_id=context.user_data['generating_msg_id']
+                    )
+                    del context.user_data['generating_msg_id']
+                except Exception as e:
+                    print(f"Ошибка при удалении сообщения о генерации: {e}")
+            
             try:
                 # Пробуем отправить с разметкой Markdown
                 await context.bot.send_message(
@@ -2612,6 +2707,18 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         error_msg = "Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже."
         if language == "en":
             error_msg = "An error occurred while generating the workout. Please try again later."
+        
+        # Удаляем сообщение о генерации, если оно было отправлено
+        if 'generating_msg_id' in context.user_data:
+            try:
+                await context.bot.delete_message(
+                    chat_id=chat_id,
+                    message_id=context.user_data['generating_msg_id']
+                )
+                del context.user_data['generating_msg_id']
+            except Exception as e:
+                print(f"Ошибка при удалении сообщения о генерации: {e}")
+        
         await context.bot.send_message(
             chat_id=chat_id,
             text=error_msg
@@ -2626,6 +2733,7 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             del context.user_data[key]
 
     return ConversationHandler.END
+
 
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
