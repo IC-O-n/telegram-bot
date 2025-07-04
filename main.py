@@ -1891,73 +1891,6 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if query.data == "start_workout":
         return await start_workout(update, context)
-        
-    # Обработка кнопок включения/выключения напоминаний о воде
-    elif query.data in ["toggle_water_on", "toggle_water_off"]:
-        new_state = 1 if query.data == "toggle_water_on" else 0
-        
-        conn = None
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            )
-            
-            with conn.cursor() as cursor:
-                cursor.execute("UPDATE user_profiles SET water_reminders = %s WHERE user_id = %s", (new_state, user_id))
-                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-                row = cursor.fetchone()
-                
-            conn.commit()
-            
-            language = row['language'] if row and row['language'] else "ru"
-            
-            # Удаляем старые задачи для этого пользователя, если они есть
-            current_jobs = context.job_queue.get_jobs_by_name(str(user_id))
-            for job in current_jobs:
-                job.schedule_removal()
-            
-            # Если напоминания включаются, создаем новую задачу
-            if new_state:
-                context.job_queue.run_repeating(
-                    check_water_reminder_time,
-                    interval=300,
-                    first=10,
-                    chat_id=query.message.chat_id,
-                    user_id=user_id,
-                    name=str(user_id)
-                    )
-                print(f"Создана задача напоминаний для пользователя {user_id}")
-            
-            # Формируем ответное сообщение
-            if language == "ru":
-                if new_state:
-                    message = "💧 Напоминания о воде включены! Я буду напоминать тебе пить воду в течение дня."
-                else:
-                    message = "💧 Напоминания о воде отключены."
-            else:
-                if new_state:
-                    message = "💧 Water reminders enabled! I'll remind you to drink water during the day."
-                else:
-                    message = "💧 Water reminders disabled."
-            
-            await query.edit_message_text(text=message)
-            
-            # Обновляем меню после изменения состояния
-            return await menu_command(update, context)
-            
-        except Exception as e:
-            print(f"Ошибка при переключении напоминаний о воде: {e}")
-            error_msg = "Произошла ошибка. Пожалуйста, попробуйте позже." if language == "ru" else "An error occurred. Please try again later."
-            await query.edit_message_text(text=error_msg)
-        finally:
-            if conn:
-                conn.close()
-        return
 
 
     # Обработка кнопки воды
@@ -2339,32 +2272,51 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
         if conn:
             conn.close()
     
-    # Создаем кнопки меню
+    # Создаем кнопку для управления напоминаниями о воде
+    water_button_text = "💧 Отключить напоминания о воде" if water_reminders_enabled else "💧 Включить напоминания о воде"
+    if language == "en":
+        water_button_text = "💧 Disable water reminders" if water_reminders_enabled else "💧 Enable water reminders"
+    
     keyboard = [
         [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
+        [InlineKeyboardButton(water_button_text, callback_data="toggle_water_from_menu")]
     ]
     
-    # Добавляем кнопку для управления напоминаниями о воде
-    if water_reminders_enabled:
-        water_button_text = "💧 Отключить напоминания о воде" if language == "ru" else "💧 Disable water reminders"
-        keyboard.append([InlineKeyboardButton(water_button_text, callback_data="toggle_water_off")])
-    else:
-        water_button_text = "💧 Включить напоминания о воде" if language == "ru" else "💧 Enable water reminders"
-        keyboard.append([InlineKeyboardButton(water_button_text, callback_data="toggle_water_on")])
+    if language == "en":
+        keyboard = [
+            [InlineKeyboardButton("🏋️ Start workout", callback_data="start_workout")],
+            [InlineKeyboardButton(water_button_text, callback_data="toggle_water_from_menu")]
+        ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Текст меню в зависимости от языка
-    menu_text = {
-        "ru": "📱 *Меню управления ботом*\n\nЗдесь вы можете управлять основными функциями",
-        "en": "📱 *Bot control menu*\n\nHere you can manage the main functions"
-    }.get(language, "📱 *Bot control menu*\n\nHere you can manage the main functions")
+    menu_text = "📱 *Меню управления ботом*\n\nЗдесь вы можете управлять основными функциями"
+    if language == "en":
+        menu_text = "📱 *Bot control menu*\n\nHere you can manage main functions"
     
     await update.message.reply_text(
         menu_text,
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
+
+async def handle_toggle_water_from_menu(update: Update, context: CallbackContext) -> None:
+    """Обработчик кнопки включения/отключения воды из меню"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Эмулируем отправку команды /water
+    message = update.effective_message
+    message.text = "/water"
+    message.from_user = query.from_user
+    
+    # Вызываем обработчик команды /water
+    await toggle_water_reminders(message, context)
+    
+    # После переключения снова показываем меню
+    await menu_command(message, context)
+
+
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
@@ -3781,6 +3733,7 @@ def main():
 
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CallbackQueryHandler(handle_toggle_water_from_menu, pattern="^toggle_water_from_menu$"))
 
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
