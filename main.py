@@ -2436,46 +2436,27 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
 
-    # Получаем chat_id и message_id для удаления
-    chat_id = query.message.chat_id
-    message_id = query.message.message_id
-
     if query.data == "no":
-        # Удаляем сообщение с вопросом
+        # Меняем текст сообщения на "Генерация тренировки..."
         try:
-            await context.bot.delete_message(
-                chat_id=chat_id,
-                message_id=message_id
+            await query.edit_message_text(
+                text="⚙️ Генерация тренировки...",
+                reply_markup=None  # Убираем кнопки
             )
         except Exception as e:
-            print(f"Не удалось удалить сообщение: {e}")
+            print(f"Не удалось изменить сообщение: {e}")
 
         # Если нет пожеланий, удаляем возможные предыдущие пожелания
         if 'workout_special_requests' in context.user_data:
             del context.user_data['workout_special_requests']
         
-        # Отправляем сообщение "Генерация тренировки..."
-        generating_msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text="⚙️ Генерация тренировки..."
-        )
-        
         # Сохраняем ID сообщения для последующего удаления
-        context.user_data['generating_msg_id'] = generating_msg.message_id
+        context.user_data['generating_msg_id'] = query.message.message_id
         
         # Генерируем тренировку
         return await generate_workout(update, context)
 
-    # Если ответ "да" - удаляем сообщение с вопросом и запрашиваем пожелания
-    try:
-        await context.bot.delete_message(
-            chat_id=chat_id,
-            message_id=message_id
-        )
-    except Exception as e:
-        print(f"Не удалось удалить сообщение: {e}")
-
-    # Запрашиваем пожелания
+    # Если ответ "да" - запрашиваем пожелания
     user_id = query.from_user.id
     language = "ru"
     
@@ -2504,10 +2485,14 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     else:
         text = "📝 Write your special requests for the workout (e.g. 'focus on back', 'no jumps' etc.):\n\nThese requests will be considered only for this workout."
 
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=text
-    )
+    # Меняем текст сообщения на запрос пожеланий
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=None  # Убираем кнопки
+        )
+    except Exception as e:
+        print(f"Не удалось изменить сообщение: {e}")
     
     # Сохраняем данные для следующего шага
     context.user_data['awaiting_special_requests'] = True
