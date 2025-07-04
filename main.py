@@ -1892,6 +1892,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     if query.data == "start_workout":
         return await start_workout(update, context)
 
+    if query.data == "toggle_water":
+        # Просто вызываем обработчик команды /water
+        return await toggle_water_reminders(update, context)
+
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2241,15 +2245,52 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
+    user_id = update.message.from_user.id
+    
+    # Получаем текущее состояние напоминаний о воде из базы данных
+    water_reminders_enabled = False
+    language = "ru"  # дефолтное значение
+    
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT water_reminders, language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row:
+                water_reminders_enabled = bool(row['water_reminders'])
+                if row['language']:
+                    language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении состояния напоминаний: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
+    # Формируем текст кнопки в зависимости от текущего состояния
+    if language == "ru":
+        water_button_text = "🔴 Отключить напоминания о воде" if water_reminders_enabled else "🟢 Включить напоминания о воде"
+        menu_text = "📱 *Меню управления ботом*\n\nЗдесь вы можете управлять основными функциями"
+    else:
+        water_button_text = "🔴 Disable water reminders" if water_reminders_enabled else "🟢 Enable water reminders"
+        menu_text = "📱 *Bot control menu*\n\nHere you can manage main functions"
+    
     keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
+        [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start workout", 
+                             callback_data="start_workout")],
+        [InlineKeyboardButton(water_button_text, callback_data="toggle_water")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "📱 *Меню управления ботом*\n\n"
-        "Здесь вы можете управлять основными функциями",
+        menu_text,
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
