@@ -2436,10 +2436,30 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
 
+    # Удаляем сообщение с вопросом о пожеланиях
+    try:
+        await context.bot.delete_message(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id
+        )
+    except Exception as e:
+        print(f"Не удалось удалить сообщение: {e}")
+
     if query.data == "no":
         # Если нет пожеланий, удаляем возможные предыдущие пожелания
         if 'workout_special_requests' in context.user_data:
             del context.user_data['workout_special_requests']
+        
+        # Отправляем сообщение "Генерация тренировки..."
+        generating_msg = await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="⚙️ Генерация тренировки..."
+        )
+        
+        # Сохраняем ID сообщения для последующего удаления
+        context.user_data['generating_msg_id'] = generating_msg.message_id
+        
+        # Генерируем тренировку
         return await generate_workout(update, context)
 
     # Запрашиваем пожелания
@@ -2471,13 +2491,26 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     else:
         text = "📝 Write your special requests for the workout (e.g. 'focus on back', 'no jumps' etc.):\n\nThese requests will be considered only for this workout."
 
-    await query.edit_message_text(text=text)
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=text
+    )
     
     # Сохраняем данные для следующего шага
     context.user_data['awaiting_special_requests'] = True
     return WORKOUT_GENERATE
 
 async def generate_workout(update: Update, context: CallbackContext) -> int:
+    if 'generating_msg_id' in context.user_data:
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=context.user_data['generating_msg_id']
+            )
+            del context.user_data['generating_msg_id']
+        except Exception as e:
+            print(f"Не удалось удалить сообщение о генерации: {e}")
+
     # Определяем, откуда пришел запрос
     if context.user_data.get('awaiting_special_requests', False):
         user_input = update.message.text
