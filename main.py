@@ -2440,6 +2440,17 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
         # Если нет пожеланий, удаляем возможные предыдущие пожелания
         if 'workout_special_requests' in context.user_data:
             del context.user_data['workout_special_requests']
+        
+        # Отправляем сообщение о генерации
+        language = "ru"  # Можно добавить проверку языка из профиля
+        if language == "ru":
+            generating_msg = await query.edit_message_text("⚙ Генерация тренировки...")
+        else:
+            generating_msg = await query.edit_message_text("⚙ Generating workout...")
+        
+        # Сохраняем ID сообщения для последующего удаления
+        context.user_data['generating_msg_id'] = generating_msg.message_id
+        
         return await generate_workout(update, context)
 
     # Запрашиваем пожелания
@@ -2484,14 +2495,29 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         context.user_data['workout_special_requests'] = user_input
         context.user_data['awaiting_special_requests'] = False
         chat_id = update.message.chat_id
+        from_query = False
     else:
         query = update.callback_query
-        await query.answer()
-        chat_id = query.message.chat_id
+        if query:
+            await query.answer()
+        chat_id = query.message.chat_id if query else update.message.chat_id
+        from_query = bool(query)
 
     user_id = update.effective_user.id
     
     try:
+        # Удаляем сообщение "Генерация тренировки..." если оно есть
+        if 'generating_msg_id' in context.user_data:
+            try:
+                await context.bot.delete_message(
+                    chat_id=chat_id,
+                    message_id=context.user_data['generating_msg_id']
+                )
+            except Exception as e:
+                print(f"Не удалось удалить сообщение: {e}")
+            finally:
+                del context.user_data['generating_msg_id']
+
         # Получаем данные пользователя
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2587,18 +2613,33 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             
             try:
                 # Пробуем отправить с разметкой Markdown
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=cleaned_text,
-                    parse_mode="Markdown"
-                )
+                if from_query:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=query.message.message_id,
+                        text=cleaned_text,
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=cleaned_text,
+                        parse_mode="Markdown"
+                    )
             except Exception as e:
                 print(f"Ошибка при отправке с Markdown: {e}")
                 # Если не получилось, отправляем без разметки
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=cleaned_text
-                )
+                if from_query:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=query.message.message_id,
+                        text=cleaned_text
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=cleaned_text
+                    )
         else:
             raise ValueError("Пустой ответ от модели")
 
@@ -2607,10 +2648,18 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         error_msg = "Произошла ошибка при генерации тренировки. Пожалуйста, попробуйте позже."
         if language == "en":
             error_msg = "An error occurred while generating the workout. Please try again later."
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=error_msg
-        )
+        
+        if from_query:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=query.message.message_id,
+                text=error_msg
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=error_msg
+            )
     finally:
         if conn:
             conn.close()
