@@ -1915,27 +1915,12 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             if conn:
                 conn.close()
         
-        # Создаем сообщение от имени пользователя
+        # Отправляем сообщение от имени бота, но с текстом, который обрабатывается как запрос анализа
         analysis_text = "Анализ питания" if language == "ru" else "Nutrition analysis"
-        
-        # Создаем объект Message, имитирующий сообщение от пользователя
-        user_message = Message(
-            message_id=query.message.message_id + 1,  # Следующий ID сообщения
-            date=datetime.now(),
-            chat=query.message.chat,
-            from_user=query.from_user,
-            text=analysis_text,
-            bot=context.bot  # Добавляем бота к сообщению
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=analysis_text
         )
-        
-        # Создаем новый Update с этим сообщением
-        new_update = Update(
-            update_id=update.update_id + 1,
-            message=user_message
-        )
-        
-        # Вызываем обработчик сообщений
-        await handle_message(new_update, context)
         
         # Удаляем сообщение с кнопками (опционально)
         try:
@@ -1943,7 +1928,6 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         except Exception as e:
             print(f"Ошибка при удалении сообщения: {e}")
         return
-
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
