@@ -1891,6 +1891,50 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if query.data == "start_workout":
         return await start_workout(update, context)
+        
+    if query.data == "nutrition_analysis":
+        # Получаем язык пользователя
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+        
+        # Отправляем сообщение о генерации анализа
+        if language == "ru":
+            generating_msg = await query.edit_message_text("⚙ Генерация анализа питания...")
+        else:
+            generating_msg = await query.edit_message_text("⚙ Generating nutrition analysis...")
+        
+        # Сохраняем ID сообщения для последующего удаления
+        context.user_data['generating_msg_id'] = generating_msg.message_id
+        
+        # Формируем сообщение с запросом анализа
+        analysis_text = "Анализ питания" if language == "ru" else "Nutrition analysis"
+        update.message = Message(
+            message_id=generating_msg.message_id,
+            date=datetime.now(),
+            chat=generating_msg.chat,
+            text=analysis_text
+        )
+        
+        # Обрабатываем как обычное сообщение
+        return await handle_message(update, context)
 
 
     # Обработка кнопки воды
@@ -2241,15 +2285,45 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
+    user_id = update.message.from_user.id
+    language = "ru"  # дефолтное значение
+    
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+
     keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
+        [InlineKeyboardButton(
+            "🏋️ Начать тренировку" if language == "ru" else "🏋️ Start workout", 
+            callback_data="start_workout"
+        )],
+        [InlineKeyboardButton(
+            "🍎 Анализ питания" if language == "ru" else "🍎 Nutrition analysis", 
+            callback_data="nutrition_analysis"
+        )]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         "📱 *Меню управления ботом*\n\n"
-        "Здесь вы можете управлять основными функциями",
+        "Выберите действие:" if language == "ru" else "📱 *Bot control menu*\n\nChoose an action:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
