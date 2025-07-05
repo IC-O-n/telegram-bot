@@ -1924,17 +1924,26 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         # Сохраняем ID сообщения для последующего удаления
         context.user_data['generating_msg_id'] = generating_msg.message_id
         
-        # Формируем сообщение с запросом анализа
+        # Формируем запрос анализа питания
         analysis_text = "Анализ питания" if language == "ru" else "Nutrition analysis"
-        update.message = Message(
+        
+        # Создаем временное сообщение для обработки
+        temp_message = Message(
             message_id=generating_msg.message_id,
             date=datetime.now(),
             chat=generating_msg.chat,
+            from_user=query.from_user,
             text=analysis_text
         )
         
+        # Создаем временный update
+        temp_update = Update(
+            update_id=update.update_id,
+            message=temp_message
+        )
+        
         # Обрабатываем как обычное сообщение
-        return await handle_message(update, context)
+        return await handle_message(temp_update, context)
 
 
     # Обработка кнопки воды
