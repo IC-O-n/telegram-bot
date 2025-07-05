@@ -1915,36 +1915,20 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             if conn:
                 conn.close()
         
-        # Отправляем сообщение о генерации анализа
-        if language == "ru":
-            generating_msg = await query.edit_message_text("⚙ Генерация анализа питания...")
-        else:
-            generating_msg = await query.edit_message_text("⚙ Generating nutrition analysis...")
-        
-        # Сохраняем ID сообщения для последующего удаления
-        context.user_data['generating_msg_id'] = generating_msg.message_id
-        
-        # Формируем запрос анализа питания
-        analysis_text = "Анализ питания" if language == "ru" else "Nutrition analysis"
-        
-        # Создаем временное сообщение для обработки
-        temp_message = Message(
-            message_id=generating_msg.message_id,
-            date=datetime.now(),
-            chat=generating_msg.chat,
-            from_user=query.from_user,
-            text=analysis_text
+        # Создаем фейковое сообщение с текстом "Анализ питания"
+        fake_update = Update(
+            update.update_id + 1,  # Увеличиваем ID, чтобы не было конфликта
+            message=Message(
+                message_id=query.message.message_id + 1,
+                date=datetime.now(),
+                chat=query.message.chat,
+                text="Анализ питания" if language == "ru" else "Nutrition analysis",
+                from_user=query.from_user
+            )
         )
         
-        # Создаем временный update
-        temp_update = Update(
-            update_id=update.update_id,
-            message=temp_message
-        )
-        
-        # Обрабатываем как обычное сообщение
-        return await handle_message(temp_update, context)
-
+        # Передаем обработку в handle_message
+        return await handle_message(fake_update, context)
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2294,9 +2278,9 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
+    # Получаем язык пользователя
     user_id = update.message.from_user.id
     language = "ru"  # дефолтное значение
-    
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -2332,11 +2316,12 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
     
     await update.message.reply_text(
         "📱 *Меню управления ботом*\n\n"
-        "Выберите действие:" if language == "ru" else "📱 *Bot control menu*\n\nChoose an action:",
+        "Здесь вы можете управлять основными функциями" if language == "ru" else 
+        "📱 *Bot control menu*\n\n"
+        "Here you can manage main functions",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-
 
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
