@@ -1915,7 +1915,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             if conn:
                 conn.close()
         
-        # Создаем фейковое сообщение с текстом "Анализ питания"
+        # Создаем фейковое сообщение с текстом "Анализ питания" и добавляем бота
         fake_update = Update(
             update.update_id + 1,  # Увеличиваем ID, чтобы не было конфликта
             message=Message(
@@ -1923,7 +1923,8 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                 date=datetime.now(),
                 chat=query.message.chat,
                 text="Анализ питания" if language == "ru" else "Nutrition analysis",
-                from_user=query.from_user
+                from_user=query.from_user,
+                bot=context.bot  # Добавляем бота в сообщение
             )
         )
         
