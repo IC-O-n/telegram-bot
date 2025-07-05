@@ -1891,45 +1891,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if query.data == "start_workout":
         return await start_workout(update, context)
-        
-    if query.data == "nutrition_analysis":
-        # Получаем язык пользователя
-        language = "ru"
-        try:
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            )
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-                row = cursor.fetchone()
-                if row and row['language']:
-                    language = row['language']
-        except Exception as e:
-            print(f"Ошибка при получении языка: {e}")
-        finally:
-            if conn:
-                conn.close()
-        
-        # Создаем фейковое сообщение с текстом "Анализ питания" и добавляем бота
-        fake_update = Update(
-            update.update_id + 1,  # Увеличиваем ID, чтобы не было конфликта
-            message=Message(
-                message_id=query.message.message_id + 1,
-                date=datetime.now(),
-                chat=query.message.chat,
-                text="Анализ питания" if language == "ru" else "Nutrition analysis",
-                from_user=query.from_user,
-                bot=context.bot  # Добавляем бота в сообщение
-            )
-        )
-        
-        # Передаем обработку в handle_message
-        return await handle_message(fake_update, context)
+
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2279,50 +2241,19 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
-    # Получаем язык пользователя
-    user_id = update.message.from_user.id
-    language = "ru"  # дефолтное значение
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
-    except Exception as e:
-        print(f"Ошибка при получении языка: {e}")
-    finally:
-        if conn:
-            conn.close()
-
     keyboard = [
-        [InlineKeyboardButton(
-            "🏋️ Начать тренировку" if language == "ru" else "🏋️ Start workout", 
-            callback_data="start_workout"
-        )],
-        [InlineKeyboardButton(
-            "🍎 Анализ питания" if language == "ru" else "🍎 Nutrition analysis", 
-            callback_data="nutrition_analysis"
-        )]
+        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         "📱 *Меню управления ботом*\n\n"
-        "Здесь вы можете управлять основными функциями" if language == "ru" else 
-        "📱 *Bot control menu*\n\n"
-        "Here you can manage main functions",
+        "Здесь вы можете управлять основными функциями",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
+
 
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
