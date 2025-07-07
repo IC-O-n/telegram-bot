@@ -1883,12 +1883,12 @@ async def check_and_create_water_job(context: CallbackContext):
         conn.close()
 
 
-async def handle_nutrition_analysis(update: Update, context: CallbackContext) -> None:
+async def show_nutrition_analysis(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
-    
+
     user_id = query.from_user.id
-    
+
     # Получаем язык пользователя
     language = "ru"
     try:
@@ -1910,14 +1910,73 @@ async def handle_nutrition_analysis(update: Update, context: CallbackContext) ->
     finally:
         if conn:
             conn.close()
-    
-    # Устанавливаем флаг анализа питания в user_data
-    context.user_data['nutrition_analysis_requested'] = True
-    
-    # Отправляем сообщение с анализом питания
-    message = update.effective_message
-    message.text = "анализ питания" if language == "ru" else "nutrition analysis"
-    await handle_message(update, context)
+
+    # Получаем историю питания
+    meal_history = await get_meal_history(user_id)
+
+    if not meal_history:
+        if language == "ru":
+            await query.edit_message_text("История питания не найдена. Начните добавлять приемы пищи.")
+        else:
+            await query.edit_message_text("No meal history found. Start adding meals.")
+        return
+
+    try:
+        # Формируем текст с историей питания
+        meals_text = "🍽 История вашего питания / Your meal history:\n\n" if language == "ru" else "🍽 Your meal history:\n\n"
+
+        # Сортируем даты по убыванию (новые сверху)
+        sorted_dates = sorted(meal_history.keys(), reverse=True)
+
+        for day in sorted_dates[:7]:  # Последние 7 дней
+            meals_text += f"📅 {day}:\n"
+            day_meals = meal_history[day]
+            if isinstance(day_meals, dict):
+                for meal_key, meal_data in day_meals.items():
+                    if isinstance(meal_data, dict):
+                        meal_type = meal_key.split('_')[0]
+                        if language == "ru":
+                            meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                            meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
+                            meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
+                            meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
+                            meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
+                        else:
+                            meals_text += f"  - {meal_type} at {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                            meals_text += f"    🧪 Nutrition: {meal_data.get('calories', 0)} kcal | "
+                            meals_text += f"P: {meal_data.get('proteins', 0)}g | "
+                            meals_text += f"F: {meal_data.get('fats', 0)}g | "
+                            meals_text += f"C: {meal_data.get('carbs', 0)}g\n"
+                    else:
+                        print(f"Некорректные данные о приеме пищи для {meal_key}")
+            else:
+                print(f"Некорректный формат данных за день {day}")
+            meals_text += "\n"
+
+        # Добавляем кнопку для полного анализа
+        keyboard = [
+            [InlineKeyboardButton(
+                "🔍 Полный анализ питания" if language == "ru" else "🔍 Full nutrition analysis",
+                callback_data="full_nutrition_analysis"
+            )],
+            [InlineKeyboardButton(
+                "◀️ Назад в меню" if language == "ru" else "◀️ Back to menu",
+                callback_data="back_to_menu"
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            text=meals_text,
+            reply_markup=reply_markup
+        )
+
+    except Exception as e:
+        print(f"Ошибка при формировании истории питания: {e}")
+        if language == "ru":
+            await query.edit_message_text("Произошла ошибка при анализе истории питания. Попробуйте позже.")
+        else:
+            await query.edit_message_text("Error analyzing meal history. Please try again later.")
 
 
 async def button_handler(update: Update, context: CallbackContext) -> None:
@@ -1930,7 +1989,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return await start_workout(update, context)
 
     if query.data == "nutrition_analysis":
-        return await handle_nutrition_analysis(update, context)
+        return await show_nutrition_analysis(update, context)
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2280,16 +2339,47 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
+    user_id = update.message.from_user.id
+    
+    # Получаем язык пользователя
+    language = "ru"
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
     keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
-        [InlineKeyboardButton("🍽 Анализ питания", callback_data="nutrition_analysis")]
+        [InlineKeyboardButton(
+            "🏋️ Начать тренировку" if language == "ru" else "🏋️ Start workout",
+            callback_data="start_workout"
+        )],
+        [InlineKeyboardButton(
+            "🍽 Анализ питания" if language == "ru" else "🍽 Nutrition analysis",
+            callback_data="nutrition_analysis"
+        )]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         "📱 *Меню управления ботом*\n\n"
-        "Здесь вы можете управлять основными функциями",
+        "Здесь вы можете управлять основными функциями" if language == "ru" else 
+        "📱 *Bot control menu*\n\nHere you can manage main functions",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
