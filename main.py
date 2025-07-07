@@ -2237,6 +2237,7 @@ async def post_init(application: Application) -> None:
         BotCommand("drank", "Выпил 250мл воды"),
         BotCommand("menu", "Меню управления функциями бота"),
         BotCommand("info", "Статус подписки"),
+        BotCommand("water", "Напоминания о воде"),
     ])
 
 
