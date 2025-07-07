@@ -1922,61 +1922,101 @@ async def show_nutrition_analysis(update: Update, context: CallbackContext) -> N
         return
 
     try:
-        # Формируем текст с историей питания
-        meals_text = "🍽 История вашего питания / Your meal history:\n\n" if language == "ru" else "🍽 Your meal history:\n\n"
+        # Формируем промпт для анализа питания
+        meals_text = "История питания за последние 7 дней:\n\n" if language == "ru" else "Meal history for last 7 days:\n\n"
 
         # Сортируем даты по убыванию (новые сверху)
         sorted_dates = sorted(meal_history.keys(), reverse=True)
 
         for day in sorted_dates[:7]:  # Последние 7 дней
-            meals_text += f"📅 {day}:\n"
+            meals_text += f"{day}:\n"
             day_meals = meal_history[day]
             if isinstance(day_meals, dict):
                 for meal_key, meal_data in day_meals.items():
                     if isinstance(meal_data, dict):
                         meal_type = meal_key.split('_')[0]
-                        if language == "ru":
-                            meals_text += f"  - {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
-                            meals_text += f"    🧪 КБЖУ: {meal_data.get('calories', 0)} ккал | "
-                            meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
-                            meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
-                            meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
-                        else:
-                            meals_text += f"  - {meal_type} at {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
-                            meals_text += f"    🧪 Nutrition: {meal_data.get('calories', 0)} kcal | "
-                            meals_text += f"P: {meal_data.get('proteins', 0)}g | "
-                            meals_text += f"F: {meal_data.get('fats', 0)}g | "
-                            meals_text += f"C: {meal_data.get('carbs', 0)}g\n"
+                        meals_text += f"- {meal_type} в {meal_data.get('time', '?')}: {meal_data.get('food', '')}\n"
+                        meals_text += f"  КБЖУ: {meal_data.get('calories', 0)} ккал | "
+                        meals_text += f"Б: {meal_data.get('proteins', 0)}г | "
+                        meals_text += f"Ж: {meal_data.get('fats', 0)}г | "
+                        meals_text += f"У: {meal_data.get('carbs', 0)}г\n"
                     else:
                         print(f"Некорректные данные о приеме пищи для {meal_key}")
             else:
                 print(f"Некорректный формат данных за день {day}")
             meals_text += "\n"
 
-        # Добавляем кнопку для полного анализа
-        keyboard = [
-            [InlineKeyboardButton(
-                "🔍 Полный анализ питания" if language == "ru" else "🔍 Full nutrition analysis",
-                callback_data="full_nutrition_analysis"
-            )],
-            [InlineKeyboardButton(
-                "◀️ Назад в меню" if language == "ru" else "◀️ Back to menu",
-                callback_data="back_to_menu"
-            )]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Формируем системный промпт для анализа
+        system_prompt = """
+        Проведи полный анализ питания пользователя за последние 7 дней согласно 23-му пункту system prompt.
+        Формат ответа должен быть строго таким:
+        
+        🔬 Полный анализ питания (последние 7 дней):
+        
+        📊 Основные показатели:
+        • Среднесуточные калории: [X] ккал (рекомендуется [Y] ккал)
+        • Соотношение БЖУ: [A]% белков, [B]% жиров, [C]% углеводов
+        • Время наибольшего потребления калорий: [время]
+        • Самый обильный прием пищи: [тип приема пищи]
+        
+        🔍 Ключевые наблюдения:
+        1. [Наблюдение 1]
+        2. [Наблюдение 2]
+        3. [Наблюдение 3]
+        
+        💡 Персональные рекомендации:
+        1. [Рекомендация 1 с объяснением пользы]
+        2. [Рекомендация 2 с объяснением пользы]
+        3. [Рекомендация 3 с объяснением пользы]
+        
+        🛒 Что добавить в рацион:
+        • [Продукт 1]: [чем полезен для пользователя]
+        • [Продукт 2]: [чем полезен для пользователя]
+        
+        ⚠️ На что обратить внимание:
+        • [Проблемный аспект 1]
+        • [Проблемный аспект 2]
+        """
 
-        await query.edit_message_text(
-            text=meals_text,
-            reply_markup=reply_markup
-        )
+        # Добавляем профиль пользователя для персонализации рекомендаций
+        profile_info = get_user_profile_text(user_id)
+        
+        # Формируем содержимое для Gemini
+        contents = [
+            {"text": system_prompt},
+            {"text": profile_info},
+            {"text": meals_text}
+        ]
+
+        # Отправляем запрос к Gemini
+        response = model.generate_content(contents)
+        
+        if response.text:
+            # Очищаем текст от проблемных символов Markdown
+            cleaned_text = clean_markdown(response.text)
+            
+            # Добавляем кнопку для возврата в меню
+            keyboard = [
+                [InlineKeyboardButton(
+                    "◀️ Назад в меню" if language == "ru" else "◀️ Back to menu",
+                    callback_data="back_to_menu"
+                )]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                text=cleaned_text,
+                reply_markup=reply_markup
+            )
+        else:
+            raise ValueError("Пустой ответ от модели")
 
     except Exception as e:
-        print(f"Ошибка при формировании истории питания: {e}")
+        print(f"Ошибка при формировании анализа питания: {e}")
         if language == "ru":
-            await query.edit_message_text("Произошла ошибка при анализе истории питания. Попробуйте позже.")
+            await query.edit_message_text("Произошла ошибка при анализе питания. Попробуйте позже.")
         else:
-            await query.edit_message_text("Error analyzing meal history. Please try again later.")
+            await query.edit_message_text("Error analyzing nutrition. Please try again later.")
 
 
 async def button_handler(update: Update, context: CallbackContext) -> None:
