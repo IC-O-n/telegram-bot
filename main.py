@@ -1896,18 +1896,14 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return await start_workout(update, context)
 
     if query.data == "nutrition_analysis":
-        # 1. Получаем текущее сообщение с кнопкой
-        original_message = query.message
-        
-        # 2. Создаем КОПИЮ сообщения, подменяя текст
-        fake_message = original_message.copy()
-        fake_message.text = "Анализ питания"  # Подменяем текст
-        
-        # 3. Создаем новый Update с подмененным сообщением
-        fake_update = Update(update.update_id, message=fake_message)
-        
-        # 4. Передаем в handle_message как обычное сообщение
-        return await handle_message(fake_update, context)
+        # Отправляем скрытое сообщение-триггер
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="@@NUTRITION_ANALYSIS_TRIGGER@@",  # Уникальный триггер
+            parse_mode=None,
+            disable_notification=True
+        )
+        return
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2951,12 +2947,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         history_prompt = "\n".join(history_messages)
         contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
 
-    if hasattr(update, 'callback_query'):
-        message = update.callback_query.message
-        user_text = "Анализ питания"  # Жёстко задаём триггер
-    else:
-        message = update.message
-        user_text = message.text or ""
+    # Перехватываем триггер от кнопки
+    if user_text == "@@NUTRITION_ANALYSIS_TRIGGER@@":
+        # Подменяем текст на "Анализ питания" ДО обработки
+        update.message.text = "Анализ питания"
 
     # Проверяем, запрашивает ли пользователь анализ питания
     is_nutrition_analysis = ("анализ питания" in user_text.lower()) or ("nutrition analysis" in user_text.lower())
