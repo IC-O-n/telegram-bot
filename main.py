@@ -1896,22 +1896,18 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return await start_workout(update, context)
 
     if query.data == "nutrition_analysis":
-        # Создаем минимальное сообщение
-        fake_message = Message(
-            message_id=query.message.message_id + 1,  # Новый ID
-            date=datetime.now(),
-            chat=query.message.chat,
-            text="Анализ питания",
-            from_user=query.from_user
-        )
+        # 1. Получаем текущее сообщение с кнопкой
+        original_message = query.message
         
-        # Создаем Update
-        fake_update = Update(update_id=update.update_id + 1, message=fake_message)
-        fake_update._bot = context.bot
+        # 2. Создаем КОПИЮ сообщения, подменяя текст
+        fake_message = original_message.copy()
+        fake_message.text = "Анализ питания"  # Подменяем текст
         
-        # Обрабатываем как обычное сообщение
+        # 3. Создаем новый Update с подмененным сообщением
+        fake_update = Update(update.update_id, message=fake_message)
+        
+        # 4. Передаем в handle_message как обычное сообщение
         return await handle_message(fake_update, context)
-
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
