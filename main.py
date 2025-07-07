@@ -1883,96 +1883,6 @@ async def check_and_create_water_job(context: CallbackContext):
         conn.close()
 
 
-async def show_nutrition_analysis(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    # 1. Получаем ВСЕ данные пользователя из БД (как в handle_message)
-    conn = pymysql.connect(
-        host='x91345bo.beget.tech',
-        user='x91345bo_nutrbot',
-        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-        database='x91345bo_nutrbot',
-        charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT 
-                    language, goal, activity, diet, health, equipment,
-                    weight, height, gender, age, timezone,
-                    meal_history, reminders, water_drunk_today,
-                    calories_today, proteins_today, fats_today, carbs_today
-                FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            profile = cursor.fetchone()
-
-        if not profile:
-            await query.edit_message_text("Профиль не найден. Пройдите анкету /start")
-            return
-
-        language = profile['language'] or "ru"
-        meal_history = json.loads(profile['meal_history']) if profile['meal_history'] else {}
-
-        # 2. Формируем промпт для анализа (аналогично пункту 23)
-        system_prompt = f"""
-        Ты — персональный диетолог. Проанализируй питание пользователя за последние 7 дней, учитывая его профиль:
-        - Цель: {profile['goal']}
-        - Активность: {profile['activity']}
-        - Диета: {profile['diet']}
-        - Ограничения: {profile['health']}
-        - Инвентарь: {profile['equipment']}
-        - Вес/рост: {profile['weight']} кг / {profile['height']} см
-        - Пол/возраст: {profile['gender']}, {profile['age']} лет
-
-        🔬 Проведи анализ строго по структуре:
-        1. 📊 Основные показатели (средние значения за 7 дней).
-        2. 🔍 Ключевые наблюдения (паттерны, дисбалансы).
-        3. 💡 Рекомендации (с учётом целей и ограничений).
-        4. 🛒 Что добавить в рацион.
-        5. ⚠️ На что обратить внимание.
-
-        Данные питания:
-        {json.dumps(meal_history, indent=2, ensure_ascii=False)}
-        """
-        
-        # 3. Отправляем запрос к Gemini
-        response = model.generate_content([{"text": system_prompt}])
-        analysis_text = response.text.strip()
-
-        # 4. Форматируем ответ (как в handle_message)
-        if language == "ru":
-            header = "🔬 Полный анализ питания (последние 7 дней):\n\n"
-        else:
-            header = "🔬 Full nutrition analysis (last 7 days):\n\n"
-        
-        # Удаляем возможные технические части (SQL: ...)
-        cleaned_text = re.sub(r'SQL:.*?(?=TEXT:|$)', '', analysis_text, flags=re.DOTALL).strip()
-        final_text = header + cleaned_text
-
-        # 5. Добавляем кнопку "Назад"
-        keyboard = [[InlineKeyboardButton(
-            "◀️ Назад в меню" if language == "ru" else "◀️ Back to menu",
-            callback_data="back_to_menu"
-        )]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            text=final_text,
-            reply_markup=reply_markup
-        )
-
-    except Exception as e:
-        print(f"Ошибка анализа: {e}")
-        error_msg = "Ошибка анализа. Попробуйте позже." if language == "ru" else "Analysis failed. Try later."
-        await query.edit_message_text(error_msg)
-    finally:
-        conn.close()
-
-
 async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
@@ -1982,8 +1892,6 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     if query.data == "start_workout":
         return await start_workout(update, context)
 
-    if query.data == "nutrition_analysis":
-        return await show_nutrition_analysis(update, context)
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2333,47 +2241,15 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
-    user_id = update.message.from_user.id
-    
-    # Получаем язык пользователя
-    language = "ru"
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
-    except Exception as e:
-        print(f"Ошибка при получении языка: {e}")
-    finally:
-        if conn:
-            conn.close()
-    
     keyboard = [
-        [InlineKeyboardButton(
-            "🏋️ Начать тренировку" if language == "ru" else "🏋️ Start workout",
-            callback_data="start_workout"
-        )],
-        [InlineKeyboardButton(
-            "🍽 Анализ питания" if language == "ru" else "🍽 Nutrition analysis",
-            callback_data="nutrition_analysis"
-        )]
+        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         "📱 *Меню управления ботом*\n\n"
-        "Здесь вы можете управлять основными функциями" if language == "ru" else 
-        "📱 *Bot control menu*\n\nHere you can manage main functions",
+        "Здесь вы можете управлять основными функциями",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -3831,7 +3707,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 
