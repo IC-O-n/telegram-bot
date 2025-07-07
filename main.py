@@ -1883,6 +1883,43 @@ async def check_and_create_water_job(context: CallbackContext):
         conn.close()
 
 
+async def handle_nutrition_analysis(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    # Получаем язык пользователя
+    language = "ru"
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+    
+    # Устанавливаем флаг анализа питания в user_data
+    context.user_data['nutrition_analysis_requested'] = True
+    
+    # Отправляем сообщение с анализом питания
+    message = update.effective_message
+    message.text = "анализ питания" if language == "ru" else "nutrition analysis"
+    await handle_message(update, context)
+
+
 async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
@@ -1891,13 +1928,9 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if query.data == "start_workout":
         return await start_workout(update, context)
-        
-    if query.data == "nutrition_analysis":
-        # Имитируем сообщение с запросом анализа питания
-        message = update.effective_message
-        message.text = "анализ питания" if language == "ru" else "nutrition analysis"
-        return await handle_message(update, context)
 
+    if query.data == "nutrition_analysis":
+        return await handle_nutrition_analysis(update, context)
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2247,49 +2280,16 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
-    user_id = update.message.from_user.id
-    language = "ru"  # Получаем из базы данных
-    
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
-    except Exception as e:
-        print(f"Ошибка при получении языка: {e}")
-    finally:
-        if conn:
-            conn.close()
-
     keyboard = [
-        [InlineKeyboardButton(
-            "🏋️ Начать тренировку" if language == "ru" else "🏋️ Start workout", 
-            callback_data="start_workout"
-        )],
-        [InlineKeyboardButton(
-            "🍽 Анализ питания" if language == "ru" else "🍽 Nutrition analysis", 
-            callback_data="nutrition_analysis"
-        )]
+        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
+        [InlineKeyboardButton("🍽 Анализ питания", callback_data="nutrition_analysis")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    text = "📱 *Меню управления ботом*\n\n" + (
-        "Здесь вы можете управлять основными функциями" if language == "ru" 
-        else "Here you can manage the main functions"
-    )
-    
     await update.message.reply_text(
-        text,
+        "📱 *Меню управления ботом*\n\n"
+        "Здесь вы можете управлять основными функциями",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
