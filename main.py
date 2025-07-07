@@ -1888,71 +1888,89 @@ async def show_nutrition_analysis(update: Update, context: CallbackContext) -> N
     await query.answer()
     user_id = query.from_user.id
 
-    # 1. Получаем язык и данные профиля
-    language, goal, activity, diet, health = "ru", "", "", "", ""
+    # 1. Получаем ВСЕ данные пользователя из БД (как в handle_message)
+    conn = pymysql.connect(
+        host='x91345bo.beget.tech',
+        user='x91345bo_nutrbot',
+        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+        database='x91345bo_nutrbot',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
     try:
-        conn = pymysql.connect(...)
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT language, goal, activity, diet, health 
-                FROM user_profiles WHERE user_id = %s
+                SELECT 
+                    language, goal, activity, diet, health, equipment,
+                    weight, height, gender, age, timezone,
+                    meal_history, reminders, water_drunk_today,
+                    calories_today, proteins_today, fats_today, carbs_today
+                FROM user_profiles 
+                WHERE user_id = %s
             """, (user_id,))
-            row = cursor.fetchone()
-            if row:
-                language = row['language'] or "ru"
-                goal = row['goal'] or ""
-                activity = row['activity'] or ""
-                diet = row['diet'] or ""
-                health = row['health'] or ""
-    finally:
-        if conn: conn.close()
+            profile = cursor.fetchone()
 
-    # 2. Получаем историю питания
-    meal_history = await get_meal_history(user_id)
-    if not meal_history:
-        await query.edit_message_text("История питания пуста." if language == "ru" else "No meal history.")
-        return
+        if not profile:
+            await query.edit_message_text("Профиль не найден. Пройдите анкету /start")
+            return
 
-    # 3. Формируем промпт IDENTИЧНЫЙ handle_message
-    prompt = f"""
-    Проведи анализ питания по правилам пункта 23 system_prompt. Учитывай:
-    - Цель пользователя: {goal}
-    - Активность: {activity}
-    - Ограничения: {health}
-    - Предпочтения: {diet}
-    ---
-    Данные за последние 7 дней:
-    {json.dumps(meal_history, indent=2)}
-    """
-    
-    # 4. Добавляем системный промпт для контроля формата
-    system_prompt = """
-    Ты — диетолог. Строго следуй правилам:
-    1. Формат как в пункте 23 GEMINI_SYSTEM_PROMPT.
-    2. Учитывай цель, активность и ограничения пользователя.
-    3. Ответ должен начинаться с "🔬 Полный анализ питания..." и содержать все разделы.
-    """
-    
-    # 5. Отправляем в Gemini
-    response = model.generate_content([
-        {"text": system_prompt},
-        {"text": prompt}
-    ])
-    
-    # 6. Фильтруем ответ (оставляем только анализ)
-    analysis_text = response.text
-    if "🔬 Полный анализ питания" in analysis_text:
-        analysis_text = analysis_text.split("🔬 Полный анализ питания")[1].strip()
-        analysis_text = "🔬 Полный анализ питания" + analysis_text
-    
-    # 7. Отправляем пользователю
-    await query.edit_message_text(
-        text=analysis_text,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
-            "◀️ Назад" if language == "ru" else "◀️ Back",
+        language = profile['language'] or "ru"
+        meal_history = json.loads(profile['meal_history']) if profile['meal_history'] else {}
+
+        # 2. Формируем промпт для анализа (аналогично пункту 23)
+        system_prompt = f"""
+        Ты — персональный диетолог. Проанализируй питание пользователя за последние 7 дней, учитывая его профиль:
+        - Цель: {profile['goal']}
+        - Активность: {profile['activity']}
+        - Диета: {profile['diet']}
+        - Ограничения: {profile['health']}
+        - Инвентарь: {profile['equipment']}
+        - Вес/рост: {profile['weight']} кг / {profile['height']} см
+        - Пол/возраст: {profile['gender']}, {profile['age']} лет
+
+        🔬 Проведи анализ строго по структуре:
+        1. 📊 Основные показатели (средние значения за 7 дней).
+        2. 🔍 Ключевые наблюдения (паттерны, дисбалансы).
+        3. 💡 Рекомендации (с учётом целей и ограничений).
+        4. 🛒 Что добавить в рацион.
+        5. ⚠️ На что обратить внимание.
+
+        Данные питания:
+        {json.dumps(meal_history, indent=2, ensure_ascii=False)}
+        """
+        
+        # 3. Отправляем запрос к Gemini
+        response = model.generate_content([{"text": system_prompt}])
+        analysis_text = response.text.strip()
+
+        # 4. Форматируем ответ (как в handle_message)
+        if language == "ru":
+            header = "🔬 Полный анализ питания (последние 7 дней):\n\n"
+        else:
+            header = "🔬 Full nutrition analysis (last 7 days):\n\n"
+        
+        # Удаляем возможные технические части (SQL: ...)
+        cleaned_text = re.sub(r'SQL:.*?(?=TEXT:|$)', '', analysis_text, flags=re.DOTALL).strip()
+        final_text = header + cleaned_text
+
+        # 5. Добавляем кнопку "Назад"
+        keyboard = [[InlineKeyboardButton(
+            "◀️ Назад в меню" if language == "ru" else "◀️ Back to menu",
             callback_data="back_to_menu"
-        )]])
-    )
+        )]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            text=final_text,
+            reply_markup=reply_markup
+        )
+
+    except Exception as e:
+        print(f"Ошибка анализа: {e}")
+        error_msg = "Ошибка анализа. Попробуйте позже." if language == "ru" else "Analysis failed. Try later."
+        await query.edit_message_text(error_msg)
+    finally:
+        conn.close()
 
 
 async def button_handler(update: Update, context: CallbackContext) -> None:
