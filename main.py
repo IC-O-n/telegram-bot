@@ -1893,19 +1893,14 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return await start_workout(update, context)
         
     if query.data == "nutrition_analysis":
-        # Создаем фейковое сообщение с текстом "анализ питания"
-        fake_update = Update(
-            update.update_id + 1,  # новый ID
-            message=Message(
-                message_id=query.message.message_id + 1,
-                date=datetime.now(),
-                chat=query.message.chat,
-                text="анализ питания" if query.from_user.language_code == "ru" else "nutrition analysis",
-                from_user=query.from_user
-            )
-        )
-        return await handle_message(fake_update, context)
-
+        # Временно изменяем текст сообщения
+        original_text = query.message.text
+        query.message.text = "анализ питания" if query.from_user.language_code == "ru" else "nutrition analysis"
+        try:
+            return await handle_message(update, context)
+        finally:
+            # Восстанавливаем оригинальный текст
+            query.message.text = original_text
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
