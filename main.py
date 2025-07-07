@@ -1893,14 +1893,11 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return await start_workout(update, context)
         
     if query.data == "nutrition_analysis":
-        # Временно изменяем текст сообщения
-        original_text = query.message.text
-        query.message.text = "анализ питания" if query.from_user.language_code == "ru" else "nutrition analysis"
-        try:
-            return await handle_message(update, context)
-        finally:
-            # Восстанавливаем оригинальный текст
-            query.message.text = original_text
+        # Имитируем сообщение с запросом анализа питания
+        message = update.effective_message
+        message.text = "анализ питания" if language == "ru" else "nutrition analysis"
+        return await handle_message(update, context)
+
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2250,9 +2247,8 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
-    # Получаем язык пользователя
     user_id = update.message.from_user.id
-    language = "ru"  # значение по умолчанию
+    language = "ru"  # Получаем из базы данных
     
     try:
         conn = pymysql.connect(
