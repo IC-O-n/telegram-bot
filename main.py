@@ -2235,8 +2235,8 @@ async def post_init(application: Application) -> None:
     """Функция для настройки бота после инициализации"""
     await application.bot.set_my_commands([
         BotCommand("drank", "💧 Выпил 250мл воды"),
-        BotCommand("menu", "⚙ Меню управления функциями бота"),
-        BotCommand("info", "💳 Статус подписки"),
+        BotCommand("menu", "⚙ Меню"),
+        BotCommand("info", "💳 Подписка"),
         BotCommand("water", "🚰 Напоминания о воде"),
     ])
 
