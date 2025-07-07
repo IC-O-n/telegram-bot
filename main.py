@@ -1883,7 +1883,76 @@ async def check_and_create_water_job(context: CallbackContext):
         conn.close()
 
 
+async def show_nutrition_analysis(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
 
+    # 1. Получаем язык и данные профиля
+    language, goal, activity, diet, health = "ru", "", "", "", ""
+    try:
+        conn = pymysql.connect(...)
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT language, goal, activity, diet, health 
+                FROM user_profiles WHERE user_id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
+            if row:
+                language = row['language'] or "ru"
+                goal = row['goal'] or ""
+                activity = row['activity'] or ""
+                diet = row['diet'] or ""
+                health = row['health'] or ""
+    finally:
+        if conn: conn.close()
+
+    # 2. Получаем историю питания
+    meal_history = await get_meal_history(user_id)
+    if not meal_history:
+        await query.edit_message_text("История питания пуста." if language == "ru" else "No meal history.")
+        return
+
+    # 3. Формируем промпт IDENTИЧНЫЙ handle_message
+    prompt = f"""
+    Проведи анализ питания по правилам пункта 23 system_prompt. Учитывай:
+    - Цель пользователя: {goal}
+    - Активность: {activity}
+    - Ограничения: {health}
+    - Предпочтения: {diet}
+    ---
+    Данные за последние 7 дней:
+    {json.dumps(meal_history, indent=2)}
+    """
+    
+    # 4. Добавляем системный промпт для контроля формата
+    system_prompt = """
+    Ты — диетолог. Строго следуй правилам:
+    1. Формат как в пункте 23 GEMINI_SYSTEM_PROMPT.
+    2. Учитывай цель, активность и ограничения пользователя.
+    3. Ответ должен начинаться с "🔬 Полный анализ питания..." и содержать все разделы.
+    """
+    
+    # 5. Отправляем в Gemini
+    response = model.generate_content([
+        {"text": system_prompt},
+        {"text": prompt}
+    ])
+    
+    # 6. Фильтруем ответ (оставляем только анализ)
+    analysis_text = response.text
+    if "🔬 Полный анализ питания" in analysis_text:
+        analysis_text = analysis_text.split("🔬 Полный анализ питания")[1].strip()
+        analysis_text = "🔬 Полный анализ питания" + analysis_text
+    
+    # 7. Отправляем пользователю
+    await query.edit_message_text(
+        text=analysis_text,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+            "◀️ Назад" if language == "ru" else "◀️ Back",
+            callback_data="back_to_menu"
+        )]])
+    )
 
 
 async def button_handler(update: Update, context: CallbackContext) -> None:
@@ -1896,14 +1965,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return await start_workout(update, context)
 
     if query.data == "nutrition_analysis":
-        # Отправляем скрытое сообщение-триггер
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="@@NUTRITION_ANALYSIS_TRIGGER@@",  # Уникальный триггер
-            parse_mode=None,
-            disable_notification=True
-        )
-        return
+        return await show_nutrition_analysis(update, context)
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2947,11 +3009,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         history_prompt = "\n".join(history_messages)
         contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
 
-    # Перехватываем триггер от кнопки
-    if user_text == "@@NUTRITION_ANALYSIS_TRIGGER@@":
-        # Подменяем текст на "Анализ питания" ДО обработки
-        update.message.text = "Анализ питания"
-
     # Проверяем, запрашивает ли пользователь анализ питания
     is_nutrition_analysis = ("анализ питания" in user_text.lower()) or ("nutrition analysis" in user_text.lower())
     
@@ -3756,6 +3813,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
