@@ -1962,7 +1962,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                 "- Precise water intake calculation\n"
                 "- Progress tracking\n\n"
                 "📊 *Complete Statistics*\n"
-                "- Workout and nutrition history\n"
+                "- Nutrition history\n"
                 "- Progress analysis\n"
                 "- Improvement recommendations\n\n"
                 "🔍 *Body Composition Analysis*\n"
@@ -1972,7 +1972,6 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                 "⏰ *Smart Reminders*\n"
                 "- Water intake\n"
                 "- Meals\n"
-                "- Workouts\n"
                 "- Supplements\n\n"
                 "🚀 Start right now with /start or choose a workout!"
             )
