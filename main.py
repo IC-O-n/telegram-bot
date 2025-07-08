@@ -1987,18 +1987,123 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         return
 
     if query.data == "back_to_menu":
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (query.from_user.id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+
         keyboard = [
-            [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
-            [InlineKeyboardButton("✨ О возможностях бота", callback_data="bot_features")]
+            [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start Workout", callback_data="start_workout")],
+            [InlineKeyboardButton("✨ О возможностях бота" if language == "ru" else "✨ About bot features", callback_data="bot_features")],
+            [InlineKeyboardButton("📚 Как пользоваться" if language == "ru" else "📚 How to use", callback_data="bot_usage")]
         ]
-        
+    
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+    
         await query.edit_message_text(
             "📱 *Меню управления ботом*\n\n"
-            "Здесь вы можете управлять основными функциями",
+            "Здесь вы можете управлять основными функциями" if language == "ru" else "📱 *Bot Control Menu*\n\nHere you can manage main functions",
             reply_markup=reply_markup,
             parse_mode="Markdown"
+        )
+        return
+
+    
+    if query.data == "bot_usage":
+        # Получаем язык пользователя
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )   
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+        usage_text = (
+        "📚 Как пользоваться NutriBot — вашим персональным фитнес-ассистентом\n\n"
+        "NutriBot — это умный помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
+        "🍎 Анализ питания по фото\n"
+        "Отправьте боту фотографию вашего блюда, и он проведет детальный анализ:\n"
+        "🔹 Состав и калории — белки, жиры, углеводы и общая калорийность.\n"
+        "🔹 Скрытые ингредиенты — сахар, соль, трансжиры.\n"
+        "🔹 Рекомендации — как улучшить блюдо под ваши цели (похудение, набор массы, ЗОЖ).\n"
+        "🔹 Опасные сочетания — если в блюде есть несовместимые продукты.\n\n"
+        "📌 Пример:\n"
+        "👉 Отправьте фото тарелки с завтраком → бот разберет его на компоненты и даст советы.\n\n"
+        "📊 Полный анализ питания\n"
+        "Хотите узнать, как питались за последние дни? Напишите:\n"
+        "🔸 \"Анализ питания\" — и бот предоставит:\n\n"
+        "Среднесуточные калории и БЖУ.\n\n"
+        "Паттерны питания (когда и что вы едите).\n\n"
+        "Рекомендации по улучшению рациона.\n\n"
+        "📌 Пример:\n"
+        "👉 Напишите \"Анализ питания\" → получите отчет за 7 дней с советами.\n\n"
+        "⏰ Умные напоминания\n"
+        "Бот может напоминать вам о важных действиях. Просто скажите:\n"
+        "🔹 \"Напоминай [что-то] каждый день в [время]\"\n\n"
+        "Например:\n\n"
+        "\"Напоминай пить рыбий жир каждый день в 9:00\"\n\n"
+        "\"Напоминай принимать витамины в 12:00\"\n\n"
+        "📌 Чтобы отменить напоминание, напишите:\n"
+        "👉 \"Хватит напоминать про рыбий жир\"\n\n"
+        "💧 Контроль водного баланса\n"
+        "Бот автоматически рассчитывает вашу норму воды (30 мл на 1 кг веса) и напоминает пить.\n"
+        "🔹 Как использовать:\n\n"
+        "Нажмите кнопку \"Выпил 250 мл\" или напишите \"Я выпил стакан воды\".\n\n"
+        "Отправьте команду /water, чтобы включить/выключить напоминания.\n\n"
+        "🏋️ Персональные тренировки\n"
+        "Хотите план тренировок? Используйте команду /menu → \"Начать тренировку\".\n"
+        "🔹 Бот учтет:\n\n"
+        "Ваше оборудование (дом, зал, улица).\n\n"
+        "Цели (похудение, рельеф, сила).\n\n"
+        "Особые пожелания (\"без прыжков\", \"упор на спину\").\n\n"
+        "📌 Пример:\n"
+        "👉 Выберите \"Дома\" → укажите длительность → получите готовый план.\n\n\n"
+        "💡 Дополнительные функции\n"
+        "🔸 Оценка состава тела по фото — отправьте фото, и бот даст приблизительную оценку % жира и мышц.\n"
+        "🔸 Советы по продуктам — спросите: \"Чем полезен творог?\" → получите развернутый ответ.\n"
+        "🔸 Анализ настроения — если напишете \"Я в стрессе\", бот предложит рекомендации.\n\n"
+        "🚀 Начните прямо сейчас!\n"
+        "Пройдите анкету (/start), чтобы персонализировать бота.\n\n"
+        "Отправьте фото еды или запрос — бот поможет с анализом.\n\n"
+        "Используйте команды (/water, /menu, /profile) для удобства."
+            )
+
+        await query.edit_message_text(
+            usage_text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Назад" if language == "ru" else "🔙 Back", callback_data="back_to_menu")]
+            ])
         )
         return
 
@@ -2353,20 +2458,43 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
+    user_id = update.message.from_user.id
+    language = "ru"  # дефолтное значение
+    
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка пользователя: {e}")
+    finally:
+        if conn:
+            conn.close()
+
     keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
-        [InlineKeyboardButton("✨ О возможностях бота", callback_data="bot_features")]
+        [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start Workout", callback_data="start_workout")],
+        [InlineKeyboardButton("✨ О возможностях бота" if language == "ru" else "✨ About bot features", callback_data="bot_features")],
+        [InlineKeyboardButton("📚 Как пользоваться" if language == "ru" else "📚 How to use", callback_data="bot_usage")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         "📱 *Меню управления ботом*\n\n"
-        "Здесь вы можете управлять основными функциями",
+        "Здесь вы можете управлять основными функциями" if language == "ru" else "📱 *Bot Control Menu*\n\nHere you can manage main functions",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-
 
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
