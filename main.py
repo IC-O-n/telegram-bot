@@ -1892,6 +1892,117 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     if query.data == "start_workout":
         return await start_workout(update, context)
 
+    if query.data == "bot_features":
+        # Получаем язык пользователя
+        language = "ru"
+        try:
+            conn = pymysql.connect(
+                host='x91345bo.beget.tech',
+                user='x91345bo_nutrbot',
+                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                database='x91345bo_nutrbot',
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor
+            )
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
+        except Exception as e:
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+        if language == "ru":
+            features_text = (
+                "🌟 *NutriBot - ваш персональный фитнес-компаньон!* 🌟\n\n"
+                "Я помогу вам достичь ваших целей в здоровье и фитнесе с помощью:\n\n"
+                "💪 *Персональные тренировки*\n"
+                "- Генерация программ под ваш уровень и оборудование\n"
+                "- Учет особенностей здоровья и травм\n"
+                "- Рекомендации по технике выполнения\n\n"
+                "🍏 *Умный анализ питания*\n"
+                "- Подсчет КБЖУ по фото еды\n"
+                "- Персонализированные рекомендации\n"
+                "- Анализ пищевых привычек\n\n"
+                "💧 *Контроль водного баланса*\n"
+                "- Автоматические напоминания\n"
+                "- Точный расчет нормы воды\n"
+                "- Отслеживание прогресса\n\n"
+                "📊 *Полная статистика*\n"
+                "- История питания\n"
+                "- Анализ прогресса\n"
+                "- Рекомендации по улучшению\n\n"
+                "🔍 *Анализ состава тела*\n"
+                "- Оценка по фото (приблизительная)\n"
+                "- Рекомендации по коррекции\n"
+                "- Отслеживание изменений\n\n"
+                "⏰ *Умные напоминания*\n"
+                "- Прием воды\n"
+                "- Прием пищи\n"
+                "- Прием добавок\n\n"
+                "🚀 Начните прямо сейчас с команды /start или выберите тренировку!"
+            )
+        else:
+            features_text = (
+                "🌟 *NutriBot - Your Personal Fitness Companion!* 🌟\n\n"
+                "I'll help you achieve your health and fitness goals with:\n\n"
+                "💪 *Personalized Workouts*\n"
+                "- Custom programs for your level and equipment\n"
+                "- Health condition and injury considerations\n"
+                "- Exercise technique recommendations\n\n"
+                "🍏 *Smart Nutrition Analysis*\n"
+                "- Calories and macros calculation from food photos\n"
+                "- Personalized recommendations\n"
+                "- Eating habits analysis\n\n"
+                "💧 *Water Balance Control*\n"
+                "- Automatic reminders\n"
+                "- Precise water intake calculation\n"
+                "- Progress tracking\n\n"
+                "📊 *Complete Statistics*\n"
+                "- Workout and nutrition history\n"
+                "- Progress analysis\n"
+                "- Improvement recommendations\n\n"
+                "🔍 *Body Composition Analysis*\n"
+                "- Photo-based estimation (approximate)\n"
+                "- Correction recommendations\n"
+                "- Change tracking\n\n"
+                "⏰ *Smart Reminders*\n"
+                "- Water intake\n"
+                "- Meals\n"
+                "- Workouts\n"
+                "- Supplements\n\n"
+                "🚀 Start right now with /start or choose a workout!"
+            )
+
+        await query.edit_message_text(
+            features_text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start Workout", callback_data="start_workout")],
+                [InlineKeyboardButton("🔙 Назад" if language == "ru" else "🔙 Back", callback_data="back_to_menu")]
+            ])
+        )
+        return
+
+    if query.data == "back_to_menu":
+        keyboard = [
+            [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
+            [InlineKeyboardButton("✨ О возможностях бота", callback_data="bot_features")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "📱 *Меню управления ботом*\n\n"
+            "Здесь вы можете управлять основными функциями",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
 
     # Обработка кнопки воды
     if query.data.startswith("water_"):
@@ -2244,7 +2355,8 @@ async def post_init(application: Application) -> None:
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
     keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")]
+        [InlineKeyboardButton("🏋️ Начать тренировку", callback_data="start_workout")],
+        [InlineKeyboardButton("✨ О возможностях бота", callback_data="bot_features")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
