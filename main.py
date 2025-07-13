@@ -1917,7 +1917,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
         if language == "ru":
             features_text = (
-                "🌟 *NutriBot - ваш персональный фитнес-компаньон!* 🌟\n\n"
+                "🌟 *NutriBot - ваш персональный фитнес AI-компаньон!* 🌟\n\n"
                 "Я помогу вам достичь ваших целей в здоровье и фитнесе с помощью:\n\n"
                 "💪 *Персональные тренировки*\n"
                 "- Генерация программ под ваш уровень и оборудование\n"
@@ -1947,7 +1947,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             )
         else:
             features_text = (
-                "🌟 *NutriBot - Your Personal Fitness Companion!* 🌟\n\n"
+                "🌟 *NutriBot - Your Personal Fitness AI-Companion!* 🌟\n\n"
                 "I'll help you achieve your health and fitness goals with:\n\n"
                 "💪 *Personalized Workouts*\n"
                 "- Custom programs for your level and equipment\n"
@@ -2049,8 +2049,8 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                 conn.close()
 
         usage_text = (
-        "📚 Как пользоваться NutriBot — вашим персональным фитнес-ассистентом\n\n"
-        "NutriBot — это умный помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
+        "📚 Как пользоваться NutriBot — вашим персональным фитнес AI-ассистентом\n\n"
+        "NutriBot — это умный AI-помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
         "🍎 Анализ питания по фото\n"
         "Отправьте боту фотографию вашего блюда, и он проведет детальный анализ:\n"
         "🔹 Состав и калории — белки, жиры, углеводы и общая калорийность.\n"
@@ -2301,7 +2301,7 @@ async def info(update: Update, context: CallbackContext) -> None:
             sub_text = "❌ У вас нет активной подписки"
             
         info_text = (
-            f"NutriBot - ваш персональный фитнес-ассистент\n\n"
+            f"NutriBot - ваш персональный фитнес AI-ассистент\n\n"
             f"{sub_text}\n\n"
             "Я помогу вам:\n"
             "• Следить за питанием и считать КБЖУ 🍎\n"
@@ -2326,7 +2326,7 @@ async def info(update: Update, context: CallbackContext) -> None:
             sub_text = "❌ You don't have an active subscription"
             
         info_text = (
-            f"NutriBot - your personal fitness assistant\n\n"
+            f"NutriBot - your personal fitness AI-assistant\n\n"
             f"{sub_text}\n\n"
             "I can help you with:\n"
             "• Tracking nutrition and counting calories 🍎\n"
