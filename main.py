@@ -550,7 +550,6 @@ async def start(update: Update, context: CallbackContext) -> int:
             "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
             "🇷🇺 Русский - отправь 'ru'\n"
             "🇬🇧 English - send 'en'\n\n"
-            f"⚠️ Внимание! У вас есть бесплатный пробный период {FREE_TRIAL_HOURS} часов. По истечении этого времени потребуется подписка."
         )
         return ASK_LANGUAGE
         
@@ -2048,7 +2047,8 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             if conn:
                 conn.close()
 
-        usage_text = (
+        if language == "ru":
+            usage_text = (
         "📚 Как пользоваться NutriBot — вашим персональным фитнес AI-ассистентом\n\n"
         "NutriBot — это умный AI-помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
         "🍎 Анализ питания по фото\n"
@@ -2096,6 +2096,56 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "Пройдите анкету (/start), чтобы персонализировать бота.\n\n"
         "Отправьте фото еды или запрос — бот поможет с анализом.\n\n"
         "Используйте команды (/water, /menu, /profile) для удобства."
+            )
+        else:
+            usage_text = (
+        "📚 How to use NutriBot — your personal fitness AI-assistant\n\n"
+        "NutriBot is a smart AI companion that helps you track nutrition, workouts, and healthy habits. Here's how to use it:\n\n"
+        "🍎 Food analysis by photo\n"
+        "Send a photo of your meal, and the bot will analyze it in detail:\n"
+        "🔹 Composition and calories - proteins, fats, carbs, and total calories.\n"
+        "🔹 Hidden ingredients - sugar, salt, trans fats.\n"
+        "🔹 Recommendations - how to improve the meal for your goals (weight loss, muscle gain, healthy lifestyle).\n"
+        "🔹 Dangerous combinations - if the dish contains incompatible foods.\n\n"
+        "📌 Example:\n"
+        "👉 Send a photo of your breakfast → the bot will break it down and give advice.\n\n"
+        "📊 Complete nutrition analysis\n"
+        "Want to know your eating patterns? Type:\n"
+        "🔸 \"Nutrition analysis\" to get:\n\n"
+        "Daily average calories and macros\n\n"
+        "Eating patterns (when and what you eat)\n\n"
+        "Personalized improvement recommendations\n\n"
+        "📌 Example:\n"
+        "👉 Type \"Nutrition analysis\" → get a 7-day report with advice.\n\n"
+        "⏰ Smart reminders\n"
+        "The bot can remind you about important actions. Just say:\n"
+        "🔹 \"Remind me to [something] every day at [time]\"\n\n"
+        "Examples:\n\n"
+        "\"Remind me to take fish oil every day at 9:00\"\n\n"
+        "\"Remind me to take vitamins at 12:00\"\n\n"
+        "📌 To cancel a reminder, type:\n"
+        "👉 \"Stop reminding me about fish oil\"\n\n"
+        "💧 Water balance tracking\n"
+        "The bot automatically calculates your water norm (30 ml per 1 kg of weight) and reminds you to drink.\n"
+        "🔹 How to use:\n\n"
+        "Click \"Drank 250 ml\" or type \"I drank a glass of water\".\n\n"
+        "Use /water command to enable/disable reminders.\n\n"
+        "🏋️ Personalized workouts\n"
+        "Need a workout plan? Use /menu → \"Start Workout\".\n"
+        "🔹 The bot considers:\n\n"
+        "Your equipment (home, gym, outdoor)\n\n"
+        "Goals (weight loss, toning, strength)\n\n"
+        "Special requests (\"no jumps\", \"focus on back\")\n\n"
+        "📌 Example:\n"
+        "👉 Choose \"Home\" → set duration → get a ready-made plan.\n\n\n"
+        "💡 Additional features\n"
+        "🔸 Body composition estimation by photo - send a photo for approximate fat/muscle %\n"
+        "🔸 Food advice - ask: \"What are the benefits of cottage cheese?\"\n"
+        "🔸 Mood analysis - if you type \"I'm stressed\", the bot will offer recommendations\n\n"
+        "🚀 Start right now!\n"
+        "Complete the questionnaire (/start) to personalize the bot.\n\n"
+        "Send food photos or requests - the bot will help with analysis.\n\n"
+        "Use commands (/water, /menu, /profile) for convenience."
             )
 
         await query.edit_message_text(
