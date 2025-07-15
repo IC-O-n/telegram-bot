@@ -3345,44 +3345,41 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 7. Если пользователь поправляет тебя в анализе фото (например: "там было 2 яйца, а не 3"):
    - Извинись за ошибку
    - Немедленно пересмотри свой анализ с учетом новой информации
-   - Вычти предыдущие значения КБЖУ из базы и добавь новые
+   - Определи разницу между старыми и новыми значениями КБЖУ
    - Обнови meal_history с исправленными данными
+   - Скорректируй общие показатели КБЖУ на разницу
    - Дай обновленный ответ, учитывая уточнение пользователя
    - Формат действий:
      1. Найди последнюю запись о приеме пищи в meal_history за текущую дату
-     2. Вычти из базы старые значения КБЖУ этой записи
-     3. Пересчитай КБЖУ с учетом поправки пользователя
-     4. Обнови meal_history с новыми значениями
-     5. Добавь новые значения КБЖУ в базу
-     6. Ответь пользователю с обновленной информацией
+     2. Рассчитай разницу между старыми и новыми значениями КБЖУ
+     3. Обнови meal_history с новыми значениями
+     4. Скорректируй общие показатели КБЖУ на рассчитанную разницу
+     5. Ответь пользователю с обновленной информацией
    - SQL для коррекции:
      SQL: 
-     -- Сначала вычитаем старые значения
-     UPDATE user_profiles 
-     SET 
-       calories_today = GREATEST(0, calories_today - [старые калории]),
-       proteins_today = GREATEST(0, proteins_today - [старые белки]),
-       fats_today = GREATEST(0, fats_today - [старые жиры]),
-       carbs_today = GREATEST(0, carbs_today - [старые углеводы])
+     -- Получаем текущие значения из meal_history
+     SELECT 
+       meal_history->'$."' || CURRENT_DATE || '"."' || [meal_key] || '"' as meal_data
+     FROM user_profiles 
      WHERE user_id = %s;
      
-     -- Затем добавляем новые
+     -- Затем обновляем с учетом разницы
      UPDATE user_profiles 
      SET 
-       calories_today = calories_today + [новые калории],
-       proteins_today = proteins_today + [новые белки],
-       fats_today = fats_today + [новые жиры],
-       carbs_today = carbs_today + [новые углеводы],
+       calories_today = GREATEST(0, calories_today - (old_calories - new_calories)),
+       proteins_today = GREATEST(0, proteins_today - (old_proteins - new_proteins)),
+       fats_today = GREATEST(0, fats_today - (old_fats - new_fats)),
+       carbs_today = GREATEST(0, carbs_today - (old_carbs - new_carbs)),
        meal_history = JSON_SET(
          meal_history, 
          CONCAT('$."', CURRENT_DATE, '".', [meal_key]),
          JSON_OBJECT(
            'time', [время],
-           'food', [описание],
-           'calories', [новые калории],
-           'proteins', [новые белки],
-           'fats', [новые жиры],
-           'carbs', [новые углеводы]
+           'food', [новое описание],
+           'calories', new_calories,
+           'proteins', new_proteins,
+           'fats', new_fats,
+           'carbs', new_carbs
          )
        )
      WHERE user_id = %s;
