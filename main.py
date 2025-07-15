@@ -3345,44 +3345,18 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 7. Если пользователь поправляет тебя в анализе фото (например: "там было 2 яйца, а не 3"):
    - Извинись за ошибку
    - Немедленно пересмотри свой анализ с учетом новой информации
-   - Определи разницу между старыми и новыми значениями КБЖУ
-   - Обнови meal_history с исправленными данными
-   - Скорректируй общие показатели КБЖУ на разницу
+   - Вычти предыдущие значения КБЖУ из базы (используя значения из своего предыдущего ответа)
+   - Добавь новые значения КБЖУ
    - Дай обновленный ответ, учитывая уточнение пользователя
-   - Формат действий:
-     1. Найди последнюю запись о приеме пищи в meal_history за текущую дату
-     2. Рассчитай разницу между старыми и новыми значениями КБЖУ
-     3. Обнови meal_history с новыми значениями
-     4. Скорректируй общие показатели КБЖУ на рассчитанную разницу
-     5. Ответь пользователю с обновленной информацией
-   - SQL для коррекции:
-     SQL: 
-     -- Получаем текущие значения из meal_history
-     SELECT 
-       meal_history->'$."' || CURRENT_DATE || '"."' || [meal_key] || '"' as meal_data
-     FROM user_profiles 
-     WHERE user_id = %s;
-     
-     -- Затем обновляем с учетом разницы
-     UPDATE user_profiles 
-     SET 
-       calories_today = GREATEST(0, calories_today - (old_calories - new_calories)),
-       proteins_today = GREATEST(0, proteins_today - (old_proteins - new_proteins)),
-       fats_today = GREATEST(0, fats_today - (old_fats - new_fats)),
-       carbs_today = GREATEST(0, carbs_today - (old_carbs - new_carbs)),
-       meal_history = JSON_SET(
-         meal_history, 
-         CONCAT('$."', CURRENT_DATE, '".', [meal_key]),
-         JSON_OBJECT(
-           'time', [время],
-           'food', [новое описание],
-           'calories', new_calories,
-           'proteins', new_proteins,
-           'fats', new_fats,
-           'carbs', new_carbs
-         )
-       )
-     WHERE user_id = %s;
+   - Формат обновления базы:
+     SQL: UPDATE user_profiles 
+          SET calories_today = calories_today - [старые калории из предыдущего ответа] + [новые калории],
+              proteins_today = proteins_today - [старые белки из предыдущего ответа] + [новые белки],
+              fats_today = fats_today - [старые жиры из предыдущего ответа] + [новые жиры],
+              carbs_today = carbs_today - [старые углеводы из предыдущего ответа] + [новые углеводы]
+          WHERE user_id = %s
+   - Если не удается найти старые значения в предыдущем ответе - просто обнови значения на новые
+   - Всегда проверяй, чтобы итоговые значения в базе не были отрицательными (используй GREATEST(0, value))
 
 8. Если пользователь упоминает, что ты не учел его предпочтения:
    - Извинись
