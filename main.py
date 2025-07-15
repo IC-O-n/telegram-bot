@@ -3346,7 +3346,44 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
    - Извинись за ошибку
    - Немедленно пересмотри свой анализ с учетом новой информации
    - Вычти предыдущие значения КБЖУ из базы и добавь новые
+   - Обнови meal_history с исправленными данными
    - Дай обновленный ответ, учитывая уточнение пользователя
+   - Формат действий:
+     1. Найди последнюю запись в meal_history за сегодня
+     2. Вычти старые значения КБЖУ из основных полей (calories_today и т.д.)
+     3. Пересчитай КБЖУ с учетом уточнения
+     4. Обнови запись в meal_history
+     5. Добавь новые значения КБЖУ в основные поля
+     6. Ответь пользователю с исправленной информацией
+   - SQL для обновления:
+     SQL: 
+     -- Сначала вычитаем старые значения
+     UPDATE user_profiles 
+     SET calories_today = calories_today - [старые калории], 
+         proteins_today = proteins_today - [старые белки],
+         fats_today = fats_today - [старые жиры],
+         carbs_today = carbs_today - [старые углеводы]
+     WHERE user_id = %s;
+     
+     -- Затем обновляем meal_history
+     UPDATE user_profiles
+     SET meal_history = JSON_SET(
+         meal_history,
+         CONCAT('$."', CURRENT_DATE, '".', [meal_key], '.calories'), [новые калории],
+         CONCAT('$."', CURRENT_DATE, '".', [meal_key], '.proteins'), [новые белки],
+         CONCAT('$."', CURRENT_DATE, '".', [meal_key], '.fats'), [новые жиры],
+         CONCAT('$."', CURRENT_DATE, '".', [meal_key], '.carbs'), [новые углеводы],
+         CONCAT('$."', CURRENT_DATE, '".', [meal_key], '.food'), [новое описание]
+     )
+     WHERE user_id = %s;
+     
+     -- И добавляем новые значения
+     UPDATE user_profiles
+     SET calories_today = calories_today + [новые калории],
+         proteins_today = proteins_today + [новые белки],
+         fats_today = fats_today + [новые жиры],
+         carbs_today = carbs_today + [новые углеводы]
+     WHERE user_id = %s;
 
 8. Если пользователь упоминает, что ты не учел его предпочтения:
    - Извинись
