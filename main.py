@@ -4195,7 +4195,10 @@ TEXT: ...
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
-        await update.message.reply_text(text_part)
+        await update.message.reply_text(
+            text_part,
+            parse_mode="MarkdownV2"  # Или "Markdown"
+        )
 
     except Exception as e:
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
