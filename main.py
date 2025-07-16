@@ -50,6 +50,8 @@ class SubscriptionStatus(Enum):
 if not TOKEN or not GOOGLE_API_KEY:
     raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
 
+INACTIVITY_REMINDER_HOURS = 6
+
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
 
@@ -123,6 +125,18 @@ def init_db():
                 WHERE TABLE_SCHEMA = DATABASE() 
                 AND TABLE_NAME = 'user_profiles'
             """)
+
+            cursor.execute("""
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'user_profiles'
+                AND COLUMN_NAME = 'last_activity_time'
+            """)
+
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE user_profiles ADD COLUMN last_activity_time DATETIME")
+
             existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
             
             # Добавляем новые колонки, если их нет
@@ -505,6 +519,145 @@ async def reset_daily_nutrition_if_needed(user_id: int):
     finally:
         if conn:
             conn.close()
+
+
+async def update_user_activity(user_id: int):
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                UPDATE user_profiles
+                SET last_activity_time = NOW()
+                WHERE user_id = %s
+            """, (user_id,))
+        conn.commit()
+    except Exception as e:
+        print(f"Ошибка при обновлении времени активности: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+# Добавим функцию для проверки неактивных пользователей и отправки напоминаний
+async def check_inactive_users(context: CallbackContext):
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    user_id,
+                    last_activity_time,
+                    timezone,
+                    wakeup_time,
+                    sleep_time,
+                    language,
+                    meal_history
+                FROM user_profiles
+                WHERE last_activity_time IS NOT NULL
+            """)
+            users = cursor.fetchall()
+
+        for user in users:
+            try:
+                tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
+                now = datetime.now(tz)
+
+                # Проверяем, что сейчас время бодрствования пользователя
+                wakeup_time = datetime.strptime(user['wakeup_time'], "%H:%M").time()
+                sleep_time = datetime.strptime(user['sleep_time'], "%H:%M").time()
+
+                current_time = now.time()
+
+                # Если сейчас время сна пользователя - пропускаем
+                if sleep_time < wakeup_time:  # Сон не в пределах одних суток (например, с 23:00 до 07:00)
+                    if current_time >= sleep_time or current_time < wakeup_time:
+                        continue
+                else:  # Сон в пределах одних суток (например, с 01:00 до 09:00)
+                    if current_time >= sleep_time and current_time < wakeup_time:
+                        continue
+
+                # Проверяем время последней активности
+                last_activity = user['last_activity_time']
+                if last_activity.tzinfo is None:
+                    last_activity = tz.localize(last_activity)
+                else:
+                    last_activity = last_activity.astimezone(tz)
+
+                inactivity_hours = (now - last_activity).total_seconds() / 3600
+
+                if inactivity_hours >= INACTIVITY_REMINDER_HOURS:
+                    # Проверяем, какие приемы пищи уже зарегистрированы сегодня
+                    meal_history = json.loads(user['meal_history']) if user['meal_history'] else {}
+                    today = now.date().isoformat()
+                    today_meals = meal_history.get(today, {})
+
+                    # Определяем, о чем спросить пользователя
+                    question = None
+                    if not any(meal.startswith('breakfast') or meal.startswith('завтрак') for meal in today_meals.keys()):
+                        question = "breakfast" if user['language'] == "en" else "завтрак"
+                    elif not any(meal.startswith('lunch') or meal.startswith('обед') for meal in today_meals.keys()):
+                        question = "lunch" if user['language'] == "en" else "обед"
+                    elif not any(meal.startswith('dinner') or meal.startswith('ужин') for meal in today_meals.keys()):
+                        question = "dinner" if user['language'] == "en" else "ужин"
+                    else:
+                        question = "snack" if user['language'] == "en" else "перекус"
+
+                    # Формируем сообщение в зависимости от языка
+                    if user['language'] == "ru":
+                        messages = {
+                            "завтрак": "Привет! Не забыл ли ты позавтракать сегодня? Расскажи, что ты ел на завтрак! 🍳",
+                            "обед": "Привет! Как насчет обеда? Уже поел? Расскажи, что было на обед! 🍲",
+                            "ужин": "Привет! Уже думал об ужине? Поделись, что планируешь на ужин! 🍽",
+                            "перекус": "Привет! Не хочешь перекусить? Расскажи, что ты сегодня перекусывал! 🍎"
+                        }
+                    else:
+                        messages = {
+                            "breakfast": "Hi! Did you have breakfast today? Tell me what you ate for breakfast! 🍳",
+                            "lunch": "Hi! How about lunch? Have you eaten yet? Tell me what you had for lunch! 🍲",
+                            "dinner": "Hi! Have you thought about dinner? Share what you're planning for dinner! 🍽",
+                            "snack": "Hi! Want to have a snack? Tell me what you've been snacking on today! 🍎"
+                        }
+
+                    await context.bot.send_message(
+                        chat_id=user['user_id'],
+                        text=messages[question]
+                    )
+
+                    # Обновляем время последней активности, чтобы не спамить
+                    with conn.cursor() as update_cursor:
+                        update_cursor.execute("""
+                            UPDATE user_profiles
+                            SET last_activity_time = NOW()
+                            WHERE user_id = %s
+                        """, (user['user_id'],))
+                    conn.commit()
+
+            except Exception as e:
+                print(f"Ошибка при проверке активности пользователя {user['user_id']}: {e}")
+
+    except Exception as e:
+        print(f"Ошибка при проверке неактивных пользователей: {e}")
+    finally:
+        if conn:
+            conn.close()
+
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -3046,6 +3199,7 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+    await update_user_activity(user_id)
     message_text = update.message.text or ""
     
     # Проверка на "секретный" код
@@ -4059,6 +4213,13 @@ def main():
         .token(TOKEN) \
         .post_init(post_init) \
         .build()
+
+    # Добавляем job для проверки неактивных пользователей
+    app.job_queue.run_repeating(
+        check_inactive_users,
+        interval=3600,  # Проверяем каждый час
+        first=10
+    )
 
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
