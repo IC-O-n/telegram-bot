@@ -79,80 +79,74 @@ def init_db():
     
     try:
         with conn.cursor() as cursor:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_profiles (
-                    user_id BIGINT PRIMARY KEY,
-                    language VARCHAR(10),
-                    name VARCHAR(100),
-                    gender VARCHAR(10),
-                    age INT,
-                    weight FLOAT,
-                    height INT,
-                    goal TEXT,
-                    activity TEXT,
-                    diet TEXT,
-                    health TEXT,
-                    equipment TEXT,
-                    target_metric TEXT,
-                    unique_facts TEXT,
-                    timezone VARCHAR(50),
-                    wakeup_time VARCHAR(5),
-                    sleep_time VARCHAR(5),
-                    water_reminders TINYINT DEFAULT 1,
-                    water_drunk_today INT DEFAULT 0,
-                    last_water_notification TEXT,
-                    calories_today INT DEFAULT 0,
-                    proteins_today INT DEFAULT 0,
-                    fats_today INT DEFAULT 0,
-                    carbs_today INT DEFAULT 0,
-                    last_nutrition_update DATE,
-                    reminders TEXT,
-                    meal_history JSON,
-                    subscription_status ENUM('trial', 'active', 'expired', 'permanent') DEFAULT 'trial',
-                    subscription_type VARCHAR(20),
-                    subscription_start DATETIME,
-                    subscription_end DATETIME,
-                    trial_start DATETIME,
-                    trial_end DATETIME,
-                    payment_id VARCHAR(50)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            """)
-            
-            # Проверяем существование колонок
+            # Сначала получаем список существующих колонок
             cursor.execute("""
                 SELECT COLUMN_NAME 
                 FROM INFORMATION_SCHEMA.COLUMNS 
                 WHERE TABLE_SCHEMA = DATABASE() 
                 AND TABLE_NAME = 'user_profiles'
             """)
-
-            cursor.execute("""
-                SELECT COLUMN_NAME
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE()
-                AND TABLE_NAME = 'user_profiles'
-                AND COLUMN_NAME = 'last_activity_time'
-            """)
-
-            if not cursor.fetchone():
-                cursor.execute("ALTER TABLE user_profiles ADD COLUMN last_activity_time DATETIME")
-
             existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
             
-            # Добавляем новые колонки, если их нет
-            new_columns = [
-                ('subscription_status', "ALTER TABLE user_profiles ADD COLUMN subscription_status ENUM('trial', 'active', 'expired', 'permanent') DEFAULT 'trial'"),
-                ('subscription_type', "ALTER TABLE user_profiles ADD COLUMN subscription_type VARCHAR(20)"),
-                ('subscription_start', "ALTER TABLE user_profiles ADD COLUMN subscription_start DATETIME"),
-                ('subscription_end', "ALTER TABLE user_profiles ADD COLUMN subscription_end DATETIME"),
-                ('trial_start', "ALTER TABLE user_profiles ADD COLUMN trial_start DATETIME"),
-                ('trial_end', "ALTER TABLE user_profiles ADD COLUMN trial_end DATETIME"),
-                ('payment_id', "ALTER TABLE user_profiles ADD COLUMN payment_id VARCHAR(50)")
-            ]
-            
-            for column_name, alter_query in new_columns:
-                if column_name not in existing_columns:
-                    cursor.execute(alter_query)
+            # Если таблица не существует, создаем ее полностью
+            if not existing_columns:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS user_profiles (
+                        user_id BIGINT PRIMARY KEY,
+                        language VARCHAR(10),
+                        name VARCHAR(100),
+                        gender VARCHAR(10),
+                        age INT,
+                        weight FLOAT,
+                        height INT,
+                        goal TEXT,
+                        activity TEXT,
+                        diet TEXT,
+                        health TEXT,
+                        equipment TEXT,
+                        target_metric TEXT,
+                        unique_facts TEXT,
+                        timezone VARCHAR(50),
+                        wakeup_time VARCHAR(5),
+                        sleep_time VARCHAR(5),
+                        water_reminders TINYINT DEFAULT 1,
+                        water_drunk_today INT DEFAULT 0,
+                        last_water_notification TEXT,
+                        calories_today INT DEFAULT 0,
+                        proteins_today INT DEFAULT 0,
+                        fats_today INT DEFAULT 0,
+                        carbs_today INT DEFAULT 0,
+                        last_nutrition_update DATE,
+                        reminders TEXT,
+                        meal_history JSON,
+                        subscription_status ENUM('trial', 'active', 'expired', 'permanent') DEFAULT 'trial',
+                        subscription_type VARCHAR(20),
+                        subscription_start DATETIME,
+                        subscription_end DATETIME,
+                        trial_start DATETIME,
+                        trial_end DATETIME,
+                        payment_id VARCHAR(50),
+                        payment_notified TINYINT DEFAULT 0,
+                        last_activity_time DATETIME
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """)
+            else:
+                # Если таблица существует, добавляем только отсутствующие колонки
+                columns_to_add = [
+                    ('subscription_status', "ALTER TABLE user_profiles ADD COLUMN subscription_status ENUM('trial', 'active', 'expired', 'permanent') DEFAULT 'trial'"),
+                    ('subscription_type', "ALTER TABLE user_profiles ADD COLUMN subscription_type VARCHAR(20)"),
+                    ('subscription_start', "ALTER TABLE user_profiles ADD COLUMN subscription_start DATETIME"),
+                    ('subscription_end', "ALTER TABLE user_profiles ADD COLUMN subscription_end DATETIME"),
+                    ('trial_start', "ALTER TABLE user_profiles ADD COLUMN trial_start DATETIME"),
+                    ('trial_end', "ALTER TABLE user_profiles ADD COLUMN trial_end DATETIME"),
+                    ('payment_id', "ALTER TABLE user_profiles ADD COLUMN payment_id VARCHAR(50)"),
+                    ('payment_notified', "ALTER TABLE user_profiles ADD COLUMN payment_notified TINYINT DEFAULT 0"),
+                    ('last_activity_time', "ALTER TABLE user_profiles ADD COLUMN last_activity_time DATETIME")
+                ]
+                
+                for column_name, alter_query in columns_to_add:
+                    if column_name not in existing_columns:
+                        cursor.execute(alter_query)
             
         conn.commit()
     except Exception as e:
@@ -160,7 +154,6 @@ def init_db():
         raise
     finally:
         conn.close()
-
 
 def save_user_profile(user_id: int, profile: dict):
     conn = None
