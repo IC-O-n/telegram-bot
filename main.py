@@ -4256,6 +4256,11 @@ def main():
         when=5  # Через 5 секунд после старта
     )
 
+    app.job_queue.run_once(
+        lambda ctx: check_inactive_users(ctx),
+        when=5
+    )
+
     app.job_queue.run_repeating(
         check_payment_status, 
         interval=300, 
