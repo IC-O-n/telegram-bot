@@ -47,6 +47,7 @@ class SubscriptionStatus(Enum):
     PERMANENT = "permanent"
 
 
+
 if not TOKEN or not GOOGLE_API_KEY:
     raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
 
