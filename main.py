@@ -515,6 +515,7 @@ async def reset_daily_nutrition_if_needed(user_id: int):
 
 
 async def update_user_activity(user_id: int):
+    """Обновляет время последней активности пользователя"""
     conn = None
     try:
         conn = pymysql.connect(
@@ -525,7 +526,7 @@ async def update_user_activity(user_id: int):
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-
+        
         with conn.cursor() as cursor:
             cursor.execute("""
                 UPDATE user_profiles
@@ -541,6 +542,7 @@ async def update_user_activity(user_id: int):
 
 # Добавим функцию для проверки неактивных пользователей и отправки напоминаний
 async def check_inactive_users(context: CallbackContext):
+    """Проверяет неактивных пользователей и отправляет напоминания"""
     conn = None
     try:
         conn = pymysql.connect(
@@ -551,17 +553,16 @@ async def check_inactive_users(context: CallbackContext):
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
-
+        
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT
-                    user_id,
-                    last_activity_time,
+                SELECT 
+                    user_id, 
+                    last_activity_time, 
                     timezone,
-                    wakeup_time,
-                    sleep_time,
                     language,
-                    meal_history
+                    wakeup_time,
+                    sleep_time
                 FROM user_profiles
                 WHERE last_activity_time IS NOT NULL
             """)
@@ -569,38 +570,45 @@ async def check_inactive_users(context: CallbackContext):
 
         for user in users:
             try:
+                # Получаем часовой пояс пользователя
                 tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
                 now = datetime.now(tz)
-
+                
                 # Проверяем, что сейчас время бодрствования пользователя
                 wakeup_time = datetime.strptime(user['wakeup_time'], "%H:%M").time()
                 sleep_time = datetime.strptime(user['sleep_time'], "%H:%M").time()
-
                 current_time = now.time()
-
+                
                 # Если сейчас время сна пользователя - пропускаем
-                if sleep_time < wakeup_time:  # Сон не в пределах одних суток (например, с 23:00 до 07:00)
+                if sleep_time < wakeup_time:  # Сон не в пределах одних суток
                     if current_time >= sleep_time or current_time < wakeup_time:
                         continue
-                else:  # Сон в пределах одних суток (например, с 01:00 до 09:00)
+                else:  # Сон в пределах одних суток
                     if current_time >= sleep_time and current_time < wakeup_time:
                         continue
-
+                
                 # Проверяем время последней активности
                 last_activity = user['last_activity_time']
                 if last_activity.tzinfo is None:
                     last_activity = tz.localize(last_activity)
                 else:
                     last_activity = last_activity.astimezone(tz)
-
+                
                 inactivity_hours = (now - last_activity).total_seconds() / 3600
-
+                
                 if inactivity_hours >= INACTIVITY_REMINDER_HOURS:
-                    # Проверяем, какие приемы пищи уже зарегистрированы сегодня
-                    meal_history = json.loads(user['meal_history']) if user['meal_history'] else {}
+                    # Получаем историю питания для проверки пропущенных приемов пищи
+                    with conn.cursor() as cursor:
+                        cursor.execute("""
+                            SELECT meal_history FROM user_profiles 
+                            WHERE user_id = %s
+                        """, (user['user_id'],))
+                        result = cursor.fetchone()
+                    
+                    meal_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
                     today = now.date().isoformat()
                     today_meals = meal_history.get(today, {})
-
+                    
                     # Определяем, о чем спросить пользователя
                     question = None
                     if not any(meal.startswith('breakfast') or meal.startswith('завтрак') for meal in today_meals.keys()):
@@ -611,7 +619,7 @@ async def check_inactive_users(context: CallbackContext):
                         question = "dinner" if user['language'] == "en" else "ужин"
                     else:
                         question = "snack" if user['language'] == "en" else "перекус"
-
+                    
                     # Формируем сообщение в зависимости от языка
                     if user['language'] == "ru":
                         messages = {
@@ -627,12 +635,12 @@ async def check_inactive_users(context: CallbackContext):
                             "dinner": "Hi! Have you thought about dinner? Share what you're planning for dinner! 🍽",
                             "snack": "Hi! Want to have a snack? Tell me what you've been snacking on today! 🍎"
                         }
-
+                    
                     await context.bot.send_message(
                         chat_id=user['user_id'],
                         text=messages[question]
                     )
-
+                    
                     # Обновляем время последней активности, чтобы не спамить
                     with conn.cursor() as update_cursor:
                         update_cursor.execute("""
@@ -641,16 +649,15 @@ async def check_inactive_users(context: CallbackContext):
                             WHERE user_id = %s
                         """, (user['user_id'],))
                     conn.commit()
-
+                    
             except Exception as e:
                 print(f"Ошибка при проверке активности пользователя {user['user_id']}: {e}")
-
+                
     except Exception as e:
         print(f"Ошибка при проверке неактивных пользователей: {e}")
     finally:
         if conn:
             conn.close()
-
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -4239,7 +4246,7 @@ def main():
     # Добавляем job для проверки неактивных пользователей
     app.job_queue.run_repeating(
         check_inactive_users,
-        interval=3600,  # Проверяем каждый час
+        interval=300,  # Проверяем каждый час
         first=10
     )
 
