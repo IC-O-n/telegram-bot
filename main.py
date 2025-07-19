@@ -1089,6 +1089,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             chat_id=update.message.chat_id,
             user_id=user_id,
             name=str(user_id)
+            )
         print(f"Создана задача напоминаний для пользователя {user_id}")
     
     # Первое сообщение - завершение анкеты
