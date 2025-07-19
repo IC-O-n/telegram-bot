@@ -1089,9 +1089,9 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             chat_id=update.message.chat_id,
             user_id=user_id,
             name=str(user_id)
-        )
         print(f"Создана задача напоминаний для пользователя {user_id}")
     
+    # Первое сообщение - завершение анкеты
     if language == "ru":
         await update.message.reply_text(
             f"Отлично, {name}! Анкета завершена 🎉\n"
@@ -1106,6 +1106,111 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             f"I'll remind you to drink water during the day unless you disable this feature.\n"
             f"You can send me photos, text or documents - I'll help you with analysis and recommendations!"
         )
+    
+    # Второе сообщение - инструкция по использованию бота
+    if language == "ru":
+        usage_text = (
+            "📚 Как пользоваться NutriBot — вашим персональным фитнес AI-ассистентом\n\n"
+            "NutriBot — это умный AI-помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
+            "🍎 Анализ питания по фото\n"
+            "Отправьте боту фотографию вашего блюда, и он проведет детальный анализ:\n"
+            "🔹 Состав и калории — белки, жиры, углеводы и общая калорийность.\n"
+            "🔹 Скрытые ингредиенты — сахар, соль, трансжиры.\n"
+            "🔹 Рекомендации — как улучшить блюдо под ваши цели (похудение, набор массы, ЗОЖ).\n"
+            "🔹 Опасные сочетания — если в блюде есть несовместимые продукты.\n\n"
+            "📌 Пример:\n"
+            "👉 Отправьте фото тарелки с завтраком → бот разберет его на компоненты и даст советы.\n\n"
+            "📊 Полный анализ питания\n"
+            "Хотите узнать, как питались за последние дни? Напишите:\n"
+            "🔸 \"Анализ питания\" — и бот предоставит:\n\n"
+            "Среднесуточные калории и БЖУ.\n\n"
+            "Паттерны питания (когда и что вы едите).\n\n"
+            "Рекомендации по улучшению рациона.\n\n"
+            "📌 Пример:\n"
+            "👉 Напишите \"Анализ питания\" → получите отчет за 7 дней с советами.\n\n"
+            "⏰ Умные напоминания\n"
+            "Бот может напоминать вам о важных действиях. Просто скажите:\n"
+            "🔹 \"Напоминай [что-то] каждый день в [время]\"\n\n"
+            "Например:\n\n"
+            "\"Напоминай пить рыбий жир каждый день в 9:00\"\n\n"
+            "\"Напоминай принимать витамины в 12:00\"\n\n"
+            "📌 Чтобы отменить напоминание, напишите:\n"
+            "👉 \"Хватит напоминать про рыбий жир\"\n\n"
+            "💧 Контроль водного баланса\n"
+            "Бот автоматически рассчитывает вашу норму воды (30 мл на 1 кг веса) и напоминает пить.\n"
+            "🔹 Как использовать:\n\n"
+            "Нажмите кнопку \"Выпил 250 мл\" или напишите \"Я выпил стакан воды\".\n\n"
+            "Отправьте команду /water, чтобы включить/выключить напоминания.\n\n"
+            "🏋️ Персональные тренировки\n"
+            "Хотите план тренировок? Используйте команду /menu → \"Начать тренировку\".\n"
+            "🔹 Бот учтет:\n\n"
+            "Ваше оборудование (дом, зал, улица).\n\n"
+            "Цели (похудение, рельеф, сила).\n\n"
+            "Особые пожелания (\"без прыжков\", \"упор на спину\").\n\n"
+            "📌 Пример:\n"
+            "👉 Выберите \"Дома\" → укажите длительность → получите готовый план.\n\n\n"
+            "💡 Дополнительные функции\n"
+            "🔸 Оценка состава тела по фото — отправьте фото, и бот даст приблизительную оценку % жира и мышц.\n"
+            "🔸 Советы по продуктам — спросите: \"Чем полезен творог?\" → получите развернутый ответ.\n"
+            "🔸 Анализ настроения — если напишете \"Я в стрессе\", бот предложит рекомендации.\n\n"
+            "🚀 Начните прямо сейчас!\n"
+            "Пройдите анкету (/start), чтобы персонализировать бота.\n\n"
+            "Отправьте фото еды или запрос — бот поможет с анализом.\n\n"
+            "Используйте команды (/water, /menu, /profile) для удобства."
+        )
+    else:
+        usage_text = (
+            "📚 How to use NutriBot — your personal fitness AI-assistant\n\n"
+            "NutriBot is a smart AI companion that helps you track nutrition, workouts, and healthy habits. Here's how to use it:\n\n"
+            "🍎 Food analysis by photo\n"
+            "Send a photo of your meal, and the bot will analyze it in detail:\n"
+            "🔹 Composition and calories - proteins, fats, carbs, and total calories.\n"
+            "🔹 Hidden ingredients - sugar, salt, trans fats.\n"
+            "🔹 Recommendations - how to improve the meal for your goals (weight loss, muscle gain, healthy lifestyle).\n"
+            "🔹 Dangerous combinations - if the dish contains incompatible foods.\n\n"
+            "📌 Example:\n"
+            "👉 Send a photo of your breakfast → the bot will break it down and give advice.\n\n"
+            "📊 Complete nutrition analysis\n"
+            "Want to know your eating patterns? Type:\n"
+            "🔸 \"Nutrition analysis\" to get:\n\n"
+            "Daily average calories and macros\n\n"
+            "Eating patterns (when and what you eat)\n\n"
+            "Personalized improvement recommendations\n\n"
+            "📌 Example:\n"
+            "👉 Type \"Nutrition analysis\" → get a 7-day report with advice.\n\n"
+            "⏰ Smart reminders\n"
+            "The bot can remind you about important actions. Just say:\n"
+            "🔹 \"Remind me to [something] every day at [time]\"\n\n"
+            "Examples:\n\n"
+            "\"Remind me to take fish oil every day at 9:00\"\n\n"
+            "\"Remind me to take vitamins at 12:00\"\n\n"
+            "📌 To cancel a reminder, type:\n"
+            "👉 \"Stop reminding me about fish oil\"\n\n"
+            "💧 Water balance tracking\n"
+            "The bot automatically calculates your water norm (30 ml per 1 kg of weight) and reminds you to drink.\n"
+            "🔹 How to use:\n\n"
+            "Click \"Drank 250 ml\" or type \"I drank a glass of water\".\n\n"
+            "Use /water command to enable/disable reminders.\n\n"
+            "🏋️ Personalized workouts\n"
+            "Need a workout plan? Use /menu → \"Start Workout\".\n"
+            "🔹 The bot considers:\n\n"
+            "Your equipment (home, gym, outdoor)\n\n"
+            "Goals (weight loss, toning, strength)\n\n"
+            "Special requests (\"no jumps\", \"focus on back\")\n\n"
+            "📌 Example:\n"
+            "👉 Choose \"Home\" → set duration → get a ready-made plan.\n\n\n"
+            "💡 Additional features\n"
+            "🔸 Body composition estimation by photo - send a photo for approximate fat/muscle %\n"
+            "🔸 Food advice - ask: \"What are the benefits of cottage cheese?\"\n"
+            "🔸 Mood analysis - if you type \"I'm stressed\", the bot will offer recommendations\n\n"
+            "🚀 Start right now!\n"
+            "Complete the questionnaire (/start) to personalize the bot.\n\n"
+            "Send food photos or requests - the bot will help with analysis.\n\n"
+            "Use commands (/water, /menu, /profile) for convenience."
+        )
+    
+    await update.message.reply_text(usage_text)
+    
     return ConversationHandler.END
 
 
