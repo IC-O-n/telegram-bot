@@ -51,7 +51,7 @@ class SubscriptionStatus(Enum):
 if not TOKEN or not GOOGLE_API_KEY:
     raise ValueError("Отсутствует токен Telegram или Google Gemini API.")
 
-INACTIVITY_REMINDER_HOURS = 6
+INACTIVITY_REMINDER_HOURS = 1
 
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
