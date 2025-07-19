@@ -13,7 +13,7 @@ from enum import Enum
 from pymysql.cursors import DictCursor
 from datetime import datetime, time, date
 from collections import deque
-from telegram import Update, File, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram import Update, File, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Message, BotCommandScopeChat
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, CallbackContext, ConversationHandler, CallbackQueryHandler
@@ -2798,12 +2798,67 @@ def clean_markdown(text):
 
 async def post_init(application: Application) -> None:
     """Функция для настройки бота после инициализации"""
-    await application.bot.set_my_commands([
-        BotCommand("drank", "💧 Выпил 250мл воды"),
-        BotCommand("menu", "⚙ Меню"),
-        BotCommand("info", "💳 Подписка"),
-        BotCommand("water", "🚰 Напоминания о воде"),
-    ])
+    # Получаем список всех пользователей с их языками
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT user_id, language FROM user_profiles WHERE language IS NOT NULL")
+            users = cursor.fetchall()
+            
+            # Создаем словарь языков для пользователей
+            user_languages = {user['user_id']: user['language'] for user in users}
+            
+            # Устанавливаем команды для каждого пользователя
+            for user_id, language in user_languages.items():
+                if language == "ru":
+                    commands = [
+                        BotCommand("drank", "💧 Выпил 250мл воды"),
+                        BotCommand("menu", "⚙ Меню"),
+                        BotCommand("info", "💳 Подписка"),
+                        BotCommand("water", "🚰 Напоминания о воде"),
+                    ]
+                else:
+                    commands = [
+                        BotCommand("drank", "💧 Drank 250ml water"),
+                        BotCommand("menu", "⚙ Menu"),
+                        BotCommand("info", "💳 Subscription"),
+                        BotCommand("water", "🚰 Water reminders"),
+                    ]
+                
+                try:
+                    await application.bot.set_my_commands(commands, scope=BotCommandScopeChat(user_id))
+                except Exception as e:
+                    print(f"Ошибка при установке команд для пользователя {user_id}: {e}")
+            
+        # Устанавливаем команды по умолчанию на русском и английском
+        await application.bot.set_my_commands([
+            BotCommand("drank", "💧 Выпил 250мл воды / Drank 250ml water"),
+            BotCommand("menu", "⚙ Меню / Menu"),
+            BotCommand("info", "💳 Подписка / Subscription"),
+            BotCommand("water", "🚰 Напоминания о воде / Water reminders"),
+        ])
+        
+    except Exception as e:
+        print(f"Ошибка в post_init: {e}")
+        # Устанавливаем команды по умолчанию на случай ошибки
+        await application.bot.set_my_commands([
+            BotCommand("drank", "💧 Выпил 250мл воды / Drank 250ml water"),
+            BotCommand("menu", "⚙ Меню / Menu"),
+            BotCommand("info", "💳 Подписка / Subscription"),
+            BotCommand("water", "🚰 Напоминания о воде / Water reminders"),
+        ])
+    finally:
+        if conn:
+            conn.close()
 
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
