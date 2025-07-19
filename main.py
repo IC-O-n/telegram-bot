@@ -142,7 +142,8 @@ def init_db():
                     ('trial_end', "ALTER TABLE user_profiles ADD COLUMN trial_end DATETIME"),
                     ('payment_id', "ALTER TABLE user_profiles ADD COLUMN payment_id VARCHAR(50)"),
                     ('payment_notified', "ALTER TABLE user_profiles ADD COLUMN payment_notified TINYINT DEFAULT 0"),
-                    ('last_activity_time', "ALTER TABLE user_profiles ADD COLUMN last_activity_time DATETIME")
+                    ('last_activity_time', "ALTER TABLE user_profiles ADD COLUMN last_activity_time DATETIME"),
+                    ('last_meal_reminder_time', "ALTER TABLE user_profiles ADD COLUMN last_meal_reminder_time DATETIME")
                 ]
                 
                 for column_name, alter_query in columns_to_add:
@@ -549,7 +550,8 @@ async def update_user_activity(user_id: int):
 # Добавим функцию для проверки неактивных пользователей и отправки напоминаний
 async def check_inactive_users(context: CallbackContext):
     """Проверяет неактивных пользователей и отправляет напоминания"""
-    print("Запущена проверка неактивных пользователей")  # Логирование
+    print(f"\n{datetime.now()}: Запущена проверка неактивных пользователей")  # Логирование с временем
+    
     conn = None
     try:
         conn = pymysql.connect(
@@ -569,7 +571,8 @@ async def check_inactive_users(context: CallbackContext):
                     timezone,
                     language,
                     wakeup_time,
-                    sleep_time
+                    sleep_time,
+                    last_meal_reminder_time
                 FROM user_profiles
                 WHERE last_activity_time IS NOT NULL
             """)
@@ -589,7 +592,7 @@ async def check_inactive_users(context: CallbackContext):
                     last_activity = last_activity.astimezone(tz)
                 
                 inactivity_hours = (now - last_activity).total_seconds() / 3600
-                print(f"Пользователь {user['user_id']}: неактивен {inactivity_hours} часов")  # Логирование
+                print(f"Пользователь {user['user_id']}: неактивен {inactivity_hours:.2f} часов")  # Логирование
                 
                 # Проверяем, что сейчас время бодрствования пользователя
                 wakeup_time = datetime.strptime(user['wakeup_time'], "%H:%M").time()
@@ -609,7 +612,20 @@ async def check_inactive_users(context: CallbackContext):
                         print("Пользователь спит (дневной сон), пропускаем")
                         continue
                 
-                if inactivity_hours >= INACTIVITY_REMINDER_HOURS:
+                # Проверяем время последнего напоминания
+                last_reminder = user['last_meal_reminder_time']
+                if last_reminder:
+                    if last_reminder.tzinfo is None:
+                        last_reminder = tz.localize(last_reminder)
+                    else:
+                        last_reminder = last_reminder.astimezone(tz)
+                    hours_since_last_reminder = (now - last_reminder).total_seconds() / 3600
+                else:
+                    hours_since_last_reminder = INACTIVITY_REMINDER_HOURS + 1  # Чтобы отправить первое напоминание
+                
+                print(f"Часов с последнего напоминания: {hours_since_last_reminder:.2f}")
+                
+                if inactivity_hours >= INACTIVITY_REMINDER_HOURS and hours_since_last_reminder >= INACTIVITY_REMINDER_HOURS:
                     print(f"Пользователь {user['user_id']} неактивен более {INACTIVITY_REMINDER_HOURS} часов")  # Логирование
                     
                     # Получаем историю питания
@@ -623,7 +639,7 @@ async def check_inactive_users(context: CallbackContext):
                     meal_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
                     today = now.date().isoformat()
                     today_meals = meal_history.get(today, {})
-                    print(f"Приемы пищи сегодня: {today_meals}")  # Логирование
+                    print(f"Приемы пищи сегодня: {list(today_meals.keys())}")  # Логирование
                     
                     # Определяем, какой прием пищи пропущен
                     question = None
@@ -663,11 +679,11 @@ async def check_inactive_users(context: CallbackContext):
                             )
                             print(f"Отправлено напоминание о {question} пользователю {user['user_id']}")
                             
-                            # Обновляем время последней активности
+                            # Обновляем время последнего напоминания (но не время активности!)
                             with conn.cursor() as update_cursor:
                                 update_cursor.execute("""
                                     UPDATE user_profiles
-                                    SET last_activity_time = %s
+                                    SET last_meal_reminder_time = %s
                                     WHERE user_id = %s
                                 """, (now.replace(tzinfo=None), user['user_id']))
                             conn.commit()
@@ -4271,7 +4287,7 @@ def main():
     # Добавляем job для проверки неактивных пользователей
     app.job_queue.run_repeating(
         check_inactive_users,
-        interval=1800,
+        interval=600,
         first=10
     )
 
