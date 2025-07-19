@@ -563,7 +563,8 @@ async def check_inactive_users(context: CallbackContext):
                     timezone,
                     language,
                     wakeup_time,
-                    sleep_time
+                    sleep_time,
+                    water_reminders
                 FROM user_profiles
                 WHERE last_activity_time IS NOT NULL
             """)
@@ -612,14 +613,15 @@ async def check_inactive_users(context: CallbackContext):
                     
                     # Определяем, о чем спросить пользователя
                     question = None
-                    if not any(meal.startswith('breakfast') or meal.startswith('завтрак') for meal in today_meals.keys()):
-                        question = "breakfast" if user['language'] == "en" else "завтрак"
-                    elif not any(meal.startswith('lunch') or meal.startswith('обед') for meal in today_meals.keys()):
-                        question = "lunch" if user['language'] == "en" else "обед"
-                    elif not any(meal.startswith('dinner') or meal.startswith('ужин') for meal in today_meals.keys()):
-                        question = "dinner" if user['language'] == "en" else "ужин"
-                    else:
-                        question = "snack" if user['language'] == "en" else "перекус"
+                    meal_types = ['breakfast', 'lunch', 'dinner', 'snack'] if user['language'] == "en" else ['завтрак', 'обед', 'ужин', 'перекус']
+                    
+                    for meal in meal_types:
+                        if not any(m.startswith(meal) for m in today_meals.keys()):
+                            question = meal
+                            break
+                    
+                    if not question:  # Если все приемы пищи есть, пропускаем
+                        continue
                     
                     # Формируем сообщение в зависимости от языка
                     if user['language'] == "ru":
@@ -4247,7 +4249,7 @@ def main():
     # Добавляем job для проверки неактивных пользователей
     app.job_queue.run_repeating(
         check_inactive_users,
-        interval=300,  # Проверяем каждый час
+        interval=3600,  # Проверяем каждый час
         first=10
     )
 
