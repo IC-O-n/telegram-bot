@@ -3190,11 +3190,11 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
             return ConversationHandler.END
 
         language = row['language'] or "ru"
-        gender = row['gender'] or "м"
-        activity = row['activity'] or "Средний"
+        gender = row['gender'] or ("m" if language == "en" else "м")
+        activity = row['activity'] or ("Intermediate" if language == "en" else "Средний")
         equipment = row['equipment'] or ""
         health = row['health'] or ""
-        goal = row['goal'] or "ЗОЖ"
+        goal = row['goal'] or ("Healthy lifestyle" if language == "en" else "ЗОЖ")
         
         # Получаем параметры тренировки из context.user_data
         location = context.user_data.get('workout_location', 'playground')
@@ -3205,50 +3205,94 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
         if 'workout_special_requests' in context.user_data:
             del context.user_data['workout_special_requests']
 
-        # Формируем промпт для Gemini с учетом пожеланий
+        # Формируем промпт для Gemini с учетом языка и пожеланий
         if location == 'home':
-            equipment = row['equipment'] or "без инвентаря"
+            equipment = row['equipment'] or ("no equipment" if language == "en" else "без инвентаря")
         elif location in ['gym', 'playground', 'outdoor']:
-            equipment = {
-                'gym': "любое оборудование зала",
-                'playground': "турник и брусья",
-                'outdoor': "вес тела"
-            }[location]
+            if language == "en":
+                equipment = {
+                    'gym': "any gym equipment",
+                    'playground': "pull-up bar and parallel bars",
+                    'outdoor': "body weight"
+                }[location]
+            else:
+                equipment = {
+                    'gym': "любое оборудование зала",
+                    'playground': "турник и брусья",
+                    'outdoor': "вес тела"
+                }[location]
     
-        # Формируем строгий промпт с учетом пожеланий
-        prompt = f"""
-        Сгенерируй тренировку СТРОГО по следующим правилам:
-        - Место: {location} ({equipment})
-        - Длительность: {duration} минут
-        - Уровень: {activity}
-        - Пол: {gender}
-        - Цель: {goal}
-        - Пожелания пользователя: {special_requests if special_requests else "нет особых пожеланий"}
-        - Формат вывода ДОЛЖЕН БЫТЬ ТОЧНО как в примере ниже
-    
-        Пример:
-        🏋️ Название
-        📍 Место: {location}
-        ⏱ Длительность: {duration} минут
-        🎯 Фокус: [цель]
-        💬 Пожелания: {special_requests if special_requests else "нет особых пожеланий"}
-    
-        🔥 Разминка:
-        - [Упражнение] - [число] повторений/минут
-        - [Упражнение] - [число] повторений/минут
-    
-        💪 Основная часть:
-        - [Упражнение] - [подходы]x[повторы]
-        - [Упражнение] - [подходы]x[повторы]
-    
-        🧘 Заминка:
-        - [Растяжка] - [число] секунд
-        - [Растяжка] - [число] секунд
-    
-        💡 Рекомендации:
-        - [1 совет]
-        - [1 совет]
-        """
+        # Формируем строгий промпт с учетом языка
+        if language == "en":
+            prompt = f"""
+            Generate a workout STRICTLY according to the following rules:
+            - Location: {location} ({equipment})
+            - Duration: {duration} minutes
+            - Level: {activity}
+            - Gender: {gender}
+            - Goal: {goal}
+            - User requests: {special_requests if special_requests else "no special requests"}
+            - The output format MUST BE EXACTLY as in the example below
+
+            Example:
+            🏋️ Workout Name
+
+            📍 Location: {location}
+            ⏱ Duration: {duration} minutes
+            🎯 Focus: [goal]
+            💬 Requests: {special_requests if special_requests else "no special requests"}
+
+            🔥 Warm-up:
+            - [Exercise] - [time/reps]
+            - [Exercise] - [time/reps]
+
+            💪 Main part:
+            - [Exercise] - [sets]x[reps]
+            - [Exercise] - [sets]x[reps]
+
+            🧘 Cool-down:
+            - [Stretch] - [time]
+            - [Stretch] - [time]
+
+            💡 Recommendations:
+            - [1 tip]
+            - [1 tip]
+            """
+        else:
+            prompt = f"""
+            Сгенерируй тренировку СТРОГО по следующим правилам:
+            - Место: {location} ({equipment})
+            - Длительность: {duration} минут
+            - Уровень: {activity}
+            - Пол: {gender}
+            - Цель: {goal}
+            - Пожелания пользователя: {special_requests if special_requests else "нет особых пожеланий"}
+            - Формат вывода ДОЛЖЕН БЫТЬ ТОЧНО как в примере ниже
+
+            Пример:
+            🏋️ Название
+
+            📍 Место: {location}
+            ⏱ Длительность: {duration} минут
+            🎯 Фокус: [цель]
+            💬 Пожелания: {special_requests if special_requests else "нет особых пожеланий"}
+
+            🔥 Разминка:
+            - [Упражнение] - [число] повторений/минут
+            - [Упражнение] - [число] повторений/минут
+
+            💪 Основная часть:
+            - [Упражнение] - [подходы]x[повторы]
+            - [Упражнение] - [подходы]x[повторы]
+
+            🧘 Заминка:
+            - [Растяжка] - [число] секунд
+            - [Растяжка] - [число] секунд
+
+            💡 Рекомендации:
+            - [1 совет]
+            - [1 совет]
+            """
     
         # Отправляем запрос к Gemini
         response = model.generate_content(prompt)
