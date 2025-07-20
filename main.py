@@ -602,27 +602,33 @@ async def check_inactive_users(context: CallbackContext):
                 # Логирование времени
                 print(f"Текущее время: {current_time}, время сна: {sleep_time}, время пробуждения: {wakeup_time}")
                 
-                # Определяем, является ли текущий день тем же самым днем с учетом времени сна
-                # Если время сна < времени пробуждения (например, сон 23:00-07:00)
+                # Определяем, сейчас "день" или "ночь" пользователя
+                # Если время сна < времени пробуждения (сон не переходит через полночь)
                 if sleep_time < wakeup_time:
                     # Если текущее время между временем сна и пробуждения - пользователь спит
-                    if current_time >= sleep_time or current_time < wakeup_time:
+                    if current_time >= sleep_time and current_time < wakeup_time:
                         print("Пользователь спит (ночной сон), пропускаем")
                         continue
                 else:
-                    # Если время сна > времени пробуждения (например, сон 01:20-08:30)
-                    # Проверяем, не наступило ли еще время сна
-                    if current_time < wakeup_time or current_time >= sleep_time:
+                    # Если время сна >= времени пробуждения (сон переходит через полночь)
+                    # Определяем, нужно ли считать текущее время как предыдущий день
+                    if current_time < wakeup_time:
+                        # До времени пробуждения - это все еще "ночь" предыдущего дня
+                        print("Еще ночь предыдущего дня (сон переходит через полночь)")
+                        # Для напоминаний используем вчерашнюю дату
+                        today = (now - timedelta(days=1)).date()
+                    elif current_time >= sleep_time:
+                        # После времени сна - это уже "ночь" текущего дня
+                        print("Уже ночь текущего дня (сон переходит через полночь)")
+                        # Пользователь должен спать
                         print("Пользователь спит (дневной сон), пропускаем")
                         continue
-                
-                # Определяем, какой день считать текущим для проверки приемов пищи
-                # Если время сна > времени пробуждения (например, 01:20-08:30) и текущее время между 00:00 и временем сна
-                # То считаем это продолжением предыдущего дня
-                if sleep_time > wakeup_time and current_time < sleep_time and current_time < wakeup_time:
-                    check_date = (now - timedelta(days=1)).date()
+                    else:
+                        # Между пробуждением и сном - день
+                        today = now.date()
                 else:
-                    check_date = now.date()
+                    # Обычный случай - не переходящий через полночь сон
+                    today = now.date()
                 
                 # Проверяем время последнего напоминания
                 last_reminder = user['last_meal_reminder_time']
@@ -649,8 +655,9 @@ async def check_inactive_users(context: CallbackContext):
                         result = cursor.fetchone()
                     
                     meal_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
-                    today_meals = meal_history.get(check_date.isoformat(), {})
-                    print(f"Приемы пищи за {check_date}: {list(today_meals.keys())}")  # Логирование
+                    today_str = today.isoformat()
+                    today_meals = meal_history.get(today_str, {})
+                    print(f"Приемы пищи за {today_str}: {list(today_meals.keys())}")  # Логирование
                     
                     # Определяем, какой прием пищи пропущен
                     question = None
