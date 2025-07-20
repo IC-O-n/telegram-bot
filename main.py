@@ -594,41 +594,35 @@ async def check_inactive_users(context: CallbackContext):
                 inactivity_hours = (now - last_activity).total_seconds() / 3600
                 print(f"Пользователь {user['user_id']}: неактивен {inactivity_hours:.2f} часов")  # Логирование
                 
-                # Проверяем, что сейчас время бодрствования пользователя
+                # Получаем время пробуждения и сна
                 wakeup_time = datetime.strptime(user['wakeup_time'], "%H:%M").time()
                 sleep_time = datetime.strptime(user['sleep_time'], "%H:%M").time()
                 current_time = now.time()
                 
-                # Логирование времени
-                print(f"Текущее время: {current_time}, время сна: {sleep_time}, время пробуждения: {wakeup_time}")
-                
-                # Определяем, сейчас "день" или "ночь" пользователя
-                # Если время сна < времени пробуждения (сон не переходит через полночь)
-                if sleep_time < wakeup_time:
-                    # Если текущее время между временем сна и пробуждения - пользователь спит
-                    if current_time >= sleep_time and current_time < wakeup_time:
-                        print("Пользователь спит (ночной сон), пропускаем")
-                        continue
+                # Определяем, какой сейчас день с учетом времени сна
+                # Если текущее время находится между 00:00 и временем сна - считаем это предыдущим днем
+                if current_time < sleep_time:
+                    # Это еще предыдущий день (пользователь не спал)
+                    today = (now - timedelta(days=1)).date()
+                    print(f"Пользователь {user['user_id']} еще не спал, считаем за предыдущий день {today}")
                 else:
-                    # Если время сна >= времени пробуждения (сон переходит через полночь)
-                    # Определяем, нужно ли считать текущее время как предыдущий день
-                    if current_time < wakeup_time:
-                        # До времени пробуждения - это все еще "ночь" предыдущего дня
-                        print("Еще ночь предыдущего дня (сон переходит через полночь)")
-                        # Для напоминаний используем вчерашнюю дату
-                        today = (now - timedelta(days=1)).date()
-                    elif current_time >= sleep_time:
-                        # После времени сна - это уже "ночь" текущего дня
-                        print("Уже ночь текущего дня (сон переходит через полночь)")
-                        # Пользователь должен спать
-                        print("Пользователь спит (дневной сон), пропускаем")
-                        continue
-                    else:
-                        # Между пробуждением и сном - день
-                        today = now.date()
-                else:
-                    # Обычный случай - не переходящий через полночь сон
+                    # Это уже новый день
                     today = now.date()
+                
+                # Проверяем, что сейчас время бодрствования пользователя
+                wakeup_dt = datetime.combine(today, wakeup_time).astimezone(tz)
+                sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
+                current_dt = datetime.combine(today, current_time).astimezone(tz)
+                
+                # Если время сна переходит через полночь
+                if sleep_time < wakeup_time:
+                    sleep_dt += timedelta(days=1)
+                
+                is_active_time = wakeup_dt <= current_dt <= sleep_dt
+                
+                if not is_active_time:
+                    print(f"Текущее время {current_time} вне периода активности пользователя {user['user_id']} ({wakeup_time}-{sleep_time})")
+                    continue
                 
                 # Проверяем время последнего напоминания
                 last_reminder = user['last_meal_reminder_time']
@@ -657,7 +651,7 @@ async def check_inactive_users(context: CallbackContext):
                     meal_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
                     today_str = today.isoformat()
                     today_meals = meal_history.get(today_str, {})
-                    print(f"Приемы пищи за {today_str}: {list(today_meals.keys())}")  # Логирование
+                    print(f"Приемы пищи сегодня: {list(today_meals.keys())}")  # Логирование
                     
                     # Определяем, какой прием пищи пропущен
                     question = None
