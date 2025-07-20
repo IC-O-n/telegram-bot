@@ -602,15 +602,27 @@ async def check_inactive_users(context: CallbackContext):
                 # Логирование времени
                 print(f"Текущее время: {current_time}, время сна: {sleep_time}, время пробуждения: {wakeup_time}")
                 
-                # Если сейчас время сна пользователя - пропускаем
-                if sleep_time < wakeup_time:  # Сон не в пределах одних суток
-                    if current_time >= sleep_time and current_time < wakeup_time:
+                # Определяем, является ли текущий день тем же самым днем с учетом времени сна
+                # Если время сна < времени пробуждения (например, сон 23:00-07:00)
+                if sleep_time < wakeup_time:
+                    # Если текущее время между временем сна и пробуждения - пользователь спит
+                    if current_time >= sleep_time or current_time < wakeup_time:
                         print("Пользователь спит (ночной сон), пропускаем")
                         continue
-                else:  # Сон в пределах одних суток
-                    if current_time >= sleep_time or current_time < wakeup_time:
+                else:
+                    # Если время сна > времени пробуждения (например, сон 01:20-08:30)
+                    # Проверяем, не наступило ли еще время сна
+                    if current_time < wakeup_time or current_time >= sleep_time:
                         print("Пользователь спит (дневной сон), пропускаем")
                         continue
+                
+                # Определяем, какой день считать текущим для проверки приемов пищи
+                # Если время сна > времени пробуждения (например, 01:20-08:30) и текущее время между 00:00 и временем сна
+                # То считаем это продолжением предыдущего дня
+                if sleep_time > wakeup_time and current_time < sleep_time and current_time < wakeup_time:
+                    check_date = (now - timedelta(days=1)).date()
+                else:
+                    check_date = now.date()
                 
                 # Проверяем время последнего напоминания
                 last_reminder = user['last_meal_reminder_time']
@@ -637,9 +649,8 @@ async def check_inactive_users(context: CallbackContext):
                         result = cursor.fetchone()
                     
                     meal_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
-                    today = now.date().isoformat()
-                    today_meals = meal_history.get(today, {})
-                    print(f"Приемы пищи сегодня: {list(today_meals.keys())}")  # Логирование
+                    today_meals = meal_history.get(check_date.isoformat(), {})
+                    print(f"Приемы пищи за {check_date}: {list(today_meals.keys())}")  # Логирование
                     
                     # Определяем, какой прием пищи пропущен
                     question = None
@@ -699,6 +710,7 @@ async def check_inactive_users(context: CallbackContext):
     finally:
         if conn:
             conn.close()
+
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
