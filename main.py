@@ -143,7 +143,8 @@ def init_db():
                     ('payment_id', "ALTER TABLE user_profiles ADD COLUMN payment_id VARCHAR(50)"),
                     ('payment_notified', "ALTER TABLE user_profiles ADD COLUMN payment_notified TINYINT DEFAULT 0"),
                     ('last_activity_time', "ALTER TABLE user_profiles ADD COLUMN last_activity_time DATETIME"),
-                    ('last_meal_reminder_time', "ALTER TABLE user_profiles ADD COLUMN last_meal_reminder_time DATETIME")
+                    ('last_meal_reminder_time', "ALTER TABLE user_profiles ADD COLUMN last_meal_reminder_time DATETIME"),
+                    ('last_meal_nutrition', "ALTER TABLE user_profiles ADD COLUMN last_meal_nutrition JSON")
                 ]
                 
                 for column_name, alter_query in columns_to_add:
@@ -3517,6 +3518,40 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         if conn:
             conn.close()
 
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT last_meal_nutrition
+                FROM user_profiles
+                WHERE user_id = %s
+            """, (user_id,))
+            row = cursor.fetchone()
+            if row and row['last_meal_nutrition']:
+                last_meal = json.loads(row['last_meal_nutrition'])
+                contents.insert(0, {
+                    "text": f"Последний прием пищи / Last meal:\n"
+                            f"Тип / Type: {last_meal.get('meal_type', 'N/A')}\n"
+                            f"Время / Time: {last_meal.get('time', 'N/A')}\n"
+                            f"Описание / Description: {last_meal.get('description', 'N/A')}\n"
+                            f"КБЖУ / Nutrition: {last_meal.get('calories', 0)} ккал/kcal | "
+                            f"{last_meal.get('proteins', 0)}г белков/proteins | "
+                            f"{last_meal.get('fats', 0)}г жиров/fats | "
+                            f"{last_meal.get('carbs', 0)}г углеводов/carbs"
+                })
+    except Exception as e:
+        print(f"Ошибка при получении данных о последнем приеме пищи: {e}")
+    finally:
+        if conn:
+            conn.close()
+
     # Обработка фото/документов
     media_files = message.photo or []
     if message.document:
@@ -3712,7 +3747,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 
 
-6. ⚠️ Если пользователь отправляет еду и явно указывает, что он съест/ест/съел её (например: "мой завтрак", "это мой обед", "сегодня на ужин", "я съел 2 яйца и тост"):
+6. ⚠️ Если пользователь отправляет еду и явно указывает, что он съест/ест/съел её:
    - Для фото: анализируй визуальное содержимое
    - Для текста: анализируй описание
    - Определи примерный состав блюда/продуктов   
@@ -3728,7 +3763,22 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         * Несовместимые продукты (если есть)
         * Риски для здоровья (если выявлены)
    - Обнови соответствующие поля в базе данных (только если пользователь НЕ просил оценивать его блюдо):
-     SQL: UPDATE user_profiles SET calories_today = calories_today + [калории], proteins_today = proteins_today + [белки], fats_today = fats_today + [жиры], carbs_today = carbs_today + [углеводы], last_nutrition_update = CURRENT_DATE WHERE user_id = %s
+     SQL: UPDATE user_profiles 
+          SET calories_today = calories_today + [калории], 
+              proteins_today = proteins_today + [белки], 
+              fats_today = fats_today + [жиры], 
+              carbs_today = carbs_today + [углеводы], 
+              last_nutrition_update = CURRENT_DATE,
+              last_meal_nutrition = JSON_OBJECT(
+                  'calories', [калории],
+                  'proteins', [белки],
+                  'fats', [жиры],
+                  'carbs', [углеводы],
+                  'meal_type', '[тип приема пищи]',
+                  'time', '[время в формате ЧЧ:ММ]',
+                  'description', '[описание блюда]'
+              )
+          WHERE user_id = %s
    - Ответь в формате:
      TEXT: 
      🔍 Анализ блюда:
