@@ -3790,12 +3790,27 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     Немедленно пересмотри свой анализ с учетом новой информации
 
     Вычти предыдущие значения КБЖУ из базы:
-    SQL: UPDATE user_profiles SET calories_today = calories_today - [старые калории], proteins_today = proteins_today - [старые белки], fats_today = fats_today - [старые жиры], carbs_today = carbs_today - [старые углеводы] WHERE user_id = %s
+    SQL: UPDATE user_profiles 
+         SET calories_today = calories_today - [старые калории], 
+             proteins_today = proteins_today - [старые белки], 
+             fats_today = fats_today - [старые жиры], 
+             carbs_today = carbs_today - [старые углеводы] 
+         WHERE user_id = %s
 
     Добавь новые значения КБЖУ в базу:
-    SQL: UPDATE user_profiles SET calories_today = calories_today + [новые калории], proteins_today = proteins_today + [новые белки], fats_today = fats_today + [новые жиры], carbs_today = carbs_today + [новые углеводы] WHERE user_id = %s
+    SQL: UPDATE user_profiles 
+         SET calories_today = calories_today + [новые калории], 
+             proteins_today = proteins_today + [новые белки], 
+             fats_today = fats_today + [новые жиры], 
+             carbs_today = carbs_today + [новые углеводы] 
+         WHERE user_id = %s
 
-    Обнови meal_history, заменив старые данные новыми
+    Обнови meal_history:
+    1. Найди запись о приеме пищи
+    2. Удали старые данные
+    3. Добавь новые данные с обновленным КБЖУ
+    4. Сохрани изменения:
+       SQL: UPDATE user_profiles SET meal_history = %s WHERE user_id = %s
 
     Ответь с обновленной информацией в формате:
     TEXT:
