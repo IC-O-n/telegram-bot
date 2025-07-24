@@ -4364,29 +4364,58 @@ TEXT: ...
         response_text = response.text.strip()
         context.user_data['last_bot_reply'] = response_text
 
+        # Обработка SQL команд из ответа Gemini
+        sql_part = None
+        text_part = None
+
         if response_text.startswith("Correction:"):
-            # Парсим обновленные значения КБЖУ за сегодня
+            # Пытаемся извлечь обновленные значения КБЖУ разными способами
+            calories = proteins = fats = carbs = None
+
+            # Способ 1: Ищем в формате "📊 Сегодня: X ккал | A г белков | B г жиров | C г углеводов"
             today_match = re.search(
-                r'📊 Сегодня: (\d+) ккал \| (\d+) г белков \| (\d+) г жиров \| (\d+) г углеводов',
+                r'📊 Сегодня:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
                 response_text
             )
 
+            # Способ 2: Ищем в английском формате
+            if not today_match:
+                today_match = re.search(
+                    r'📊 Today:\s*(\d+)\s*kcal\s*\|\s*(\d+)\s*g\s*proteins\s*\|\s*(\d+)\s*g\s*fats\s*\|\s*(\d+)\s*g\s*carbs',
+                    response_text
+                )
+
+            # Способ 3: Ищем отдельные строки с КБЖУ
+            if not today_match:
+                calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
+                proteins_match = re.search(r'Белки:\s*(\d+)', response_text) or re.search(r'Proteins:\s*(\d+)', response_text)
+                fats_match = re.search(r'Жиры:\s*(\d+)', response_text) or re.search(r'Fats:\s*(\d+)', response_text)
+                carbs_match = re.search(r'Углеводы:\s*(\d+)', response_text) or re.search(r'Carbs:\s*(\d+)', response_text)
+
+                if calories_match and proteins_match and fats_match and carbs_match:
+                    calories = int(calories_match.group(1))
+                    proteins = int(proteins_match.group(1))
+                    fats = int(fats_match.group(1))
+                    carbs = int(carbs_match.group(1))
+
+            # Если нашли в формате "Сегодня/Today:"
             if today_match:
                 calories = int(today_match.group(1))
                 proteins = int(today_match.group(2))
                 fats = int(today_match.group(3))
                 carbs = int(today_match.group(4))
 
-                # Обновляем значения в базе данных
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
+            # Если нашли значения - обновляем базу
+            if calories is not None and proteins is not None and fats is not None and carbs is not None:
                 try:
+                    conn = pymysql.connect(
+                        host='x91345bo.beget.tech',
+                        user='x91345bo_nutrbot',
+                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                        database='x91345bo_nutrbot',
+                        charset='utf8mb4',
+                        cursorclass=pymysql.cursors.DictCursor
+                    )
                     with conn.cursor() as cursor:
                         cursor.execute("""
                     UPDATE user_profiles
@@ -4394,15 +4423,13 @@ TEXT: ...
                         calories_today = %s,
                         proteins_today = %s,
                         fats_today = %s,
-                        carbs_today = %s,
-                        last_nutrition_update = %s
+                        carbs_today = %s
                     WHERE user_id = %s
                         """, (
                             calories,
                             proteins,
                             fats,
                             carbs,
-                            date.today().isoformat(),
                             user_id
                         ))
                         conn.commit()
@@ -4412,10 +4439,8 @@ TEXT: ...
                 finally:
                     if conn:
                         conn.close()
-
-        # Обработка SQL команд из ответа Gemini
-        sql_part = None
-        text_part = None
+            else:
+                print("Не удалось извлечь значения КБЖУ из ответа для коррекции")
 
         
         # Разделяем SQL и TEXT части ответа
