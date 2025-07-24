@@ -4364,65 +4364,60 @@ TEXT: ...
         response_text = response.text.strip()
         context.user_data['last_bot_reply'] = response_text
 
+        if response_text.startswith("Correction:"):
+            # Парсим обновленные значения КБЖУ за сегодня
+            today_match = re.search(
+                r'📊 Сегодня: (\d+) ккал \| (\d+) г белков \| (\d+) г жиров \| (\d+) г углеводов',
+                response_text
+            )
+
+            if today_match:
+                calories = int(today_match.group(1))
+                proteins = int(today_match.group(2))
+                fats = int(today_match.group(3))
+                carbs = int(today_match.group(4))
+
+                # Обновляем значения в базе данных
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
+                try:
+                    with conn.cursor() as cursor:
+                        cursor.execute("""
+                    UPDATE user_profiles
+                    SET
+                        calories_today = %s,
+                        proteins_today = %s,
+                        fats_today = %s,
+                        carbs_today = %s,
+                        last_nutrition_update = %s
+                    WHERE user_id = %s
+                        """, (
+                            calories,
+                            proteins,
+                            fats,
+                            carbs,
+                            date.today().isoformat(),
+                            user_id
+                        ))
+                        conn.commit()
+                        print(f"Обновлены КБЖУ для пользователя {user_id} после коррекции: {calories} ккал")
+                except Exception as e:
+                    print(f"Ошибка при обновлении КБЖУ после коррекции: {e}")
+                finally:
+                    if conn:
+                        conn.close()
+
         # Обработка SQL команд из ответа Gemini
         sql_part = None
         text_part = None
 
-        if response_text.startswith("Correction:") or response_text.startswith("Исправление:"):
-            # Парсим обновленные значения КБЖУ за сегодня (учитываем оба языка)
-            today_match = re.search(
-                r'📊 (Сегодня|Today): (\d+) (ккал|kcal) \| (\d+) (г белков|g proteins) \| (\d+) (г жиров|g fats) \| (\d+) (г углеводов|g carbs)',
-                response_text
-            )
-    
-            if today_match:
-                try:
-                    calories = int(today_match.group(2))
-                    proteins = int(today_match.group(4))
-                    fats = int(today_match.group(6))
-                    carbs = int(today_match.group(8))
-            
-                    # Обновляем значения в базе данных
-                    conn = pymysql.connect(
-                        host='x91345bo.beget.tech',
-                        user='x91345bo_nutrbot',
-                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                        database='x91345bo_nutrbot',
-                        charset='utf8mb4',
-                        cursorclass=pymysql.cursors.DictCursor
-                    )
-                    try:
-                        with conn.cursor() as cursor:
-                            cursor.execute("""
-                        UPDATE user_profiles 
-                        SET 
-                            calories_today = %s,
-                            proteins_today = %s,
-                            fats_today = %s,
-                            carbs_today = %s
-                        WHERE user_id = %s
-                    """, (
-                                calories,
-                                proteins,
-                                fats,
-                                carbs,
-                                user_id
-                            ))
-                            conn.commit()
-                            print(f"Обновлены КБЖУ для пользователя {user_id} после коррекции: {calories} ккал")
-                    except Exception as e:
-                        print(f"Ошибка при обновлении КБЖУ: {e}")
-                        # Можно отправить пользователю сообщение об ошибке
-                        if language == "ru":
-                            await update.message.reply_text("⚠️ Произошла ошибка при обновлении данных. Попробуйте еще раз.")
-                        else:
-                            await update.message.reply_text("⚠️ An error occurred while updating data. Please try again.")
-                    finally:
-                        if conn:
-                            conn.close()
-                except Exception as e:
-                    print(f"Ошибка при обработке коррекции: {e}")
-
+        
         # Разделяем SQL и TEXT части ответа
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
