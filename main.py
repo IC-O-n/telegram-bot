@@ -4368,20 +4368,20 @@ TEXT: ...
         sql_part = None
         text_part = None
 
-        if response_text.startswith("Correction:"):
-            # Парсим обновленные значения КБЖУ за сегодня
+        if response_text.startswith("Correction"):
+            # Парсим обновленные значения КБЖУ
             today_match = re.search(
-                r'📊 Сегодня: (\d+) ккал \| (\d+) г белков \| (\d+) г жиров \| (\d+) г углеводов',
+                r'📊 Сегодня:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
                 response_text
             )
-
+            
             if today_match:
                 calories = int(today_match.group(1))
                 proteins = int(today_match.group(2))
                 fats = int(today_match.group(3))
                 carbs = int(today_match.group(4))
-
-                # Обновляем значения в базе данных
+                
+                # Обновляем базу данных
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
                     user='x91345bo_nutrbot',
@@ -4393,26 +4393,19 @@ TEXT: ...
                 try:
                     with conn.cursor() as cursor:
                         cursor.execute("""
-                            UPDATE user_profiles
-                            SET
-                                calories_today = 0,
-                                proteins_today = 0,
-                                fats_today = 0,
-                                carbs_today = 0
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = %s,
+                                proteins_today = %s,
+                                fats_today = %s,
+                                carbs_today = %s
                             WHERE user_id = %s
-                        """, (
-                            calories,
-                            proteins,
-                            fats,
-                            carbs,
-                            user_id
-                        ))
+                        """, (calories, proteins, fats, carbs, user_id))
                         conn.commit()
-                        print(f"Обновлены КБЖУ для пользователя {user_id} после коррекции: {calories} ккал")
+                        print(f"Обновлены КБЖУ после коррекции для пользователя {user_id}")
                 finally:
                     if conn:
                         conn.close()
-
         
         # Разделяем SQL и TEXT части ответа
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
