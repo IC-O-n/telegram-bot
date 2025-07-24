@@ -4368,7 +4368,7 @@ TEXT: ...
         sql_part = None
         text_part = None
 
-        if response_text.startswith("Correction"):
+        if "Correction" in response_text:
             # Парсим обновленные значения КБЖУ
             today_match = re.search(
                 r'📊 Сегодня:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
