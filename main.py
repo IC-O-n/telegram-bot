@@ -27,7 +27,7 @@ TOKEN = os.getenv("TOKEN")
 GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SUBSCRIPTION_PRICES = {
-    '1_month': 15,
+    '1_month': 1,
     '6_months': 1299,
     '12_months': 2299
 }
