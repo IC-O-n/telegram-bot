@@ -250,7 +250,10 @@ def save_user_profile(user_id: int, profile: dict):
         if conn:
             conn.close()
 
-
+async def check_access(user_id: int) -> bool:
+    """Проверяет, есть ли у пользователя доступ к функциям бота"""
+    subscription = await check_subscription(user_id)
+    return subscription['status'] != 'expired'
 
 async def check_subscription(user_id: int) -> Dict[str, Optional[str]]:
     """Проверяет статус подписки пользователя с учетом времени"""
@@ -1447,6 +1450,11 @@ async def check_water_reminder_time(context: CallbackContext):
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+
+    if not await check_access(user_id):
+        await info(update, context)  # Показываем информацию о подписке
+        return
+
     await reset_daily_nutrition_if_needed(user_id)
     
     conn = None
@@ -1663,6 +1671,11 @@ async def reset(update: Update, context: CallbackContext) -> None:
 
 async def toggle_water_reminders(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+
+    if not await check_access(user_id):
+        await info(update, context)  # Показываем информацию о подписке
+        return
+
     conn = None
     try:
         conn = pymysql.connect(
@@ -2213,6 +2226,11 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     await query.answer()
 
     user_id = query.from_user.id
+
+    if query.data not in ["subscribe", "sub_1_month", "sub_6_months", "sub_12_months"]:
+        if not await check_access(user_id):
+            await info(update, context)  # Показываем информацию о подписке
+            return
 
     if query.data == "start_workout":
         return await start_workout(update, context)
@@ -2890,6 +2908,11 @@ async def post_init(application: Application) -> None:
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления"""
     user_id = update.message.from_user.id
+
+    if not await check_access(user_id):
+        await info(update, context)  # Показываем информацию о подписке
+        return
+
     language = "ru"  # дефолтное значение
     
     try:
@@ -2933,6 +2956,11 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
     await query.answer()
     
     user_id = query.from_user.id
+
+    if not await check_access(user_id):
+        await info(update, context)  # Показываем информацию о подписке
+        return ConversationHandler.END
+
     language = "ru"  # Получаем из базы данных
     
     try:
@@ -3390,6 +3418,10 @@ async def generate_workout(update: Update, context: CallbackContext) -> int:
 async def drank_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /drank - фиксирует выпитые 250 мл воды"""
     user_id = update.message.from_user.id
+
+    if not await check_access(user_id):
+        await info(update, context)  # Показываем информацию о подписке
+        return
     
     # Получаем язык пользователя
     language = "ru"  # дефолтное значение
@@ -3471,6 +3503,11 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
+
+    if not await check_access(user_id):
+        await info(update, context)  # Показываем информацию о подписке
+        return
+
     await update_user_activity(user_id)
     message_text = update.message.text or ""
     
