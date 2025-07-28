@@ -3504,10 +3504,6 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
 async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
 
-    if not await check_access(user_id):
-        await info(update, context)  # Показываем информацию о подписке
-        return
-
     await update_user_activity(user_id)
     message_text = update.message.text or ""
     
