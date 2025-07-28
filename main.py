@@ -2607,8 +2607,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     elif query.data.startswith("sub_"):
         sub_type = query.data[4:]  # Получаем тип подписки (1_month, 6_months, 12_months)
         payment_id = str(uuid.uuid4())
+        amount = SUBSCRIPTION_PRICES[sub_type] * 100  # Сумма в копейках
         
-        # Сохраняем payment_id в базу
+        # Получаем язык пользователя
+        language = "ru"
         try:
             conn = pymysql.connect(
                 host='x91345bo.beget.tech',
@@ -2619,42 +2621,120 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                 cursorclass=pymysql.cursors.DictCursor
             )
             with conn.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE user_profiles 
-                    SET payment_id = %s 
-                    WHERE user_id = %s
-                """, (payment_id, user_id))
-                conn.commit()
+                cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+                row = cursor.fetchone()
+                if row and row['language']:
+                    language = row['language']
         except Exception as e:
-            print(f"Ошибка при сохранении payment_id: {e}")
+            print(f"Ошибка при получении языка: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+        # Создаем платеж в ЮKassa
+        headers = {
+            "Content-Type": "application/json",
+            "Idempotence-Key": str(uuid.uuid4())
+        }
+        auth = aiohttp.BasicAuth(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
+        
+        payload = {
+            "amount": {
+                "value": str(SUBSCRIPTION_PRICES[sub_type]),
+                "currency": "RUB"
+            },
+            "payment_method_data": {
+                "type": "bank_card"
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": "https://t.me/eatsmart_ai_bot"
+            },
+            "description": f"Подписка {sub_type.replace('_', ' ')} на NutriBot",
+            "metadata": {
+                "user_id": user_id,
+                "subscription_type": sub_type
+            }
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://api.yookassa.ru/v3/payments",
+                    json=payload,
+                    headers=headers,
+                    auth=auth
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        payment_url = data['confirmation']['confirmation_url']
+                        
+                        # Сохраняем payment_id в базу
+                        try:
+                            conn = pymysql.connect(
+                                host='x91345bo.beget.tech',
+                                user='x91345bo_nutrbot',
+                                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                                database='x91345bo_nutrbot',
+                                charset='utf8mb4',
+                                cursorclass=pymysql.cursors.DictCursor
+                            )
+                            with conn.cursor() as cursor:
+                                cursor.execute("""
+                                    UPDATE user_profiles 
+                                    SET 
+                                        payment_id = %s,
+                                        subscription_type = %s
+                                    WHERE user_id = %s
+                                """, (data['id'], sub_type, user_id))
+                                conn.commit()
+                        except Exception as e:
+                            print(f"Ошибка при сохранении payment_id: {e}")
+                            await query.edit_message_text(
+                                "Произошла ошибка. Пожалуйста, попробуйте позже." if language == "ru" 
+                                else "An error occurred. Please try again later."
+                            )
+                            return
+                        
+                        # Формируем сообщение с кнопкой для оплаты
+                        if language == "ru":
+                            text = (
+                                f"Вы выбрали тариф: {sub_type.replace('_', ' ')}\n"
+                                f"Стоимость: {SUBSCRIPTION_PRICES[sub_type]}₽\n\n"
+                                "Для оплаты нажмите кнопку ниже 👇"
+                            )
+                        else:
+                            text = (
+                                f"You selected: {sub_type.replace('_', ' ')}\n"
+                                f"Price: {SUBSCRIPTION_PRICES[sub_type]}₽\n\n"
+                                "Click the button below to pay 👇"
+                            )
+                        
+                        keyboard = [
+                            [InlineKeyboardButton(
+                                "Оплатить" if language == "ru" else "Pay", 
+                                url=payment_url
+                            )]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await query.edit_message_text(
+                            text=text,
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        error_text = await response.text()
+                        print(f"Ошибка при создании платежа: {error_text}")
+                        await query.edit_message_text(
+                            "Ошибка при создании платежа. Попробуйте позже." if language == "ru" 
+                            else "Payment creation error. Please try again later."
+                        )
+        except Exception as e:
+            print(f"Ошибка при создании платежа: {e}")
             await query.edit_message_text(
                 "Произошла ошибка. Пожалуйста, попробуйте позже." if language == "ru" 
                 else "An error occurred. Please try again later."
             )
-            return
-        finally:
-            if conn:
-                conn.close()
-        
-        # Формируем ссылку для оплаты через ЮКассу
-        payment_url = f"https://yookassa.ru/payments/{payment_id}"
-        
-        if language == "ru":
-            text = (
-                f"Вы выбрали тариф: {sub_type.replace('_', ' ')}\n"
-                f"Стоимость: {SUBSCRIPTION_PRICES[sub_type]}₽\n\n"
-                f"Для оплаты перейдите по ссылке: {payment_url}\n\n"
-                "После успешной оплаты подписка будет активирована автоматически."
-            )
-        else:
-            text = (
-                f"You selected: {sub_type.replace('_', ' ')}\n"
-                f"Price: {SUBSCRIPTION_PRICES[sub_type]}₽\n\n"
-                f"To pay, follow the link: {payment_url}\n\n"
-                "After successful payment, the subscription will be activated automatically."
-            )
-        
-        await query.edit_message_text(text=text)
 
 
 async def info(update: Update, context: CallbackContext) -> None:
