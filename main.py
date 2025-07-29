@@ -596,6 +596,10 @@ async def check_inactive_users(context: CallbackContext):
 
         for user in users:
             try:
+                subscription = await check_subscription(user['user_id'])
+                if subscription['status'] == 'expired':
+                    continue
+
                 # Получаем часовой пояс пользователя
                 tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
                 now = datetime.now(tz)
@@ -1312,6 +1316,13 @@ async def check_water_reminder_time(context: CallbackContext):
     job = context.job
     user_id = job.user_id
     chat_id = job.chat_id
+
+    subscription = await check_subscription(user_id)
+    if subscription['status'] == 'expired':
+        # Удаляем job для этого пользователя
+        job.schedule_removal()
+        print(f"Удалена задача напоминаний для пользователя {user_id} (подписка истекла)")
+        return
     
     # Сначала проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
@@ -2202,6 +2213,11 @@ async def check_and_create_water_job(context: CallbackContext):
             
         for user in users:
             user_id = user['user_id']
+
+            subscription = await check_subscription(user_id)
+            if subscription['status'] == 'expired':
+                continue
+
             # Проверяем, есть ли уже job для этого пользователя
             current_jobs = context.job_queue.get_jobs_by_name(str(user_id))
             if not current_jobs:
