@@ -600,6 +600,7 @@ async def check_inactive_users(context: CallbackContext):
                 if subscription['status'] == 'expired':
                     continue
 
+
                 # Получаем часовой пояс пользователя
                 tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
                 now = datetime.now(tz)
