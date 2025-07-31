@@ -4615,49 +4615,7 @@ TEXT: ...
         if not text_part:
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
-        # Обработка запросов на удаление приемов пищи
-        delete_keywords = {
-            "ru": ["удали", "забудь", "ошибся", "неправильно"],
-            "en": ["delete", "remove", "forget", "wrong"]
-        }
         
-        food_keywords = {
-            "ru": ["миндаль", "халва", "кофе"],
-            "en": ["almond", "halva", "coffee"]
-        }
-        
-        # Проверяем, есть ли запрос на удаление
-        should_delete = any(word in text_part.lower() for word in delete_keywords[language])
-        contains_food = any(word in text_part.lower() for word in food_keywords[language])
-        
-        if should_delete:
-            date_str = date.today().isoformat()
-            deleted = False
-            
-            # Если указана конкретная еда
-            if contains_food:
-                food_desc = next((word for word in food_keywords[language] if word in text_part.lower()), None)
-                if food_desc:
-                    deleted = await delete_meal_entry(user_id, date_str, food_description=food_desc)
-            
-            # Если не указана конкретная еда, удаляем последний прием пищи
-            if not deleted:
-                meal_history = await get_meal_history(user_id)
-                if date_str in meal_history and meal_history[date_str]:
-                    last_meal_type = list(meal_history[date_str].keys())[-1]
-                    deleted = await delete_meal_entry(user_id, date_str, meal_type=last_meal_type)
-            
-            if deleted:
-                if language == "ru":
-                    text_part = "✅ Удалил указанный прием пищи из вашей истории."
-                else:
-                    text_part = "✅ Deleted the specified meal from your history."
-            else:
-                if language == "ru":
-                    text_part = "Не нашел указанный прием пищи для удаления."
-                else:
-                    text_part = "Could not find the specified meal to delete."
-
         # Если это был прием пищи, сохраняем данные (и в meal_history, и в основные поля)
         if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
             # Парсим КБЖУ из ответа
