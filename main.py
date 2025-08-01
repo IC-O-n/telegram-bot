@@ -4601,29 +4601,21 @@ TEXT: ...
                         conn.close()
 
 
-        # Обработка Evaluation - вычитание КБЖУ
+        # Обработка случая Evaluation (когда пользователь просто оценивает блюдо, а не добавляет его)
         if "Evaluation" in response_text:
-            # Парсим примерные значения КБЖУ для вычитания (русская версия)
-            eval_match = re.search(
-                r'Примерный КБЖУ:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
+            # Парсим примерные значения КБЖУ из ответа
+            kbju_match = re.search(
+                r'🍽 Примерный КБЖУ:\s*Калории:\s*(\d+)\s*ккал\s*\|\s*Белки:\s*(\d+)\s*г\s*\|\s*Жиры:\s*(\d+)\s*г\s*\|\s*Углеводы:\s*(\d+)\s*г',
                 response_text
             )
             
-            # Парсим примерные значения КБЖУ для вычитания (английская версия)
-            eval_match_en = re.search(
-                r'Estimated macros:\s*(\d+)\s*kcal\s*\|\s*(\d+)\s*g\s*protein\s*\|\s*(\d+)\s*g\s*fat\s*\|\s*(\d+)\s*g\s*carbs',
-                response_text
-            )
-            
-            # Определяем, какая версия найдена
-            match = eval_match if eval_match else eval_match_en
-            if match:
-                calories = int(match.group(1))
-                proteins = int(match.group(2))
-                fats = int(match.group(3))
-                carbs = int(match.group(4))
+            if kbju_match:
+                calories = int(kbju_match.group(1))
+                proteins = int(kbju_match.group(2))
+                fats = int(kbju_match.group(3))
+                carbs = int(kbju_match.group(4))
                 
-                # Вычитаем значения из базы данных
+                # Вычитаем эти значения из базы данных
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
                     user='x91345bo_nutrbot',
@@ -4634,33 +4626,17 @@ TEXT: ...
                 )
                 try:
                     with conn.cursor() as cursor:
-                        # Получаем текущие значения
                         cursor.execute("""
-                            SELECT calories_today, proteins_today, fats_today, carbs_today 
-                            FROM user_profiles 
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = GREATEST(0, calories_today - %s),
+                                proteins_today = GREATEST(0, proteins_today - %s),
+                                fats_today = GREATEST(0, fats_today - %s),
+                                carbs_today = GREATEST(0, carbs_today - %s)
                             WHERE user_id = %s
-                        """, (user_id,))
-                        current_values = cursor.fetchone()
-                        
-                        if current_values:
-                            # Вычисляем новые значения (не меньше 0)
-                            new_calories = max(0, current_values['calories_today'] - calories)
-                            new_proteins = max(0, current_values['proteins_today'] - proteins)
-                            new_fats = max(0, current_values['fats_today'] - fats)
-                            new_carbs = max(0, current_values['carbs_today'] - carbs)
-                            
-                            # Обновляем базу
-                            cursor.execute("""
-                                UPDATE user_profiles 
-                                SET 
-                                    calories_today = %s,
-                                    proteins_today = %s,
-                                    fats_today = %s,
-                                    carbs_today = %s
-                                WHERE user_id = %s
-                            """, (new_calories, new_proteins, new_fats, new_carbs, user_id))
-                            conn.commit()
-                            print(f"Вычтены КБЖУ после оценки для пользователя {user_id}: -{calories} ккал")
+                        """, (calories, proteins, fats, carbs, user_id))
+                        conn.commit()
+                        print(f"Вычтены КБЖУ после оценки блюда для пользователя {user_id}")
                 except Exception as e:
                     print(f"Ошибка при вычитании КБЖУ: {e}")
                 finally:
