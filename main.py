@@ -4600,6 +4600,46 @@ TEXT: ...
                 finally:
                     if conn:
                         conn.close()
+
+        # Добавляем обработку для 'Evaluation'
+        if "Evaluation" in response_text:
+            # Парсим примерные значения КБЖУ для вычитания
+            evaluation_match = re.search(
+                r'🍽 Примерный КБЖУ:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
+                response_text
+            )
+
+            if evaluation_match:
+                calories = int(evaluation_match.group(1))
+                proteins = int(evaluation_match.group(2))
+                fats = int(evaluation_match.group(3))
+                carbs = int(evaluation_match.group(4))
+
+                # Вычитаем значения из базы данных
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
+                try:
+                    with conn.cursor() as cursor:
+                        cursor.execute("""
+                            UPDATE user_profiles
+                            SET
+                                calories_today = GREATEST(0, calories_today - %s),
+                                proteins_today = GREATEST(0, proteins_today - %s),
+                                fats_today = GREATEST(0, fats_today - %s),
+                                carbs_today = GREATEST(0, carbs_today - %s)
+                            WHERE user_id = %s
+                        """, (calories, proteins, fats, carbs, user_id))
+                        conn.commit()
+                        print(f"Вычтены КБЖУ после оценки для пользователя {user_id}: -{calories} ккал")
+                finally:
+                    if conn:
+                        conn.close()
         
         # Разделяем SQL и TEXT части ответа
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
