@@ -4601,6 +4601,7 @@ TEXT: ...
                     if conn:
                         conn.close()
 
+
         # Добавляем обработку для 'Evaluation'
         if "Evaluation" in response_text:
             # Парсим примерные значения КБЖУ для вычитания
