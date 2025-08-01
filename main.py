@@ -4603,19 +4603,19 @@ TEXT: ...
 
 
         # Добавляем обработку для 'Evaluation'
-        if "Evaluation" in response_text:
-            # Парсим примерные значения КБЖУ для вычитания
-            evaluation_match = re.search(
-                r'🍽 Примерный КБЖУ:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
+        elif "Evaluation" in response_text:
+            # Парсим значения КБЖУ для вычитания
+            eval_match = re.search(
+                r'Примерный кбжу:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
                 response_text
             )
-
-            if evaluation_match:
-                calories = int(evaluation_match.group(1))
-                proteins = int(evaluation_match.group(2))
-                fats = int(evaluation_match.group(3))
-                carbs = int(evaluation_match.group(4))
-
+    
+            if eval_match:
+                calories = int(eval_match.group(1))
+                proteins = int(eval_match.group(2))
+                fats = int(eval_match.group(3))
+                carbs = int(eval_match.group(4))
+        
                 # Вычитаем значения из базы данных
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
@@ -4628,8 +4628,8 @@ TEXT: ...
                 try:
                     with conn.cursor() as cursor:
                         cursor.execute("""
-                            UPDATE user_profiles
-                            SET
+                            UPDATE user_profiles 
+                            SET 
                                 calories_today = GREATEST(0, calories_today - %s),
                                 proteins_today = GREATEST(0, proteins_today - %s),
                                 fats_today = GREATEST(0, fats_today - %s),
@@ -4637,7 +4637,7 @@ TEXT: ...
                             WHERE user_id = %s
                         """, (calories, proteins, fats, carbs, user_id))
                         conn.commit()
-                        print(f"Вычтены КБЖУ после оценки для пользователя {user_id}: -{calories} ккал")
+                        print(f"Вычтены КБЖУ после оценки для пользователя {user_id}")
                 finally:
                     if conn:
                         conn.close()
