@@ -4572,73 +4572,84 @@ TEXT: ...
         sql_part = None
         text_part = None
 
-        # Обработка случая Correction
+        # Обработка случая Correction (когда бот корректирует дневные показатели и последний прием пищи)
         if "Correction" in response_text:
-            # 1. Сначала обновляем описание блюда в meal_history
-            conn = pymysql.connect(
-                host='x91345bo.beget.tech',
-                user='x91345bo_nutrbot',
-                password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                database='x91345bo_nutrbot',
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
+            # Парсим обновленные значения КБЖУ
+            today_match = re.search(
+                r'📊 Сегодня:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
+                response_text
             )
-            try:
-                with conn.cursor() as cursor:
-                    # Получаем текущую историю питания
-                    cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
-                    result = cursor.fetchone()
-                    
-                    if result and result['meal_history']:
-                        meal_history = json.loads(result['meal_history'])
-                        today_str = date.today().isoformat()
+            
+            if today_match:
+                calories = int(today_match.group(1))
+                proteins = int(today_match.group(2))
+                fats = int(today_match.group(3))
+                carbs = int(today_match.group(4))
+                
+                # 1. Обновляем дневные показатели в базе данных
+                conn = pymysql.connect(
+                    host='x91345bo.beget.tech',
+                    user='x91345bo_nutrbot',
+                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                    database='x91345bo_nutrbot',
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.DictCursor
+                )
+                try:
+                    with conn.cursor() as cursor:
+                        # Обновляем основные показатели
+                        cursor.execute("""
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = %s,
+                                proteins_today = %s,
+                                fats_today = %s,
+                                carbs_today = %s
+                            WHERE user_id = %s
+                        """, (calories, proteins, fats, carbs, user_id))
                         
-                        if today_str in meal_history and meal_history[today_str]:
-                            # Находим последний прием пищи
-                            last_meal_key = sorted(meal_history[today_str].keys())[-1]
-                            last_meal = meal_history[today_str][last_meal_key]
+                        # 2. Обновляем последний прием пищи в meal_history
+                        # Получаем текущую историю питания
+                        cursor.execute("""
+                            SELECT meal_history FROM user_profiles 
+                            WHERE user_id = %s
+                        """, (user_id,))
+                        result = cursor.fetchone()
+                        
+                        if result and result['meal_history']:
+                            meal_history = json.loads(result['meal_history'])
+                            today_str = date.today().isoformat()
                             
-                            # Получаем оригинальное сообщение пользователя
-                            original_text = update.message.text
-                            
-                            # Обновляем описание, используя оригинальное сообщение
-                            if original_text:
-                                last_meal['food'] = original_text
+                            if today_str in meal_history and meal_history[today_str]:
+                                # Находим последний прием пищи за сегодня
+                                last_meal_key = sorted(meal_history[today_str].keys())[-1]
+                                last_meal = meal_history[today_str][last_meal_key]
+                                
+                                # Парсим новое описание еды из ответа
+                                food_match = re.search(r'🔍 Исправленное блюдо:\s*(.*?)(?=\n\n|$)', response_text, re.DOTALL)
+                                if food_match:
+                                    last_meal['food'] = food_match.group(1).strip()
+                                
+                                # Обновляем КБЖУ последнего приема пищи
+                                last_meal.update({
+                                    'calories': calories,
+                                    'proteins': proteins,
+                                    'fats': fats,
+                                    'carbs': carbs
+                                })
+                                
+                                # Сохраняем обновленную историю
                                 cursor.execute("""
                                     UPDATE user_profiles 
                                     SET meal_history = %s 
                                     WHERE user_id = %s
                                 """, (json.dumps(meal_history), user_id))
-                                conn.commit()
-            
-                # 2. Теперь обновляем КБЖУ из ответа бота
-                today_match = re.search(
-                    r'📊 Сегодня:\s*(\d+)\s*ккал\s*\|\s*(\d+)\s*г\s*белков\s*\|\s*(\d+)\s*г\s*жиров\s*\|\s*(\d+)\s*г\s*углеводов',
-                    response_text
-                )
-                
-                if today_match:
-                    calories = int(today_match.group(1))
-                    proteins = int(today_match.group(2))
-                    fats = int(today_match.group(3))
-                    carbs = int(today_match.group(4))
-                    
-                    cursor.execute("""
-                        UPDATE user_profiles 
-                        SET 
-                            calories_today = %s,
-                            proteins_today = %s,
-                            fats_today = %s,
-                            carbs_today = %s
-                        WHERE user_id = %s
-                    """, (calories, proteins, fats, carbs, user_id))
-                    conn.commit()
-                    
-                    print(f"Полная коррекция для пользователя {user_id}: обновлены КБЖУ и описание блюда")
-            
-            finally:
-                if conn:
-                    conn.close()
+                        
+                        conn.commit()
+                        print(f"Обновлены КБЖУ и последний прием пищи после коррекции для пользователя {user_id}")
+                finally:
+                    if conn:
+                        conn.close()
 
         # Обработка случая Evaluation (когда пользователь просто оценивает блюдо, а не добавляет его)
         elif "Evaluation" in response_text:
