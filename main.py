@@ -795,19 +795,19 @@ async def start(update: Update, context: CallbackContext) -> int:
         if 'conn' in locals():
             conn.close()
 
-async def ask_name(update: Update, context: CallbackContext) -> int:
-    # Обрабатываем выбор языка через кнопки
+async def handle_language_selection(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
-    language = query.data.split("_")[1]  # Получаем 'ru' или 'en' из callback_data
-    
+    language = query.data.split("_")[1]  # Получаем 'ru' или 'en'
     user_id = query.from_user.id
+    
+    # Сохраняем выбранный язык
     user_profiles[user_id] = {"language": language}
     
     # Редактируем сообщение с кнопками, убирая их
     await query.edit_message_text(
-        "Выбран язык: Русский" if language == "ru" else "Selected language: English"
+        text="Выбран язык: Русский" if language == "ru" else "Selected language: English"
     )
     
     # Запрашиваем имя на выбранном языке
@@ -822,6 +822,17 @@ async def ask_name(update: Update, context: CallbackContext) -> int:
             text="What's your name?"
         )
     return ASK_NAME
+
+async def ask_name(update: Update, context: CallbackContext) -> int:
+    user_id = update.message.from_user.id
+    language = user_profiles[user_id].get("language", "ru")
+    user_profiles[user_id]["name"] = update.message.text
+    
+    if language == "ru":
+        await update.message.reply_text("Укажи свой пол (м/ж):")
+    else:
+        await update.message.reply_text("Specify your gender (m/f):")
+    return ASK_GENDER
 
 
 async def ask_gender(update: Update, context: CallbackContext) -> int:
@@ -4887,7 +4898,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_LANGUAGE: [CallbackQueryHandler(ask_name, pattern="^lang_(ru|en)$")],
+            ASK_LANGUAGE: [CallbackQueryHandler(handle_language_selection, pattern="^lang_(ru|en)$")], 
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
             ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
             ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
