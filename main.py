@@ -752,7 +752,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     
     try:
-        # Сначала создаём базовую запись, если её нет
+        # Создаём базовую запись, если её нет
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
             user='x91345bo_nutrbot',
@@ -763,26 +763,18 @@ async def start(update: Update, context: CallbackContext) -> int:
         )
         
         with conn.cursor() as cursor:
-            # Создаём пустую запись, если её нет
-            cursor.execute("""
-                INSERT IGNORE INTO user_profiles (user_id) 
-                VALUES (%s)
-            """, (user_id,))
+            cursor.execute("INSERT IGNORE INTO user_profiles (user_id) VALUES (%s)", (user_id,))
             conn.commit()
             
-        # Теперь устанавливаем trial период
         await start_trial_period(user_id)
         
-        # Создаем клавиатуру с кнопками выбора языка
+        # Создаем кнопки для выбора языка
         keyboard = [
-            [
-                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-                InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")
-            ]
+            [InlineKeyboardButton("🇷🇺 Русский", callback_data="ru")],
+            [InlineKeyboardButton("🇺🇸 English", callback_data="en")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Отправляем сообщение с кнопками
         await update.message.reply_text(
             "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:",
             reply_markup=reply_markup
@@ -813,6 +805,34 @@ async def handle_language_selection(update: Update, context: CallbackContext) ->
     )
     
     # Продолжаем анкету
+    if language == "ru":
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="Как тебя зовут?"
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="What's your name?"
+        )
+    return ASK_NAME
+
+async def language_selection(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    language = query.data  # "ru" или "en"
+    
+    # Сохраняем выбор языка
+    user_profiles[user_id] = {"language": language}
+    
+    # Удаляем кнопки после выбора
+    await query.edit_message_text(
+        text="Выбран язык: 🇷🇺 Русский" if language == "ru" else "Selected language: 🇺🇸 English"
+    )
+    
+    # Переходим к следующему вопросу
     if language == "ru":
         await context.bot.send_message(
             chat_id=user_id,
@@ -4906,7 +4926,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_LANGUAGE: [CallbackQueryHandler(handle_language_selection, pattern="^lang_(ru|en)$")],
+            ASK_LANGUAGE: [CallbackQueryHandler(language_selection, pattern="^(ru|en)$")],
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
             ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
             ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
