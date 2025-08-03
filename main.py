@@ -4626,7 +4626,8 @@ TEXT: ...
                 fats = int(kbju_match.group(3))
                 carbs = int(kbju_match.group(4))
                 
-                # Вычитаем эти значения из базы данных
+                # Вычитаем эти значения из базы данных (если нужно)
+                # Но НЕ добавляем в meal_history
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
                     user='x91345bo_nutrbot',
@@ -4653,6 +4654,7 @@ TEXT: ...
                 finally:
                     if conn:
                         conn.close()
+
 
         # Разделяем SQL и TEXT части ответа
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
@@ -4696,8 +4698,8 @@ TEXT: ...
             text_part = "Я обработал ваш запрос. Нужна дополнительная информация?"
 
         
-        # Если это был прием пищи, сохраняем данные (и в meal_history, и в основные поля)
-        if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()):
+        # Если это был прием пищи и НЕ оценка (Evaluation), сохраняем данные
+        if meal_type and ("калории" in response_text.lower() or "calories" in response_text.lower()) and "Evaluation" not in response_text:
             # Парсим КБЖУ из ответа
             calories_match = re.search(r'Калории:\s*(\d+)', response_text) or re.search(r'Calories:\s*(\d+)', response_text)
             proteins_match = re.search(r'Белки:\s*(\d+)', response_text) or re.search(r'Proteins:\s*(\d+)', response_text)
