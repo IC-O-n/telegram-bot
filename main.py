@@ -752,7 +752,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     
     try:
-        # Сначала создаём базовую запись, если её нет
+        # Инициализация пользователя в базе данных
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
             user='x91345bo_nutrbot',
@@ -763,65 +763,53 @@ async def start(update: Update, context: CallbackContext) -> int:
         )
         
         with conn.cursor() as cursor:
-            # Создаём пустую запись, если её нет
-            cursor.execute("""
-                INSERT IGNORE INTO user_profiles (user_id) 
-                VALUES (%s)
-            """, (user_id,))
+            cursor.execute("INSERT IGNORE INTO user_profiles (user_id) VALUES (%s)", (user_id,))
             conn.commit()
             
-        # Теперь устанавливаем trial период
         await start_trial_period(user_id)
         
-        # Создаем клавиатуру с кнопками выбора языка
+        # Создаем кнопки для выбора языка
         keyboard = [
             [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
             [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Отправляем сообщение с кнопками
         await update.message.reply_text(
-            "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:",
+            "Выберите язык / Choose language:",
             reply_markup=reply_markup
         )
         return ASK_LANGUAGE
         
     except Exception as e:
-        print(f"Ошибка при старте: {e}")
+        print(f"Ошибка в start: {e}")
         await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
         return ConversationHandler.END
     finally:
         if 'conn' in locals():
             conn.close()
 
-async def handle_language_selection(update: Update, context: CallbackContext) -> int:
+async def language_selection_handler(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
-    language = query.data.split("_")[1]  # Получаем 'ru' или 'en'
     user_id = query.from_user.id
+    language = query.data.split("_")[1]  # 'ru' или 'en'
     
-    # Сохраняем выбранный язык
+    # Сохраняем выбор языка
     user_profiles[user_id] = {"language": language}
     
-    # Редактируем сообщение с кнопками, убирая их
+    # Обновляем сообщение с кнопками
     await query.edit_message_text(
-        text="Выбран язык: Русский" if language == "ru" else "Selected language: English"
+        text="Выбран русский язык" if language == "ru" else "English language selected"
     )
     
-    # Запрашиваем имя на выбранном языке
-    if language == "ru":
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="Как тебя зовут?"
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="What's your name?"
-        )
+    # Запрашиваем имя
+    question = "Как тебя зовут?" if language == "ru" else "What's your name?"
+    await context.bot.send_message(chat_id=user_id, text=question)
+    
     return ASK_NAME
+
 
 async def ask_name(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -4898,7 +4886,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_LANGUAGE: [CallbackQueryHandler(handle_language_selection, pattern="^lang_(ru|en)$")], 
+            ASK_LANGUAGE: [CallbackQueryHandler(language_selection_handler, pattern="^lang_(ru|en)$")], 
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
             ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
             ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
