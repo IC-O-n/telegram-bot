@@ -775,10 +775,8 @@ async def start(update: Update, context: CallbackContext) -> int:
         
         # Создаем клавиатуру с кнопками выбора языка
         keyboard = [
-            [
-                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-                InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")
-            ]
+            [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
+            [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -809,10 +807,10 @@ async def ask_name(update: Update, context: CallbackContext) -> int:
     
     # Редактируем сообщение с кнопками, убирая их
     await query.edit_message_text(
-        "Вы выбрали русский язык" if language == "ru" else "You selected English"
+        "Выбран язык: Русский" if language == "ru" else "Selected language: English"
     )
     
-    # Отправляем следующий вопрос
+    # Запрашиваем имя на выбранном языке
     if language == "ru":
         await context.bot.send_message(
             chat_id=user_id,
@@ -824,6 +822,7 @@ async def ask_name(update: Update, context: CallbackContext) -> int:
             text="What's your name?"
         )
     return ASK_NAME
+
 
 async def ask_gender(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
