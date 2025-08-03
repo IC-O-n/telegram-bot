@@ -4586,6 +4586,12 @@ TEXT: ...
                 fats = int(today_match.group(3))
                 carbs = int(today_match.group(4))
                 
+                # Получаем описание еды из ответа
+                food_description = None
+                analysis_match = re.search(r'🔍 Анализ блюда:\s*(.*?)(?=\n\n|$)', response_text, re.DOTALL)
+                if analysis_match:
+                    food_description = analysis_match.group(1).strip()
+                
                 # Обновляем базу данных с абсолютными значениями
                 conn = pymysql.connect(
                     host='x91345bo.beget.tech',
@@ -4597,6 +4603,7 @@ TEXT: ...
                 )
                 try:
                     with conn.cursor() as cursor:
+                        # 1. Обновляем основные дневные показатели
                         cursor.execute("""
                             UPDATE user_profiles 
                             SET 
@@ -4606,8 +4613,40 @@ TEXT: ...
                                 carbs_today = %s
                             WHERE user_id = %s
                         """, (calories, proteins, fats, carbs, user_id))
+                        
+                        # 2. Обновляем последний прием пищи в meal_history
+                        if food_description:
+                            # Получаем текущую историю питания
+                            cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
+                            result = cursor.fetchone()
+                            
+                            if result and result['meal_history']:
+                                meal_history = json.loads(result['meal_history'])
+                                today_str = date.today().isoformat()
+                                
+                                if today_str in meal_history and meal_history[today_str]:
+                                    # Находим последний прием пищи за сегодня
+                                    last_meal_key = sorted(meal_history[today_str].keys())[-1]
+                                    last_meal = meal_history[today_str][last_meal_key]
+                                    
+                                    # Обновляем данные последнего приема пищи
+                                    last_meal.update({
+                                        'food': food_description,
+                                        'calories': calories,
+                                        'proteins': proteins,
+                                        'fats': fats,
+                                        'carbs': carbs
+                                    })
+                                    
+                                    # Сохраняем обновленную историю
+                                    cursor.execute("""
+                                        UPDATE user_profiles 
+                                        SET meal_history = %s 
+                                        WHERE user_id = %s
+                                    """, (json.dumps(meal_history), user_id))
+                        
                         conn.commit()
-                        print(f"Обновлены КБЖУ после коррекции для пользователя {user_id}")
+                        print(f"Обновлены КБЖУ и последний прием пищи после коррекции для пользователя {user_id}")
                 finally:
                     if conn:
                         conn.close()
