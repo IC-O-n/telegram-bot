@@ -797,21 +797,22 @@ async def start(update: Update, context: CallbackContext) -> int:
         if 'conn' in locals():
             conn.close()
 
-async def ask_name(update: Update, context: CallbackContext) -> int:
-    # Обрабатываем выбор языка через кнопку
+async def handle_language_selection(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
-    language = query.data.split("_")[1]  # Получаем 'ru' или 'en' из callback_data
+    # Получаем выбранный язык из callback_data
+    language = query.data.split('_')[1]  # 'lang_ru' -> 'ru', 'lang_en' -> 'en'
     
     user_id = query.from_user.id
     user_profiles[user_id] = {"language": language}
     
-    # Редактируем сообщение с кнопками, убирая их
+    # Редактируем сообщение с кнопками, чтобы убрать их
     await query.edit_message_text(
-        text="Выбран язык: Русский" if language == "ru" else "Selected language: English"
+        text=f"Выбран язык: {'Русский 🇷🇺' if language == 'ru' else 'English 🇺🇸'}"
     )
     
+    # Продолжаем анкету
     if language == "ru":
         await context.bot.send_message(
             chat_id=user_id,
@@ -823,6 +824,24 @@ async def ask_name(update: Update, context: CallbackContext) -> int:
             text="What's your name?"
         )
     return ASK_NAME
+
+async def ask_name(update: Update, context: CallbackContext) -> int:
+    language = update.message.text.lower()
+    if language not in ["ru", "en"]:
+        await update.message.reply_text(
+            "Пожалуйста, выбери 'ru' для русского или 'en' для английского / Please choose 'ru' for Russian or 'en' for English"
+        )
+        return ASK_LANGUAGE
+    
+    user_id = update.message.from_user.id
+    user_profiles[user_id] = {"language": language}
+    
+    if language == "ru":
+        await update.message.reply_text("Как тебя зовут?")
+    else:
+        await update.message.reply_text("What's your name?")
+    return ASK_NAME
+
 
 async def ask_gender(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -4886,7 +4905,10 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_LANGUAGE: [CallbackQueryHandler(ask_name, pattern="^lang_(ru|en)$")],
+            ASK_LANGUAGE: [
+            CallbackQueryHandler(handle_language_selection, pattern="^lang_(ru|en)$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)  # Оставляем на случай, если кто-то введет текст
+            ],
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
             ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
             ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
