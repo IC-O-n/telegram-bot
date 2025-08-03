@@ -797,20 +797,19 @@ async def start(update: Update, context: CallbackContext) -> int:
         if 'conn' in locals():
             conn.close()
 
-async def handle_language_selection(update: Update, context: CallbackContext) -> int:
+async def language_button_handler(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
     
     # Получаем выбранный язык из callback_data
-    language = query.data.split('_')[1]  # 'lang_ru' -> 'ru', 'lang_en' -> 'en'
-    
+    language = query.data.split('_')[1]  # "lang_ru" -> "ru", "lang_en" -> "en"
     user_id = query.from_user.id
+    
+    # Сохраняем выбор языка
     user_profiles[user_id] = {"language": language}
     
-    # Редактируем сообщение с кнопками, чтобы убрать их
-    await query.edit_message_text(
-        text=f"Выбран язык: {'Русский 🇷🇺' if language == 'ru' else 'English 🇺🇸'}"
-    )
+    # Удаляем сообщение с кнопками
+    await query.delete_message()
     
     # Продолжаем анкету
     if language == "ru":
@@ -4901,14 +4900,14 @@ def main():
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
+    # Добавляем обработчик кнопок выбора языка
+    app.add_handler(CallbackQueryHandler(language_button_handler, pattern="^lang_"))
+
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_LANGUAGE: [
-            CallbackQueryHandler(handle_language_selection, pattern="^lang_(ru|en)$"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)  # Оставляем на случай, если кто-то введет текст
-            ],
+            ASK_LANGUAGE: [],  
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
             ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
             ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
