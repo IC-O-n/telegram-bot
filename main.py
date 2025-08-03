@@ -773,19 +773,11 @@ async def start(update: Update, context: CallbackContext) -> int:
         # Теперь устанавливаем trial период
         await start_trial_period(user_id)
         
-        # Создаем кнопки для выбора языка
-        keyboard = [
-            [
-                InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-                InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Отправляем сообщение с кнопками
+        # Продолжаем стандартный процесс
         await update.message.reply_text(
-            "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:",
-            reply_markup=reply_markup
+            "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
+            "🇷🇺 Русский - отправь 'ru'\n"
+            "🇬🇧 English - send 'en'\n\n"
         )
         return ASK_LANGUAGE
         
@@ -797,32 +789,6 @@ async def start(update: Update, context: CallbackContext) -> int:
         if 'conn' in locals():
             conn.close()
 
-async def language_selection(update: Update, context: CallbackContext) -> int:
-    query = update.callback_query
-    await query.answer()
-    
-    language = query.data.split("_")[1]  # Получаем 'ru' или 'en' из callback_data
-    
-    user_id = query.from_user.id
-    user_profiles[user_id] = {"language": language}
-    
-    # Редактируем сообщение с кнопками, убирая их
-    await query.edit_message_text(
-        "Выбран язык: Русский" if language == "ru" else "Selected language: English"
-    )
-    
-    # Переходим к следующему шагу - запрос имени
-    if language == "ru":
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="Как тебя зовут?"
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="What's your name?"
-        )
-    return ASK_NAME
 
 async def ask_name(update: Update, context: CallbackContext) -> int:
     language = update.message.text.lower()
@@ -4899,13 +4865,11 @@ def main():
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    app.add_handler(CallbackQueryHandler(ask_name, pattern="^lang_(ru|en)$"))
-
     # Остальной код остается без изменений
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            ASK_LANGUAGE: [CallbackQueryHandler(language_selection, pattern="^lang_")],
+            ASK_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_gender)],
             ASK_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
             ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_weight)],
