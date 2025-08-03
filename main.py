@@ -4621,40 +4621,13 @@ TEXT: ...
             )
             
             if kbju_match:
+                # Получаем значения КБЖУ, но НЕ изменяем дневные показатели
                 calories = int(kbju_match.group(1))
                 proteins = int(kbju_match.group(2))
                 fats = int(kbju_match.group(3))
                 carbs = int(kbju_match.group(4))
                 
-                # Вычитаем эти значения из базы данных (если нужно)
-                # Но НЕ добавляем в meal_history
-                conn = pymysql.connect(
-                    host='x91345bo.beget.tech',
-                    user='x91345bo_nutrbot',
-                    password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                    database='x91345bo_nutrbot',
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                )
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute("""
-                            UPDATE user_profiles 
-                            SET 
-                                calories_today = GREATEST(0, calories_today - %s),
-                                proteins_today = GREATEST(0, proteins_today - %s),
-                                fats_today = GREATEST(0, fats_today - %s),
-                                carbs_today = GREATEST(0, carbs_today - %s)
-                            WHERE user_id = %s
-                        """, (calories, proteins, fats, carbs, user_id))
-                        conn.commit()
-                        print(f"Вычтены КБЖУ после оценки блюда для пользователя {user_id}")
-                except Exception as e:
-                    print(f"Ошибка при вычитании КБЖУ: {e}")
-                finally:
-                    if conn:
-                        conn.close()
-
+                print(f"Оценка блюда: {calories} ккал, {proteins} белки, {fats} жиры, {carbs} углеводы (не изменяем дневные показатели)")
 
         # Разделяем SQL и TEXT части ответа
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
@@ -4776,6 +4749,7 @@ TEXT: ...
                         
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
+
 
         await update.message.reply_text(text_part)
 
