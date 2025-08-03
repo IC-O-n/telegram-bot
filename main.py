@@ -4625,10 +4625,23 @@ TEXT: ...
                                 last_meal_key = sorted(meal_history[today_str].keys())[-1]
                                 last_meal = meal_history[today_str][last_meal_key]
                                 
-                                # Парсим новое описание еды из ответа
-                                food_match = re.search(r'🔍 Исправленное блюдо:\s*(.*?)(?=\n\n|$)', response_text, re.DOTALL)
-                                if food_match:
-                                    last_meal['food'] = food_match.group(1).strip()
+                                # Парсим новое описание еды из всего текста ответа
+                                # Ищем фразу после "Correction" или другого маркера
+                                full_text = response_text
+                                new_description = None
+                                
+                                # Вариант 1: Ищем явное указание на новое описание
+                                desc_match = re.search(r'(?:🔍|📝)[^\n]*:\s*(.*?)(?=\n\n|$)', full_text, re.DOTALL)
+                                if desc_match:
+                                    new_description = desc_match.group(1).strip()
+                                else:
+                                    # Вариант 2: Берем первый абзац после Correction
+                                    paragraphs = [p.strip() for p in full_text.split('\n\n') if p.strip()]
+                                    if len(paragraphs) > 1:
+                                        new_description = paragraphs[1]
+                                
+                                if new_description:
+                                    last_meal['food'] = new_description
                                 
                                 # Обновляем КБЖУ последнего приема пищи
                                 last_meal.update({
