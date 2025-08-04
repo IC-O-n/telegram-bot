@@ -1139,6 +1139,7 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             f"Based on your weight ({weight} kg), your recommended daily water intake is {recommended_water} ml.\n"
             f"I'll remind you to drink water during the day unless you disable this feature.\n"
             f"You can send me photos, text or documents - I'll help you with analysis and recommendations!"
+        
         )
     
     # Второе сообщение - инструкция по использованию бота
