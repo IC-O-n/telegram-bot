@@ -4725,62 +4725,74 @@ TEXT: ...
                 with conn.cursor() as cursor:
                     # Получаем текущую историю питания
                     cursor.execute("""
-                        SELECT meal_history FROM user_profiles
+                        SELECT meal_history FROM user_profiles 
                         WHERE user_id = %s
                     """, (user_id,))
                     result = cursor.fetchone()
-
+                    
                     if result and result['meal_history']:
                         meal_history = json.loads(result['meal_history'])
                         today_str = date.today().isoformat()
-
+                        
                         if today_str in meal_history and meal_history[today_str]:
-                            # Находим последний прием пищи за сегодня
-                            last_meal_key = sorted(meal_history[today_str].keys())[-1]
-                            last_meal = meal_history[today_str][last_meal_key]
-
-                            # Получаем КБЖУ последнего приема пищи
-                            calories = last_meal.get('calories', 0)
-                            proteins = last_meal.get('proteins', 0)
-                            fats = last_meal.get('fats', 0)
-                            carbs = last_meal.get('carbs', 0)
-
-                            # 2. Вычитаем КБЖУ из дневных показателей
-                            cursor.execute("""
-                                UPDATE user_profiles
-                                SET
-                                    calories_today = GREATEST(0, calories_today - %s),
-                                    proteins_today = GREATEST(0, proteins_today - %s),
-                                    fats_today = GREATEST(0, fats_today - %s),
-                                    carbs_today = GREATEST(0, carbs_today - %s)
-                                WHERE user_id = %s
-                            """, (
-                                calories,
-                                proteins,
-                                fats,
-                                carbs,
-                                user_id
-                            ))
-
-                            # 3. Удаляем последний прием пищи из истории
-                            del meal_history[today_str][last_meal_key]
-
-                            # Если день пустой, удаляем его полностью
-                            if not meal_history[today_str]:
-                                del meal_history[today_str]
-
-                            # Сохраняем обновленную историю
-                            cursor.execute("""
-                                UPDATE user_profiles
-                                SET meal_history = %s
-                                WHERE user_id = %s
-                            """, (json.dumps(meal_history), user_id))
-
-                            conn.commit()
-                            print(f"Удален последний прием пищи и скорректированы КБЖУ для пользователя {user_id}")
+                            # Получаем все ключи приемов пищи за сегодня
+                            meal_keys = list(meal_history[today_str].keys())
+                            
+                            # Сортируем по времени добавления (по timestamp в ключе)
+                            meal_keys_sorted = sorted(
+                                meal_keys,
+                                key=lambda x: int(x.split('_')[-1]) if '_' in x else 0,
+                                reverse=True
+                            )
+                            
+                            if meal_keys_sorted:
+                                # Берем самый последний добавленный прием пищи
+                                last_meal_key = meal_keys_sorted[0]
+                                last_meal = meal_history[today_str][last_meal_key]
+                                
+                                # Получаем КБЖУ последнего приема пищи
+                                calories = last_meal.get('calories', 0)
+                                proteins = last_meal.get('proteins', 0)
+                                fats = last_meal.get('fats', 0)
+                                carbs = last_meal.get('carbs', 0)
+                                
+                                # 2. Вычитаем КБЖУ из дневных показателей
+                                cursor.execute("""
+                                    UPDATE user_profiles 
+                                    SET 
+                                        calories_today = GREATEST(0, calories_today - %s),
+                                        proteins_today = GREATEST(0, proteins_today - %s),
+                                        fats_today = GREATEST(0, fats_today - %s),
+                                        carbs_today = GREATEST(0, carbs_today - %s)
+                                    WHERE user_id = %s
+                                """, (
+                                    calories,
+                                    proteins,
+                                    fats,
+                                    carbs,
+                                    user_id
+                                ))
+                                
+                                # 3. Удаляем последний прием пищи из истории
+                                del meal_history[today_str][last_meal_key]
+                                
+                                # Если день пустой, удаляем его полностью
+                                if not meal_history[today_str]:
+                                    del meal_history[today_str]
+                                
+                                # Сохраняем обновленную историю
+                                cursor.execute("""
+                                    UPDATE user_profiles 
+                                    SET meal_history = %s 
+                                    WHERE user_id = %s
+                                """, (json.dumps(meal_history), user_id))
+                                
+                                conn.commit()
+                                print(f"Удален последний прием пищи ({last_meal_key}) и скорректированы КБЖУ для пользователя {user_id}")
             finally:
                 if conn:
                     conn.close()
+
 
         # Разделяем SQL и TEXT части ответа
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
