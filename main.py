@@ -1433,7 +1433,6 @@ async def check_water_reminder_time(context: CallbackContext):
                     ]
                     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
                    
-
                     # Выбираем случайное напоминание из трех вариантов
                     reminder_choice = random.choice([1, 2, 3])
                     
