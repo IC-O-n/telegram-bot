@@ -1198,9 +1198,8 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             "🔸 Советы по продуктам — спросите: \"Чем полезен творог?\" → получите развернутый ответ.\n"
             "🔸 Анализ настроения — если напишете \"Я в стрессе\", бот предложит рекомендации.\n\n"
             "🚀 Начните прямо сейчас!\n"
-            "Пройдите анкету (/start), чтобы персонализировать бота.\n\n"
             "Отправьте фото еды или запрос — бот поможет с анализом.\n\n"
-            "Используйте команды (/water, /menu, /profile) для удобства."
+            "Используйте команды для удобства."
         )
     else:
         usage_text = (
@@ -1248,9 +1247,8 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
             "🔸 Food advice - ask: \"What are the benefits of cottage cheese?\"\n"
             "🔸 Mood analysis - if you type \"I'm stressed\", the bot will offer recommendations\n\n"
             "🚀 Start right now!\n"
-            "Complete the questionnaire (/start) to personalize the bot.\n\n"
             "Send food photos or requests - the bot will help with analysis.\n\n"
-            "Use commands (/water, /menu, /profile) for convenience."
+            "Use commands for convenience."
         )
     
     await update.message.reply_text(usage_text)
@@ -3045,15 +3043,15 @@ async def post_init(application: Application) -> None:
 
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
-    """Обработчик команды /menu - показывает меню управления"""
+    """Обработчик команды /menu - показывает меню управления с краткой статистикой"""
     user_id = update.message.from_user.id
 
     if not await check_access(user_id):
         await info(update, context)  # Показываем информацию о подписке
         return
 
-    language = "ru"  # дефолтное значение
-    
+    # Получаем данные пользователя
+    conn = None
     try:
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
@@ -3063,31 +3061,127 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
+        
         with conn.cursor() as cursor:
-            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
-            row = cursor.fetchone()
-            if row and row['language']:
-                language = row['language']
+            # Получаем основную информацию о пользователе
+            cursor.execute("""
+                SELECT 
+                    language, name, weight, water_drunk_today, calories_today,
+                    proteins_today, fats_today, carbs_today, reminders,
+                    subscription_status, subscription_type, subscription_end
+                FROM user_profiles 
+                WHERE user_id = %s
+            """, (user_id,))
+            profile = cursor.fetchone()
+
+            if not profile:
+                await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
+                return
+
+            language = profile['language'] or "ru"
+            name = profile['name'] or ""
+            weight = profile['weight'] or 70
+            recommended_water = int(weight * 30)
+            water_drunk = profile['water_drunk_today'] or 0
+            remaining_water = max(0, recommended_water - water_drunk)
+            
+            calories = profile['calories_today'] or 0
+            proteins = profile['proteins_today'] or 0
+            fats = profile['fats_today'] or 0
+            carbs = profile['carbs_today'] or 0
+            
+            # Обработка напоминаний
+            reminders = []
+            if profile['reminders']:
+                try:
+                    reminders = json.loads(profile['reminders'])
+                except:
+                    reminders = []
+            
+            # Формируем текст статистики
+            if language == "ru":
+                stats_text = (
+                    f"👤 *{name}* • {weight} кг\n\n"
+                    f"💧 *Вода сегодня:* {water_drunk}/{recommended_water} мл ({remaining_water} мл осталось)\n\n"
+                    f"🍽 *Питание сегодня:*\n"
+                    f"• Калории: {calories} ккал\n"
+                    f"• Белки: {proteins} г\n"
+                    f"• Жиры: {fats} г\n"
+                    f"• Углеводы: {carbs} г\n\n"
+                    f"⏰ *Активные напоминания:*\n"
+                )
+                
+                if reminders:
+                    for rem in reminders:
+                        stats_text += f"• {rem['text']} в {rem['time']}\n"
+                else:
+                    stats_text += "Нет активных напоминаний\n"
+                
+                # Добавляем информацию о подписке
+                subscription = await check_subscription(user_id)
+                if subscription['status'] == 'trial':
+                    stats_text += f"\n🆓 *Пробный период до:* {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
+                elif subscription['status'] == 'active':
+                    stats_text += f"\n✅ *Подписка {subscription['type'].replace('_', ' ')} до:* {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
+                elif subscription['status'] == 'permanent':
+                    stats_text += "\n🌟 *Перманентный доступ*"
+                else:
+                    stats_text += "\n❌ *Нет активной подписки*"
+                
+            else:
+                stats_text = (
+                    f"👤 *{name}* • {weight} kg\n\n"
+                    f"💧 *Water today:* {water_drunk}/{recommended_water} ml ({remaining_water} ml left)\n\n"
+                    f"🍽 *Nutrition today:*\n"
+                    f"• Calories: {calories} kcal\n"
+                    f"• Proteins: {proteins} g\n"
+                    f"• Fats: {fats} g\n"
+                    f"• Carbs: {carbs} g\n\n"
+                    f"⏰ *Active reminders:*\n"
+                )
+                
+                if reminders:
+                    for rem in reminders:
+                        stats_text += f"• {rem['text']} at {rem['time']}\n"
+                else:
+                    stats_text += "No active reminders\n"
+                
+                # Добавляем информацию о подписке
+                subscription = await check_subscription(user_id)
+                if subscription['status'] == 'trial':
+                    stats_text += f"\n🆓 *Trial until:* {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
+                elif subscription['status'] == 'active':
+                    stats_text += f"\n✅ *{subscription['type'].replace('_', ' ')} subscription until:* {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
+                elif subscription['status'] == 'permanent':
+                    stats_text += "\n🌟 *Permanent access*"
+                else:
+                    stats_text += "\n❌ *No active subscription*"
+            
+            # Формируем клавиатуру меню
+            keyboard = [
+                [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start Workout", callback_data="start_workout")],
+                [InlineKeyboardButton("✨ О возможностях бота" if language == "ru" else "✨ About bot features", callback_data="bot_features")],
+                [InlineKeyboardButton("📚 Как пользоваться" if language == "ru" else "📚 How to use", callback_data="bot_usage")]
+            ]
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                stats_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+            
     except Exception as e:
-        print(f"Ошибка при получении языка пользователя: {e}")
+        print(f"Ошибка при получении данных для меню: {e}")
+        language = profile.get('language', 'ru') if profile else 'ru'
+        error_msg = "Произошла ошибка при загрузке данных. Пожалуйста, попробуйте позже."
+        if language == "en":
+            error_msg = "An error occurred while loading data. Please try again later."
+        await update.message.reply_text(error_msg)
     finally:
         if conn:
             conn.close()
-
-    keyboard = [
-        [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start Workout", callback_data="start_workout")],
-        [InlineKeyboardButton("✨ О возможностях бота" if language == "ru" else "✨ About bot features", callback_data="bot_features")],
-        [InlineKeyboardButton("📚 Как пользоваться" if language == "ru" else "📚 How to use", callback_data="bot_usage")]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "📱 *Меню управления ботом*\n\n"
-        "Здесь вы можете управлять основными функциями" if language == "ru" else "📱 *Bot Control Menu*\n\nHere you can manage main functions",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
 
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
