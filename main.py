@@ -753,7 +753,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     
     try:
-        # Сначала создаём базовую запись, если её нет
+        # Подключаемся к базе данных
         conn = pymysql.connect(
             host='x91345bo.beget.tech',
             user='x91345bo_nutrbot',
@@ -764,16 +764,24 @@ async def start(update: Update, context: CallbackContext) -> int:
         )
         
         with conn.cursor() as cursor:
-            # Создаём пустую запись, если её нет
-            cursor.execute("""
-                INSERT IGNORE INTO user_profiles (user_id) 
-                VALUES (%s)
-            """, (user_id,))
-            conn.commit()
+            # Проверяем, есть ли запись о пользователе
+            cursor.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
+            existing_profile = cursor.fetchone()
             
-        # Теперь устанавливаем trial период
-        await start_trial_period(user_id)
-        
+            if not existing_profile:
+                # Если профиля нет, создаем его с минимальными данными
+                cursor.execute("""
+                    INSERT INTO user_profiles (user_id) 
+                    VALUES (%s)
+                """, (user_id,))
+                conn.commit()
+                
+                # Устанавливаем trial период для нового пользователя
+                await start_trial_period(user_id)
+            else:
+                # Если профиль уже существует, не изменяем данные о подписке
+                pass
+            
         # Продолжаем стандартный процесс
         await update.message.reply_text(
             "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
