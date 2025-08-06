@@ -764,15 +764,52 @@ async def start(update: Update, context: CallbackContext) -> int:
         )
         
         with conn.cursor() as cursor:
+            # Получаем текущие данные о подписке, если они есть
+            cursor.execute("""
+                SELECT 
+                    subscription_status, subscription_type, 
+                    subscription_start, subscription_end, 
+                    trial_start, trial_end, payment_id 
+                FROM user_profiles 
+                WHERE user_id = %s
+            """, (user_id,))
+            subscription_data = cursor.fetchone()
+            
             # Создаём пустую запись, если её нет
             cursor.execute("""
-                INSERT IGNORE INTO user_profiles (user_id) 
+                INSERT INTO user_profiles (user_id) 
                 VALUES (%s)
+                ON DUPLICATE KEY UPDATE user_id = user_id
             """, (user_id,))
-            conn.commit()
             
-        # Теперь устанавливаем trial период
-        await start_trial_period(user_id)
+            # Если есть данные о подписке, сохраняем их
+            if subscription_data:
+                cursor.execute("""
+                    UPDATE user_profiles
+                    SET
+                        subscription_status = %s,
+                        subscription_type = %s,
+                        subscription_start = %s,
+                        subscription_end = %s,
+                        trial_start = %s,
+                        trial_end = %s,
+                        payment_id = %s
+                    WHERE user_id = %s
+                """, (
+                    subscription_data['subscription_status'],
+                    subscription_data['subscription_type'],
+                    subscription_data['subscription_start'],
+                    subscription_data['subscription_end'],
+                    subscription_data['trial_start'],
+                    subscription_data['trial_end'],
+                    subscription_data['payment_id'],
+                    user_id
+                ))
+            else:
+                # Если данных о подписке нет, устанавливаем trial период
+                await start_trial_period(user_id)
+            
+            conn.commit()
         
         # Продолжаем стандартный процесс
         await update.message.reply_text(
@@ -789,7 +826,6 @@ async def start(update: Update, context: CallbackContext) -> int:
     finally:
         if 'conn' in locals():
             conn.close()
-
 
 async def ask_name(update: Update, context: CallbackContext) -> int:
     language = update.message.text.lower()
