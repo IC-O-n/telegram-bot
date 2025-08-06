@@ -1452,7 +1452,7 @@ async def check_water_reminder_time(context: CallbackContext):
                                 f"💦 Прогресс сегодня: {row['water_drunk_today']}/{recommended_water} мл ({remaining_water} мл осталось)\n\n"
                                 f"Подтверди, когда выпьешь, нажав кнопку или написав 'Выпил Х мл'"
                             )
-                        elif reminder_choice == 3:
+                        else:
                             message = (
                                 f"🚀 Гидратация - ключ к энергии! Выпей {water_to_drink_now} мл воды для бодрости.\n"
                                 f"📈 Текущий баланс: {row['water_drunk_today']} из {recommended_water} мл\n"
@@ -1474,7 +1474,7 @@ async def check_water_reminder_time(context: CallbackContext):
                                 f"💦 Today's progress: {row['water_drunk_today']}/{recommended_water} ml ({remaining_water} ml left)\n\n"
                                 f"Confirm when you drink by clicking the button or typing 'Drank X ml'"
                             )
-                        elif reminder_choice == 3:
+                        else:
                             message = (
                                 f"🚀 Hydration is the key to energy! Drink {water_to_drink_now} ml of water for vitality.\n"
                                 f"📈 Current balance: {row['water_drunk_today']} of {recommended_water} ml\n"
