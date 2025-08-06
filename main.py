@@ -1432,54 +1432,53 @@ async def check_water_reminder_time(context: CallbackContext):
                         )]
                     ]
                     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
-
-                    # Выбираем случайное напоминание из трех вариантов
-                    reminder_choice = random.choice([1, 2, 3])
+                    
+                    # Случайный выбор одного из трех вариантов напоминаний
                     
                     if row['language'] == "ru":
-                        if reminder_choice == 1:
-                            message = (
+                        reminders = [
+                            (
                                 f"💧 Не забудь выпить воду! Сейчас рекомендуется выпить {water_to_drink_now} мл.\n"
                                 f"📊 Сегодня выпито: {row['water_drunk_today']} мл из {recommended_water} мл\n"
                                 f"🚰 Осталось выпить: {remaining_water} мл\n\n"
                                 f"После того как выпьешь воду, нажми кнопку ниже или отправь мне сообщение в формате:\n"
                                 f"'Выпил 250 мл' или 'Drank 300 ml'"
-                            )
-                        elif reminder_choice == 2:
-                            message = (
+                            ),
+                            (
                                 f"⏰ Время пить воду! Твой организм нуждается в {water_to_drink_now} мл прямо сейчас.\n"
                                 f"💦 Прогресс сегодня: {row['water_drunk_today']}/{recommended_water} мл ({remaining_water} мл осталось)\n\n"
-                                f"Подтверди, когда выпьешь, нажав кнопку или написав 'Выпил Х мл'"
-                            )
-                        else:
-                            message = (
+                                f"Подтверди, когда выпьешь, нажав кнопку или написав 'Выпил Х мл'"                            ),
+                            (
                                 f"🚀 Гидратация - ключ к энергии! Выпей {water_to_drink_now} мл воды для бодрости.\n"
                                 f"📈 Текущий баланс: {row['water_drunk_today']} из {recommended_water} мл\n"
                                 f"🔋 Осталось до цели: {remaining_water} мл\n\n"
                                 f"Сообщи мне, когда попьешь, чтобы я мог обновить твои показатели!"
                             )
+                        ]
                     else:
-                        if reminder_choice == 1:
-                            message = (
+                        reminders = [
+                            (
                                 f"💧 Don't forget to drink water! Now it's recommended to drink {water_to_drink_now} ml.\n"
                                 f"📊 Today drunk: {row['water_drunk_today']} ml of {recommended_water} ml\n"
                                 f"🚰 Remaining: {remaining_water} ml\n\n"
                                 f"After drinking water, click the button below or send me a message in the format:\n"
                                 f"'Drank 300 ml' or 'Выпил 250 мл'"
-                            )
-                        elif reminder_choice == 2:
-                            message = (
+                            ),
+                            (
                                 f"⏰ Time to hydrate! Your body needs {water_to_drink_now} ml right now.\n"
                                 f"💦 Today's progress: {row['water_drunk_today']}/{recommended_water} ml ({remaining_water} ml left)\n\n"
                                 f"Confirm when you drink by clicking the button or typing 'Drank X ml'"
-                            )
-                        else:
-                            message = (
+                            ),
+                            (
                                 f"🚀 Hydration is the key to energy! Drink {water_to_drink_now} ml of water for vitality.\n"
                                 f"📈 Current balance: {row['water_drunk_today']} of {recommended_water} ml\n"
                                 f"🔋 Left to goal: {remaining_water} ml\n\n"
                                 f"Let me know when you drink so I can update your stats!"
                             )
+                        ]
+                    
+                    # Выбираем случайное напоминание
+                    message = random.choice(reminders)
                     
                     await context.bot.send_message(
                         chat_id=chat_id, 
