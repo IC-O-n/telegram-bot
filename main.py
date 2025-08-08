@@ -484,48 +484,40 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                 
             user_timezone = pytz.timezone(result['timezone']) if result['timezone'] else pytz.UTC
             now = datetime.now(user_timezone)
-            
-            # Получаем время сна пользователя
-            sleep_time = datetime.strptime(result['sleep_time'], "%H:%M").time()
-            sleep_dt = datetime.combine(now.date(), sleep_time).astimezone(user_timezone)
-            
-            # Если время сна переходит через полночь
-            if sleep_time.hour < 12:  # Например, если сон в 01:00-12:00
-                sleep_dt += timedelta(days=1)
-            
-            # Проверяем, что текущее время после времени сна
-            if now < sleep_dt:
-                return
-                
             today = now.date()
             
-            if result['last_nutrition_update']:
-                last_update = result['last_nutrition_update']
-                if isinstance(last_update, str):
-                    last_update = date.fromisoformat(last_update)
-                
-                if last_update < today:
-                    cursor.execute('''
-                        UPDATE user_profiles 
-                        SET 
-                            calories_today = 0,
-                            proteins_today = 0,
-                            fats_today = 0,
-                            carbs_today = 0,
-                            water_drunk_today = 0,
-                            last_nutrition_update = %s
-                        WHERE user_id = %s
-                    ''', (today.isoformat(), user_id))
-                    conn.commit()
-                    print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
-            else:
-                # Если last_nutrition_update NULL, устанавливаем текущую дату
+            # Если last_nutrition_update не установлено, устанавливаем сегодняшнюю дату
+            if not result['last_nutrition_update']:
                 cursor.execute('''
                     UPDATE user_profiles 
                     SET last_nutrition_update = %s
                     WHERE user_id = %s
                 ''', (today.isoformat(), user_id))
                 conn.commit()
+                return
+            
+            # Если last_nutrition_update - строка, преобразуем в date
+            if isinstance(result['last_nutrition_update'], str):
+                last_update = date.fromisoformat(result['last_nutrition_update'])
+            else:
+                last_update = result['last_nutrition_update']
+            
+            # Если даты разные - сбрасываем показатели
+            if last_update < today:
+                cursor.execute('''
+                    UPDATE user_profiles 
+                    SET 
+                        calories_today = 0,
+                        proteins_today = 0,
+                        fats_today = 0,
+                        carbs_today = 0,
+                        water_drunk_today = 0,
+                        last_nutrition_update = %s
+                    WHERE user_id = %s
+                ''', (today.isoformat(), user_id))
+                conn.commit()
+                print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+                
     except Exception as e:
         print(f"Ошибка при сбросе дневного питания: {e}")
     finally:
