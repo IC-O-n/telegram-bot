@@ -486,38 +486,75 @@ async def reset_daily_nutrition_if_needed(user_id: int):
             now = datetime.now(user_timezone)
             today = now.date()
             
-            # Если last_nutrition_update не установлено, устанавливаем сегодняшнюю дату
-            if not result['last_nutrition_update']:
+            # Получаем время сна пользователя
+            sleep_time = datetime.strptime(result['sleep_time'], "%H:%M").time()
+            sleep_dt = datetime.combine(now.date(), sleep_time).astimezone(user_timezone)
+            
+            # Если время сна переходит через полночь
+            if sleep_time.hour < 12:  # Например, если сон в 01:00-12:00
+                sleep_dt += timedelta(days=1)
+            
+            # Проверяем, что текущее время после времени сна
+            if now < sleep_dt:
+                # Если еще не время сна, но last_nutrition_update не сегодня - все равно сбрасываем
+                if result['last_nutrition_update']:
+                    last_update = result['last_nutrition_update']
+                    if isinstance(last_update, str):
+                        last_update = date.fromisoformat(last_update)
+                    
+                    if last_update < today:
+                        # Гарантированный сброс, если дата последнего обновления не сегодня
+                        cursor.execute('''
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = 0,
+                                proteins_today = 0,
+                                fats_today = 0,
+                                carbs_today = 0,
+                                water_drunk_today = 0,
+                                last_nutrition_update = %s
+                            WHERE user_id = %s
+                        ''', (today.isoformat(), user_id))
+                        conn.commit()
+                        print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+                else:
+                    # Если last_nutrition_update NULL, устанавливаем текущую дату
+                    cursor.execute('''
+                        UPDATE user_profiles 
+                        SET last_nutrition_update = %s
+                        WHERE user_id = %s
+                    ''', (today.isoformat(), user_id))
+                    conn.commit()
+                return
+            
+            # Оригинальная логика сброса
+            if result['last_nutrition_update']:
+                last_update = result['last_nutrition_update']
+                if isinstance(last_update, str):
+                    last_update = date.fromisoformat(last_update)
+                
+                if last_update < today:
+                    cursor.execute('''
+                        UPDATE user_profiles 
+                        SET 
+                            calories_today = 0,
+                            proteins_today = 0,
+                            fats_today = 0,
+                            carbs_today = 0,
+                            water_drunk_today = 0,
+                            last_nutrition_update = %s
+                        WHERE user_id = %s
+                    ''', (today.isoformat(), user_id))
+                    conn.commit()
+                    print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+            else:
+                # Если last_nutrition_update NULL, устанавливаем текущую дату
                 cursor.execute('''
                     UPDATE user_profiles 
                     SET last_nutrition_update = %s
                     WHERE user_id = %s
                 ''', (today.isoformat(), user_id))
                 conn.commit()
-                return
-            
-            # Если last_nutrition_update - строка, преобразуем в date
-            if isinstance(result['last_nutrition_update'], str):
-                last_update = date.fromisoformat(result['last_nutrition_update'])
-            else:
-                last_update = result['last_nutrition_update']
-            
-            # Если даты разные - сбрасываем показатели
-            if last_update < today:
-                cursor.execute('''
-                    UPDATE user_profiles 
-                    SET 
-                        calories_today = 0,
-                        proteins_today = 0,
-                        fats_today = 0,
-                        carbs_today = 0,
-                        water_drunk_today = 0,
-                        last_nutrition_update = %s
-                    WHERE user_id = %s
-                ''', (today.isoformat(), user_id))
-                conn.commit()
-                print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
-                
     except Exception as e:
         print(f"Ошибка при сбросе дневного питания: {e}")
     finally:
@@ -3060,7 +3097,8 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
                 SELECT 
                     language, name, weight, water_drunk_today, calories_today,
                     proteins_today, fats_today, carbs_today, reminders,
-                    subscription_status, subscription_type, subscription_end
+                    subscription_status, subscription_type, subscription_end,
+                    wakeup_time, sleep_time  # Добавляем получение времени пробуждения и сна
                 FROM user_profiles 
                 WHERE user_id = %s
             """, (user_id,))
@@ -3081,6 +3119,10 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             proteins = profile['proteins_today'] or 0
             fats = profile['fats_today'] or 0
             carbs = profile['carbs_today'] or 0
+            
+            # Получаем время пробуждения и сна
+            wakeup_time = profile['wakeup_time'] or "07:00"
+            sleep_time = profile['sleep_time'] or "23:00"
             
             # Обработка напоминаний
             reminders = []
@@ -3108,6 +3150,10 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
                         stats_text += f"• {rem['text']} в {rem['time']}\n"
                 else:
                     stats_text += "Нет активных напоминаний\n"
+                
+                # Добавляем информацию о времени пробуждения и сне
+                stats_text += f"\n🌅 *Время пробуждения:* {wakeup_time}\n"
+                stats_text += f"🌙 *Время сна:* {sleep_time}\n"
                 
                 # Добавляем информацию о подписке
                 subscription = await check_subscription(user_id)
@@ -3137,6 +3183,10 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
                         stats_text += f"• {rem['text']} at {rem['time']}\n"
                 else:
                     stats_text += "No active reminders\n"
+                
+                # Добавляем информацию о времени пробуждения и сне
+                stats_text += f"\n🌅 *Wake-up time:* {wakeup_time}\n"
+                stats_text += f"🌙 *Sleep time:* {sleep_time}\n"
                 
                 # Добавляем информацию о подписке
                 subscription = await check_subscription(user_id)
