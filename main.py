@@ -630,7 +630,6 @@ async def check_inactive_users(context: CallbackContext):
                 if subscription['status'] == 'expired':
                     continue
 
-
                 # Получаем часовой пояс пользователя
                 tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
                 now = datetime.now(tz)
@@ -651,13 +650,10 @@ async def check_inactive_users(context: CallbackContext):
                 current_time = now.time()
                 
                 # Определяем, какой сейчас день с учетом времени сна
-                # Если текущее время находится между 00:00 и временем сна - считаем это предыдущим днем
                 if current_time < sleep_time:
-                    # Это еще предыдущий день (пользователь не спал)
                     today = (now - timedelta(days=1)).date()
                     print(f"Пользователь {user['user_id']} еще не спал, считаем за предыдущий день {today}")
                 else:
-                    # Это уже новый день
                     today = now.date()
                 
                 # Проверяем, что сейчас время бодрствования пользователя
@@ -665,7 +661,6 @@ async def check_inactive_users(context: CallbackContext):
                 sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
                 current_dt = datetime.combine(today, current_time).astimezone(tz)
                 
-                # Если время сна переходит через полночь
                 if sleep_time < wakeup_time:
                     sleep_dt += timedelta(days=1)
                 
@@ -721,24 +716,63 @@ async def check_inactive_users(context: CallbackContext):
                         
                         # Формируем сообщение
                         if user['language'] == "ru":
-                            messages = {
-                                "завтрак": "Привет! Не забыл ли ты позавтракать сегодня? Расскажи, что ты ел на завтрак! 🍳",
-                                "обед": "Привет! Как насчет обеда? Уже поел? Расскажи, что было на обед! 🍲",
-                                "ужин": "Привет! Уже думал об ужине? Поделись, что планируешь на ужин! 🍽",
-                                "перекус": "Привет! Не хочешь перекусить? Расскажи, что ты сегодня перекусывал! 🍎"
-                            }
+                            if question == "завтрак":
+                                messages = [
+                                    "Привет! Не забыл ли ты позавтракать сегодня? Расскажи, что ты ел на завтрак! 🍳",
+                                    "Утро - лучшее время для завтрака! Поделись, чем ты сегодня завтракал? 🥞",
+                                    "Завтрак - самый важный прием пищи. Что сегодня было у тебя на тарелке? 🍽",
+                                    "Не пропускай завтрак - он дает энергию на весь день! Что ты сегодня съел? 🍳",
+                                    "Твой организм ждет завтрака! Чем ты его порадуешь сегодня? 🥐"
+                                ]
+                            elif question == "обед":
+                                messages = [
+                                    "Привет! Как насчет обеда? Уже поел? Расскажи, что было на обед! 🍲",
+                                    "Обеденное время - отличный повод подкрепиться! Что ты сегодня ел на обед? 🍛",
+                                    "Не забудь про обед - он помогает сохранить энергию до вечера! Чем ты сегодня пообедал? 🍜",
+                                    "Обед - важный прием пищи. Поделись, что сегодня у тебя было на обед? 🥗",
+                                    "Твой организм нуждается в подкреплении! Что ты сегодня выбрал на обед? 🍱"
+                                ]
+                            else:  # ужин
+                                messages = [
+                                    "Привет! Уже думал об ужине? Поделись, что планируешь на ужин! 🍽",
+                                    "Вечер - время для вкусного ужина! Что сегодня будешь есть? 🍲",
+                                    "Ужин - последний прием пищи за день. Чем ты сегодня порадуешь себя? 🍛",
+                                    "Не пропускай ужин - он важен для восстановления! Что сегодня на ужин? 🍜",
+                                    "Твой организм заслужил хороший ужин! Что ты сегодня приготовил? 🍱"
+                                ]
                         else:
-                            messages = {
-                                "breakfast": "Hi! Did you have breakfast today? Tell me what you ate for breakfast! 🍳",
-                                "lunch": "Hi! How about lunch? Have you eaten yet? Tell me what you had for lunch! 🍲",
-                                "dinner": "Hi! Have you thought about dinner? Share what you're planning for dinner! 🍽",
-                                "snack": "Hi! Want to have a snack? Tell me what you've been snacking on today! 🍎"
-                            }
+                            if question == "breakfast":
+                                messages = [
+                                    "Hi! Did you have breakfast today? Tell me what you ate for breakfast! 🍳",
+                                    "Morning is the best time for breakfast! What did you have today? 🥞",
+                                    "Breakfast is the most important meal. What was on your plate today? 🍽",
+                                    "Don't skip breakfast - it gives energy for the whole day! What did you eat today? 🍳",
+                                    "Your body is waiting for breakfast! What will you treat it with today? 🥐"
+                                ]
+                            elif question == "lunch":
+                                messages = [
+                                    "Hi! How about lunch? Have you eaten yet? Tell me what you had for lunch! 🍲",
+                                    "Lunch time - a great reason to refuel! What did you have for lunch today? 🍛",
+                                    "Don't forget about lunch - it helps maintain energy until evening! What was your lunch today? 🍜",
+                                    "Lunch is an important meal. Share what you had for lunch today? 🥗",
+                                    "Your body needs refueling! What did you choose for lunch today? 🍱"
+                                ]
+                            else:  # dinner
+                                messages = [
+                                    "Hi! Have you thought about dinner? Share what you're planning for dinner! 🍽",
+                                    "Evening is time for a delicious dinner! What will you eat today? 🍲",
+                                    "Dinner is the last meal of the day. What will you treat yourself to today? 🍛",
+                                    "Don't skip dinner - it's important for recovery! What's for dinner today? 🍜",
+                                    "Your body deserves a good dinner! What did you prepare today? 🍱"
+                                ]
+                        
+                        # Выбираем случайное сообщение
+                        message = random.choice(messages)
                         
                         try:
                             await context.bot.send_message(
                                 chat_id=user['user_id'],
-                                text=messages[question]
+                                text=message
                             )
                             print(f"Отправлено напоминание о {question} пользователю {user['user_id']}")
                             
@@ -762,7 +796,6 @@ async def check_inactive_users(context: CallbackContext):
     finally:
         if conn:
             conn.close()
-
 
 async def download_and_encode(file: File) -> dict:
     telegram_file = await file.get_file()
@@ -1467,10 +1500,9 @@ async def check_water_reminder_time(context: CallbackContext):
                     ]
                     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
                     
-                    # Выбираем случайное напоминание из трех вариантов
-                    import random
-                    reminder_choice = random.choice([1, 2, 3])
                     
+                    reminder_choice = random.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+
                     if row['language'] == "ru":
                         if reminder_choice == 1:
                             message = (
@@ -1486,12 +1518,68 @@ async def check_water_reminder_time(context: CallbackContext):
                                 f"💦 Прогресс сегодня: {row['water_drunk_today']}/{recommended_water} мл ({remaining_water} мл осталось)\n\n"
                                 f"Подтверди, когда выпьешь, нажав кнопку или написав 'Выпил Х мл'"
                             )
-                        else:
+                        elif reminder_choice == 3:
                             message = (
                                 f"🚀 Гидратация - ключ к энергии! Выпей {water_to_drink_now} мл воды для бодрости.\n"
                                 f"📈 Текущий баланс: {row['water_drunk_today']} из {recommended_water} мл\n"
                                 f"🔋 Осталось до цели: {remaining_water} мл\n\n"
                                 f"Сообщи мне, когда попьешь, чтобы я мог обновить твои показатели!"
+                            )
+                        elif reminder_choice == 4:
+                            message = (
+                                f"🌡️ Знаешь ли ты, что теплая вода с лимоном утром:\n"
+                                f"- Ускоряет метаболизм на 20-30%\n"
+                                f"- Помогает пищеварению\n"
+                                f"- Очищает организм\n\n"
+                                f"Попробуй! А сейчас выпей {water_to_drink_now} мл чистой воды 💧"
+                            )
+                        elif reminder_choice == 5:
+                            message = (
+                                f"🧠 Наш мозг на 75% состоит из воды! Даже легкое обезвоживание (1-2%) снижает:\n"
+                                f"- Когнитивные функции на 5-10%\n"
+                                f"- Концентрацию на 15%\n"
+                                f"- Настроение на 20%\n\n"
+                                f"Восполни баланс - выпей {water_to_drink_now} мл прямо сейчас!"
+                            )
+                        elif reminder_choice == 6:
+                           message = (
+                                f"💪 Вода и тренировки:\n"
+                                f"- Потеря всего 2% воды снижает эффективность тренировки на 10%\n"
+                                f"- Достаточное питье ускоряет восстановление мышц\n"
+                                f"- Вода помогает доставлять питательные вещества\n\n"
+                                f"Выпей {water_to_drink_now} мл для максимальных результатов!"
+                            )
+                        elif reminder_choice == 7:
+                            message = (
+                                f"🌿 Натуральный детокс: вода выводит токсины и:\n"
+                                f"- Улучшает цвет кожи на 30%\n"
+                                f"- Снижает усталость на 25%\n"
+                                f"- Уменьшает головные боли на 15%\n\n"
+                                f"Твой следующий шаг к здоровью - {water_to_drink_now} мл воды!"
+                            )
+                        elif reminder_choice == 8:
+                            message = (
+                                f"⚖️ Интересный факт:\n"
+                                f"Каждые 500 мл выпитой воды ускоряют метаболизм на 24-30% в течение часа!\n"
+                                f"Это как мини-тренировка без усилий 😉\n\n"
+                                f"Выпей {water_to_drink_now} мл для ускорения обмена веществ!"
+                            )
+                        elif reminder_choice == 9:
+                            message = (
+                                f"🔄 Вода и вес:\n"
+                                f"- 2 стакана воды перед едой снижают потребление калорий на 13%\n"
+                                f"- Достаточное питье уменьшает ложное чувство голода\n"
+                                f"- Вода участвует в расщеплении жиров\n\n"
+                                f"Сделай глоток ({water_to_drink_now} мл) для своего тела!"
+                            )
+                        else:
+                            message = (
+                                f"💫 Вода - это жизнь! Сегодня ты уже выпил {row['water_drunk_today']} мл.\n"
+                                f"Напомню:\n"
+                                f"- 1% обезвоживания = 10% снижения продуктивности\n"
+                                f"- 2% обезвоживания = заметная жажда\n"
+                                f"- 5% обезвоживания = усталость и головокружение\n\n"
+                                f"Поддержи баланс - выпей {water_to_drink_now} мл сейчас!"
                             )
                     else:
                         if reminder_choice == 1:
@@ -1508,12 +1596,68 @@ async def check_water_reminder_time(context: CallbackContext):
                                 f"💦 Today's progress: {row['water_drunk_today']}/{recommended_water} ml ({remaining_water} ml left)\n\n"
                                 f"Confirm when you drink by clicking the button or typing 'Drank X ml'"
                             )
-                        else:
+                        elif reminder_choice == 3:
                             message = (
                                 f"🚀 Hydration is the key to energy! Drink {water_to_drink_now} ml of water for vitality.\n"
                                 f"📈 Current balance: {row['water_drunk_today']} of {recommended_water} ml\n"
                                 f"🔋 Left to goal: {remaining_water} ml\n\n"
                                 f"Let me know when you drink so I can update your stats!"
+                            )
+                        elif reminder_choice == 4:
+                            message = (
+                                f"🌡️ Did you know that warm water with lemon in the morning:\n"
+                                f"- Boosts metabolism by 20-30%\n"
+                                f"- Aids digestion\n"
+                                f"- Detoxifies the body\n\n"
+                                f"Try it! And now drink {water_to_drink_now} ml of pure water 💧"
+                            )
+                        elif reminder_choice == 5:
+                            message = (
+                                f"🧠 Our brain is 75% water! Even mild dehydration (1-2%) reduces:\n"
+                                f"- Cognitive functions by 5-10%\n"
+                                f"- Concentration by 15%\n"
+                                f"- Mood by 20%\n\n"
+                                f"Replenish your balance - drink {water_to_drink_now} ml right now!"
+                            )
+                        elif reminder_choice == 6:
+                            message = (
+                                f"💪 Water and workouts:\n"
+                                f"- Losing just 2% of water reduces workout efficiency by 10%\n"
+                                f"- Proper hydration speeds up muscle recovery\n"
+                                f"- Water helps deliver nutrients\n\n"
+                                f"Drink {water_to_drink_now} ml for maximum results!"
+                            )
+                        elif reminder_choice == 7:
+                            message = (
+                                f"🌿 Natural detox: water removes toxins and:\n"
+                                f"- Improves skin tone by 30%\n"
+                                f"- Reduces fatigue by 25%\n"
+                                f"- Decreases headaches by 15%\n\n"
+                                f"Your next step to health - {water_to_drink_now} ml of water!"
+                            )
+                        elif reminder_choice == 8:
+                            message = (
+                                f"⚖️ Interesting fact:\n"
+                                f"Every 500 ml of water you drink boosts metabolism by 24-30% for an hour!\n"
+                                f"It's like a mini-workout without effort 😉\n\n"
+                                f"Drink {water_to_drink_now} ml to speed up your metabolism!"
+                            )
+                        elif reminder_choice == 9:
+                            message = (
+                                f"🔄 Water and weight:\n"
+                                f"- 2 glasses of water before meals reduce calorie intake by 13%\n"
+                                f"- Proper hydration decreases false hunger\n"
+                                f"- Water participates in fat breakdown\n\n"
+                                f"Take a sip ({water_to_drink_now} ml) for your body!"
+                            )
+                        else:
+                            message = (
+                                f"💫 Water is life! Today you've already drunk {row['water_drunk_today']} ml.\n"
+                                f"Remember:\n"
+                                f"- 1% dehydration = 10% productivity loss\n"
+                                f"- 2% dehydration = noticeable thirst\n"
+                                f"- 5% dehydration = fatigue and dizziness\n\n"
+                                f"Maintain your balance - drink {water_to_drink_now} ml now!"
                             )
                     
                     await context.bot.send_message(
@@ -1527,7 +1671,6 @@ async def check_water_reminder_time(context: CallbackContext):
             print(f"Ошибка при проверке времени для напоминания пользователю {user_id}: {str(e)}")
     finally:
         conn.close()
-
 
 async def show_profile(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
