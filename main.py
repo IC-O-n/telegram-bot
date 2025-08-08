@@ -9,6 +9,7 @@ import json
 import pymysql
 import uuid
 import random
+import asyncio
 from typing import Dict, Optional
 from enum import Enum
 from pymysql.cursors import DictCursor
@@ -3839,21 +3840,19 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         if conn:
             conn.close()
 
-    # Обработка всех фото/документов в одном сообщении
-    media_files = []
-    if message.photo:
-        media_files.extend(message.photo)
+    # Обработка фото/документов
+    media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
-    
-    # Добавляем все медиафайлы в contents как единый контекст
-    for file in media_files:
-        try:
-            part = await download_and_encode(file)
-            contents.append(part)
-        except Exception as e:
-            await message.reply_text(f"Ошибка при загрузке файла: {str(e)}\nError loading file: {str(e)}")
-            return
+
+    # Собираем все медиафайлы в один список частей
+    try:
+        # Используем asyncio.gather для параллельной загрузки всех файлов
+        parts = await asyncio.gather(*[download_and_encode(file) for file in media_files])
+        contents.extend(parts)
+    except Exception as e:
+        await message.reply_text(f"Ошибка при загрузке файлов: {str(e)}\nError loading files: {str(e)}")
+        return
 
     if user_text:
         contents.insert(0, {"text": user_text})
