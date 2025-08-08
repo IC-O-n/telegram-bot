@@ -3839,30 +3839,22 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         if conn:
             conn.close()
 
-    # Обработка фото/документов - собираем ВСЕ файлы перед обработкой
+    # Обработка фото/документов
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
 
-    contents = []
-    if user_text:
-        contents.append({"text": user_text})
-
-    # Обрабатываем все файлы сразу
-    if media_files:
+    for file in media_files:
         try:
-            # Загружаем и кодируем все файлы перед отправкой в модель
-            encoded_files = []
-            for file in media_files:
-                part = await download_and_encode(file)
-                encoded_files.append(part)
-            
-            # Добавляем все файлы в contents
-            contents.extend(encoded_files)
+            part = await download_and_encode(file)
+            contents.append(part)
         except Exception as e:
-            await message.reply_text(f"Ошибка при загрузке файлов: {str(e)}\nError loading files: {str(e)}")
+            await message.reply_text(f"Ошибка при загрузке файла: {str(e)}\nError loading file: {str(e)}")
             return
-    elif not contents:
+
+    if user_text:
+        contents.insert(0, {"text": user_text})
+    if not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.\nPlease send text, image or document.")
         return
 
