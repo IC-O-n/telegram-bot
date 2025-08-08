@@ -9,7 +9,6 @@ import json
 import pymysql
 import uuid
 import random
-import asyncio
 from typing import Dict, Optional
 from enum import Enum
 from pymysql.cursors import DictCursor
@@ -3840,23 +3839,30 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         if conn:
             conn.close()
 
-    # Обработка фото/документов
+    # Обработка фото/документов - собираем ВСЕ файлы перед обработкой
     media_files = message.photo or []
     if message.document:
         media_files.append(message.document)
 
-    # Собираем все медиафайлы в один список частей
-    try:
-        # Используем asyncio.gather для параллельной загрузки всех файлов
-        parts = await asyncio.gather(*[download_and_encode(file) for file in media_files])
-        contents.extend(parts)
-    except Exception as e:
-        await message.reply_text(f"Ошибка при загрузке файлов: {str(e)}\nError loading files: {str(e)}")
-        return
-
+    contents = []
     if user_text:
-        contents.insert(0, {"text": user_text})
-    if not contents:
+        contents.append({"text": user_text})
+
+    # Обрабатываем все файлы сразу
+    if media_files:
+        try:
+            # Загружаем и кодируем все файлы перед отправкой в модель
+            encoded_files = []
+            for file in media_files:
+                part = await download_and_encode(file)
+                encoded_files.append(part)
+            
+            # Добавляем все файлы в contents
+            contents.extend(encoded_files)
+        except Exception as e:
+            await message.reply_text(f"Ошибка при загрузке файлов: {str(e)}\nError loading files: {str(e)}")
+            return
+    elif not contents:
         await message.reply_text("Пожалуйста, отправь текст, изображение или документ.\nPlease send text, image or document.")
         return
 
