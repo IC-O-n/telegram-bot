@@ -3839,11 +3839,14 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         if conn:
             conn.close()
 
-    # Обработка фото/документов
-    media_files = message.photo or []
+    # Обработка всех фото/документов в одном сообщении
+    media_files = []
+    if message.photo:
+        media_files.extend(message.photo)
     if message.document:
         media_files.append(message.document)
-
+    
+    # Добавляем все медиафайлы в contents как единый контекст
     for file in media_files:
         try:
             part = await download_and_encode(file)
