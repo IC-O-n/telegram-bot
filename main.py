@@ -3095,10 +3095,10 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             # Получаем основную информацию о пользователе
             cursor.execute("""
                 SELECT 
-                    language, name, weight, water_drunk_today, calories_today,
+                    language, name, age, weight, water_drunk_today, calories_today,
                     proteins_today, fats_today, carbs_today, reminders,
                     subscription_status, subscription_type, subscription_end,
-                    wakeup_time, sleep_time  # Добавляем получение времени пробуждения и сна
+                    wakeup_time, sleep_time
                 FROM user_profiles 
                 WHERE user_id = %s
             """, (user_id,))
@@ -3110,6 +3110,7 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
 
             language = profile['language'] or "ru"
             name = profile['name'] or ""
+            age = profile['age'] or ""
             weight = profile['weight'] or 70
             recommended_water = int(weight * 30)
             water_drunk = profile['water_drunk_today'] or 0
@@ -3135,7 +3136,7 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             # Формируем текст статистики
             if language == "ru":
                 stats_text = (
-                    f"👤 *{name}* • {weight} кг\n\n"
+                    f"👤 *{name}* • {age} лет • {weight} кг\n\n"
                     f"💧 *Вода сегодня:* {water_drunk}/{recommended_water} мл ({remaining_water} мл осталось)\n\n"
                     f"🍽 *Питание сегодня:*\n"
                     f"• Калории: {calories} ккал\n"
@@ -3168,7 +3169,7 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
                 
             else:
                 stats_text = (
-                    f"👤 *{name}* • {weight} kg\n\n"
+                    f"👤 *{name}* • {age} y.o. • {weight} kg\n\n"
                     f"💧 *Water today:* {water_drunk}/{recommended_water} ml ({remaining_water} ml left)\n\n"
                     f"🍽 *Nutrition today:*\n"
                     f"• Calories: {calories} kcal\n"
