@@ -1389,10 +1389,12 @@ async def check_water_reminder_time(context: CallbackContext):
 
     subscription = await check_subscription(user_id)
     if subscription['status'] == 'expired':
+        # Удаляем job для этого пользователя
         job.schedule_removal()
         print(f"Удалена задача напоминаний для пользователя {user_id} (подписка истекла)")
         return
     
+    # Сначала проверяем и сбрасываем дневные показатели, если нужно
     await reset_daily_nutrition_if_needed(user_id)
     
     conn = pymysql.connect(
@@ -1418,6 +1420,7 @@ async def check_water_reminder_time(context: CallbackContext):
             print(f"Профиль пользователя {user_id} не найден")
             return
         
+        # Проверяем, включены ли напоминания (добавлена дополнительная проверка)
         if not row.get('water_reminders', 0):
             print(f"Напоминания отключены для пользователя {user_id}")
             return
@@ -1487,6 +1490,7 @@ async def check_water_reminder_time(context: CallbackContext):
                     
                     water_to_drink_now = min(250, max(150, recommended_water // 8))
                     
+                    # Создаем кнопку для подтверждения выпитой воды
                     button_text = f"Выпил {water_to_drink_now} мл" if row['language'] == "ru" else f"Drank {water_to_drink_now} ml"
                     keyboard = [
                         [telegram.InlineKeyboardButton(
@@ -1496,8 +1500,7 @@ async def check_water_reminder_time(context: CallbackContext):
                     ]
                     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
                     
-                    # Используем разнообразные сообщения из второй версии
-                    import random
+                   
                     reminder_choice = random.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
                     if row['language'] == "ru":
