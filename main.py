@@ -720,7 +720,7 @@ async def check_inactive_users(context: CallbackContext):
                                 messages = [
                                     "Привет! Не забыл ли ты позавтракать сегодня? Расскажи, что ты ел на завтрак! 🍳",
                                     "Утро - лучшее время для завтрака! Поделись, чем ты сегодня завтракал? 🥞",
-                                    "Завтрак - самый важный прием пищи. Что сегодня было у тебя на тарелке? 🍽",
+                                    "Завтрак - самый важный прием пищи! Что сегодня было у тебя на тарелке? 🍽",
                                     "Не пропускай завтрак - он дает энергию на весь день! Что ты сегодня съел? 🍳",
                                     "Твой организм ждет завтрака! Чем ты его порадуешь сегодня? 🥐"
                                 ]
@@ -729,14 +729,14 @@ async def check_inactive_users(context: CallbackContext):
                                     "Привет! Как насчет обеда? Уже поел? Расскажи, что было на обед! 🍲",
                                     "Обеденное время - отличный повод подкрепиться! Что ты сегодня ел на обед? 🍛",
                                     "Не забудь про обед - он помогает сохранить энергию до вечера! Чем ты сегодня пообедал? 🍜",
-                                    "Обед - важный прием пищи. Поделись, что сегодня у тебя было на обед? 🥗",
+                                    "Обед - важный прием пищи! Поделись, что сегодня у тебя было на обед? 🥗",
                                     "Твой организм нуждается в подкреплении! Что ты сегодня выбрал на обед? 🍱"
                                 ]
                             else:  # ужин
                                 messages = [
                                     "Привет! Уже думал об ужине? Поделись, что планируешь на ужин! 🍽",
                                     "Вечер - время для вкусного ужина! Что сегодня будешь есть? 🍲",
-                                    "Ужин - последний прием пищи за день. Чем ты сегодня порадуешь себя? 🍛",
+                                    "Ужин - последний прием пищи за день! Чем ты сегодня порадуешь себя? 🍛",
                                     "Не пропускай ужин - он важен для восстановления! Что сегодня на ужин? 🍜",
                                     "Твой организм заслужил хороший ужин! Что ты сегодня приготовил? 🍱"
                                 ]
@@ -745,7 +745,7 @@ async def check_inactive_users(context: CallbackContext):
                                 messages = [
                                     "Hi! Did you have breakfast today? Tell me what you ate for breakfast! 🍳",
                                     "Morning is the best time for breakfast! What did you have today? 🥞",
-                                    "Breakfast is the most important meal. What was on your plate today? 🍽",
+                                    "Breakfast is the most important meal! What was on your plate today? 🍽",
                                     "Don't skip breakfast - it gives energy for the whole day! What did you eat today? 🍳",
                                     "Your body is waiting for breakfast! What will you treat it with today? 🥐"
                                 ]
@@ -754,14 +754,14 @@ async def check_inactive_users(context: CallbackContext):
                                     "Hi! How about lunch? Have you eaten yet? Tell me what you had for lunch! 🍲",
                                     "Lunch time - a great reason to refuel! What did you have for lunch today? 🍛",
                                     "Don't forget about lunch - it helps maintain energy until evening! What was your lunch today? 🍜",
-                                    "Lunch is an important meal. Share what you had for lunch today? 🥗",
+                                    "Lunch is an important meal! Share what you had for lunch today? 🥗",
                                     "Your body needs refueling! What did you choose for lunch today? 🍱"
                                 ]
                             else:  # dinner
                                 messages = [
                                     "Hi! Have you thought about dinner? Share what you're planning for dinner! 🍽",
                                     "Evening is time for a delicious dinner! What will you eat today? 🍲",
-                                    "Dinner is the last meal of the day. What will you treat yourself to today? 🍛",
+                                    "Dinner is the last meal of the day! What will you treat yourself to today? 🍛",
                                     "Don't skip dinner - it's important for recovery! What's for dinner today? 🍜",
                                     "Your body deserves a good dinner! What did you prepare today? 🍱"
                                 ]
@@ -2515,7 +2515,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                 "- Прием воды\n"
                 "- Прием пищи\n"
                 "- Прием добавок\n\n"
-                "🚀 Начните прямо сейчас с команды /start или выберите тренировку!"
+                "🚀 Начните прямо!"
             )
         else:
             features_text = (
@@ -2545,7 +2545,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                 "- Water intake\n"
                 "- Meals\n"
                 "- Supplements\n\n"
-                "🚀 Start right now with /start or choose a workout!"
+                "🚀 Start right now!"
             )
 
         await query.edit_message_text(
@@ -2666,9 +2666,8 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "🔸 Советы по продуктам — спросите: \"Чем полезен творог?\" → получите развернутый ответ.\n"
         "🔸 Анализ настроения — если напишете \"Я в стрессе\", бот предложит рекомендации.\n\n"
         "🚀 Начните прямо сейчас!\n"
-        "Пройдите анкету (/start), чтобы персонализировать бота.\n\n"
         "Отправьте фото еды или запрос — бот поможет с анализом.\n\n"
-        "Используйте команды (/water, /menu, /profile) для удобства."
+        "Используйте команды для удобства."
             )
         else:
             usage_text = (
@@ -2716,9 +2715,8 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         "🔸 Food advice - ask: \"What are the benefits of cottage cheese?\"\n"
         "🔸 Mood analysis - if you type \"I'm stressed\", the bot will offer recommendations\n\n"
         "🚀 Start right now!\n"
-        "Complete the questionnaire (/start) to personalize the bot.\n\n"
         "Send food photos or requests - the bot will help with analysis.\n\n"
-        "Use commands (/water, /menu, /profile) for convenience."
+        "Use commands for convenience."
             )
 
         await query.edit_message_text(
