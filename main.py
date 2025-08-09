@@ -8,7 +8,6 @@ import telegram
 import json
 import pymysql
 import uuid
-import random
 from typing import Dict, Optional
 from enum import Enum
 from pymysql.cursors import DictCursor
@@ -1500,7 +1499,7 @@ async def check_water_reminder_time(context: CallbackContext):
                     ]
                     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
                     
-                    
+                    import random
                     reminder_choice = random.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
                     if row['language'] == "ru":
