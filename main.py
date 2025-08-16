@@ -3940,23 +3940,25 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         language = "ru"  # Можно добавить проверку языка из профиля
         if language == "ru":
             await update.message.reply_text(
-                "😊 Спасибо, что пользуетесь NutriBot! Ваш пробный период закончился.\n\n"
-                "**Что вы можете сделать сейчас:**\n"
-                "- Оформить подписку и получить:\n"
-                "  • Персональные рекомендации\n"
-                "  • Полный анализ питания\n"
-                "  • Продвинутые тренировки\n\n"
-                f"Выберите тариф (/info) — от {SUBSCRIPTION_PRICES['1_month']}₽/месяц!"
+                "🔒 Ваш пробный период закончился, но мы можем продолжить!\n\n"
+                "NutriBot помог уже тысячам пользователей:\n"
+                "• Персональные планы питания 🍎\n"
+                "• Умный анализ фото еды 📸\n"
+                "• Точный расчет КБЖУ 🧮\n"
+                "• Рекомендации по тренировкам 💪\n\n"
+                "Продолжить использование можно по подписке - это меньше стоимости чашки кофе в день ☕\n\n"
+                "Хотите оформить подписку? Нажмите /info"
             )
         else:
             await update.message.reply_text(
-                "😊 Thanks for using NutriBot! Your trial has ended.\n\n"
-                "**What you can do now:**\n"
-                "- Subscribe to unlock:\n"
-                "  • Personalized plans\n"
-                "  • Full nutrition analysis\n"
-                "  • Advanced workouts\n\n"
-                f"See plans (/info) — from {SUBSCRIPTION_PRICES['1_month']}₽/month!"
+                "🔒 Your trial has ended, but we can continue!\n\n"
+                "NutriBot has already helped thousands:\n"
+                "• Personalized meal plans 🍎\n"
+                "• Smart food photo analysis 📸\n"
+                "• Accurate nutrition tracking 🧮\n"
+                "• Workout recommendations 💪\n\n"
+                "Continue using for less than a cup of coffee per day ☕\n\n"
+                "Want to subscribe? Tap /info"
             )
         return
     
