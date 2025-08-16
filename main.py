@@ -3940,15 +3940,23 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         language = "ru"  # Можно добавить проверку языка из профиля
         if language == "ru":
             await update.message.reply_text(
-                "🚫 Ваш пробный период закончился.\n\n"
-                "Для продолжения использования бота необходимо оформить подписку.\n"
-                "Используйте команду /info для просмотра доступных тарифов."
+                "😊 Спасибо, что пользуетесь NutriBot! Ваш пробный период закончился.\n\n"
+                "**Что вы можете сделать сейчас:**\n"
+                "- Оформить подписку и получить:\n"
+                "  • Персональные рекомендации\n"
+                "  • Полный анализ питания\n"
+                "  • Продвинутые тренировки\n\n"
+                f"Выберите тариф (/info) — от {SUBSCRIPTION_PRICES['1_month']}₽/месяц!"
             )
         else:
             await update.message.reply_text(
-                "🚫 Your trial period has ended.\n\n"
-                "To continue using the bot, you need to subscribe.\n"
-                "Use the /info command to view available plans."
+                "😊 Thanks for using NutriBot! Your trial has ended.\n\n"
+                "**What you can do now:**\n"
+                "- Subscribe to unlock:\n"
+                "  • Personalized plans\n"
+                "  • Full nutrition analysis\n"
+                "  • Advanced workouts\n\n"
+                f"See plans (/info) — from {SUBSCRIPTION_PRICES['1_month']}₽/month!"
             )
         return
     
