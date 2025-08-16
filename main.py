@@ -3928,77 +3928,90 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
 
 async def broadcast_start(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
-
+    
     # Проверяем, является ли пользователь администратором
     if str(user_id) != '1749803311':
         await update.message.reply_text("У вас нет прав для использования этой команды.")
         return ConversationHandler.END
-
+    
     keyboard = [
         [InlineKeyboardButton("Отправить конкретному пользователю", callback_data="specific_user")],
         [InlineKeyboardButton("Отправить всем пользователям", callback_data="all_users")],
         [InlineKeyboardButton("Отмена", callback_data="cancel")]
     ]
-
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
-
+    
     await update.message.reply_text(
         "Выберите тип рассылки:",
         reply_markup=reply_markup
     )
-
+    
     return BROADCAST_TARGET
 
 async def broadcast_target(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
-
+    
     if query.data == "specific_user":
         await query.edit_message_text("Введите user_id пользователя, которому хотите отправить сообщение:")
+        context.user_data['broadcast_type'] = 'specific'
         return BROADCAST_MESSAGE
     elif query.data == "all_users":
         keyboard = [
             [InlineKeyboardButton("Русский", callback_data="ru")],
             [InlineKeyboardButton("English", callback_data="en")],
+            [InlineKeyboardButton("Назад", callback_data="back")],
             [InlineKeyboardButton("Отмена", callback_data="cancel")]
         ]
-
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
-
+        
         await query.edit_message_text(
             "Выберите язык пользователей для рассылки:",
             reply_markup=reply_markup
         )
+        context.user_data['broadcast_type'] = 'all'
         return BROADCAST_LANGUAGE
-    else:
+    elif query.data == "cancel":
         await query.edit_message_text("Рассылка отменена.")
+        return ConversationHandler.END
+    else:
+        await query.edit_message_text("Неизвестная команда.")
         return ConversationHandler.END
 
 async def broadcast_language(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     await query.answer()
-
+    
     if query.data == "cancel":
         await query.edit_message_text("Рассылка отменена.")
         return ConversationHandler.END
-
+    elif query.data == "back":
+        return await broadcast_start(update, context)
+    
     context.user_data['broadcast_lang'] = query.data
     await query.edit_message_text(f"Введите сообщение для отправки всем пользователям (язык: {'русский' if query.data == 'ru' else 'english'}):")
-
+    
     return BROADCAST_MESSAGE
 
 async def broadcast_message(update: Update, context: CallbackContext) -> int:
-    if update.message:
-        message_text = update.message.text
-    else:
+    if update.callback_query:
         query = update.callback_query
         await query.answer()
+        
         if query.data == "cancel":
             await query.edit_message_text("Рассылка отменена.")
             return ConversationHandler.END
-        return BROADCAST_TARGET
-
-    if 'broadcast_lang' in context.user_data:
+        elif query.data == "back":
+            if context.user_data.get('broadcast_type') == 'all':
+                return await broadcast_target(update, context)
+            else:
+                return await broadcast_start(update, context)
+    
+    message_text = update.message.text
+    
+    if context.user_data.get('broadcast_type') == 'all':
         # Рассылка всем пользователям выбранного языка
         lang = context.user_data['broadcast_lang']
         conn = None
@@ -4011,14 +4024,14 @@ async def broadcast_message(update: Update, context: CallbackContext) -> int:
                 charset='utf8mb4',
                 cursorclass=pymysql.cursors.DictCursor
             )
-
+            
             with conn.cursor() as cursor:
                 cursor.execute("SELECT user_id FROM user_profiles WHERE language = %s", (lang,))
                 users = cursor.fetchall()
-
+                
                 success = 0
                 failed = 0
-
+                
                 for user in users:
                     try:
                         await context.bot.send_message(
@@ -4029,12 +4042,12 @@ async def broadcast_message(update: Update, context: CallbackContext) -> int:
                     except Exception as e:
                         print(f"Ошибка при отправке сообщения пользователю {user['user_id']}: {e}")
                         failed += 1
-
+                
                 await update.message.reply_text(
                     f"Сообщение отправлено {success} пользователям (язык: {'русский' if lang == 'ru' else 'english'}). "
                     f"Не удалось отправить {failed} пользователям."
                 )
-
+                
         except Exception as e:
             print(f"Ошибка при рассылке: {e}")
             await update.message.reply_text("Произошла ошибка при рассылке сообщений.")
@@ -4044,26 +4057,37 @@ async def broadcast_message(update: Update, context: CallbackContext) -> int:
     else:
         # Отправка конкретному пользователю
         try:
-            target_user_id = int(context.user_data.get('target_user_id', update.message.text))
-            context.user_data['target_user_id'] = target_user_id
-
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=message_text
-            )
-
-            await update.message.reply_text(f"Сообщение отправлено пользователю с ID {target_user_id}.")
+            if 'target_user_id' not in context.user_data:
+                # Это первый шаг - сохраняем user_id
+                context.user_data['target_user_id'] = int(message_text)
+                await update.message.reply_text("Введите сообщение для отправки:")
+                return BROADCAST_MESSAGE
+            else:
+                # Это второй шаг - отправляем сообщение
+                target_user_id = context.user_data['target_user_id']
+                
+                await context.bot.send_message(
+                    chat_id=target_user_id,
+                    text=message_text
+                )
+                
+                await update.message.reply_text(f"Сообщение отправлено пользователю с ID {target_user_id}.")
         except ValueError:
             await update.message.reply_text("Некорректный user_id. Пожалуйста, введите числовой идентификатор пользователя.")
             return BROADCAST_MESSAGE
         except Exception as e:
             print(f"Ошибка при отправке сообщения: {e}")
             await update.message.reply_text(f"Не удалось отправить сообщение пользователю. Ошибка: {str(e)}")
-
+    
     return ConversationHandler.END
 
 async def cancel_broadcast(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text("Рассылка отменена.")
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Рассылка отменена.")
+    else:
+        await update.message.reply_text("Рассылка отменена.")
     return ConversationHandler.END
 
 
@@ -5466,7 +5490,10 @@ def main():
         states={
             BROADCAST_TARGET: [CallbackQueryHandler(broadcast_target)],
             BROADCAST_LANGUAGE: [CallbackQueryHandler(broadcast_language)],
-            BROADCAST_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_message)],
+            BROADCAST_MESSAGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_message),
+                CallbackQueryHandler(broadcast_message, pattern="^(back|cancel)$")
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel_broadcast)],
     )
