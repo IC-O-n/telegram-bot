@@ -3954,6 +3954,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             )
         return
 
+
     # Оригинальная логика обработки сообщений
     message = update.message
     user_text = message.caption or message.text or ""
