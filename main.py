@@ -4077,15 +4077,57 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
 
     # Проверяем, запрашивает ли пользователь анализ питания
-    is_nutrition_analysis = ("анализ питания" in user_text.lower()) or ("nutrition analysis" in user_text.lower())
-    
+        is_nutrition_analysis = ("анализ питания" in user_text.lower()) or ("nutrition analysis" in user_text.lower())
+
     # Если запрошен анализ питания, добавляем meal_history в контекст
     if is_nutrition_analysis:
         meal_history = await get_meal_history(user_id)
         if meal_history:
             try:
+                # Проверяем и удаляем записи старше 7 дней
+                current_date = date.today()
+                dates_to_delete = []
+            
+                for day_str in list(meal_history.keys()):
+                    try:
+                        day_date = date.fromisoformat(day_str)
+                        if (current_date - day_date).days > 7:
+                            dates_to_delete.append(day_str)
+                    except ValueError:
+                        # Если дата в неправильном формате, пропускаем
+                        continue
+            
+                # Удаляем старые записи
+                for old_date in dates_to_delete:
+                    del meal_history[old_date]
+                    print(f"Удалена запись за {old_date} (старше 7 дней) для пользователя {user_id}")
+            
+                # Если были удалены старые записи, обновляем базу данных
+                if dates_to_delete:
+                    conn = pymysql.connect(
+                        host='x91345bo.beget.tech',
+                        user='x91345bo_nutrbot',
+                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+                        database='x91345bo_nutrbot',
+                        charset='utf8mb4',
+                        cursorclass=pymysql.cursors.DictCursor
+                    )
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE user_profiles 
+                                SET meal_history = %s 
+                                WHERE user_id = %s
+                            """, (json.dumps(meal_history), user_id))
+                        conn.commit()
+                    except Exception as e:
+                        print(f"Ошибка при обновлении истории питания после удаления старых записей: {e}")
+                    finally:
+                        if conn:
+                            conn.close()
+            
                 meals_text = "🍽 История вашего питания / Your meal history:\n"
-        
+    
                 # Сортируем даты по убыванию (новые сверху)
                 sorted_dates = sorted(meal_history.keys(), reverse=True)
         
@@ -4104,7 +4146,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                                 print(f"Некорректные данные о приеме пищи для {meal_key}")
                     else:
                         print(f"Некорректный формат данных за день {day}")
-        
+    
                 contents.insert(0, {"text": meals_text})
             except Exception as e:
                 print(f"Ошибка при формировании истории питания: {e}")
