@@ -3941,14 +3941,14 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         if language == "ru":
             await update.message.reply_text(
                 "🙏 Спасибо, что попробовали NutriBot!\n\n"
-                "Ваш пробный период подошел к концу. Мы видели, как вы старались и прогрессировали!\n\n"
+                "Ваш пробный период подошел к концу. Мы видели, как Вы старались и прогрессировали!\n\n"
                 "Чтобы продолжить это путешествие к здоровью вместе с нами, оформите подписку через /info\n\n"
                 "💖 Ваше здоровье - лучшая инвестиция!"
             )
         else:
             await update.message.reply_text(
                 "🙏 Thank you for trying NutriBot!\n\n"
-                "Your free trial has come to an end. We've seen how hard you've worked and the progress you've made!\n\n"
+                "Your free trial has come to an end. We've seen how hard You've worked and the progress You've made!\n\n"
                 "To continue this health journey with us, subscribe using /info\n\n"
                 "💖 Your health is the best investment!"
             )
