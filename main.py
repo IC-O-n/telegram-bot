@@ -3940,28 +3940,20 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         language = "ru"  # Можно добавить проверку языка из профиля
         if language == "ru":
             await update.message.reply_text(
-                "🔒 Ваш пробный период закончился, но мы можем продолжить!\n\n"
-                "NutriBot помог уже тысячам пользователей:\n"
-                "• Персональные планы питания 🍎\n"
-                "• Умный анализ фото еды 📸\n"
-                "• Точный расчет КБЖУ 🧮\n"
-                "• Рекомендации по тренировкам 💪\n\n"
-                "Продолжить использование можно по подписке - это меньше стоимости чашки кофе в день ☕\n\n"
-                "Хотите оформить подписку? Нажмите /info"
+                "🙏 Спасибо, что попробовали NutriBot!\n"
+                "Ваш пробный период подошел к концу. Мы видели, как вы старались и прогрессировали!\n"
+                "Чтобы продолжить это путешествие к здоровью вместе с нами, оформите подписку через /info\n"
+                "💖 Ваше здоровье - лучшая инвестиция!"
             )
         else:
             await update.message.reply_text(
-                "🔒 Your trial has ended, but we can continue!\n\n"
-                "NutriBot has already helped thousands:\n"
-                "• Personalized meal plans 🍎\n"
-                "• Smart food photo analysis 📸\n"
-                "• Accurate nutrition tracking 🧮\n"
-                "• Workout recommendations 💪\n\n"
-                "Continue using for less than a cup of coffee per day ☕\n\n"
-                "Want to subscribe? Tap /info"
+                "🙏 Thank you for trying NutriBot!\n"
+                "Your free trial has come to an end. We've seen how hard you've worked and the progress you've made!\n"
+                "To continue this health journey with us, subscribe using /info\n"
+                "💖 Your health is the best investment!"
             )
         return
-    
+
     # Оригинальная логика обработки сообщений
     message = update.message
     user_text = message.caption or message.text or ""
