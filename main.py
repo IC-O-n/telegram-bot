@@ -5307,15 +5307,15 @@ def main():
     # Добавляем job для проверки неактивных пользователей
     app.job_queue.run_repeating(
         check_inactive_users,
-        interval=900,
-        first=30
+        interval=600,
+        first=10
     )
 
     # Добавляем job для проверки напоминаний
     app.job_queue.run_repeating(
         check_reminders,
-        interval=120,  # Проверяем каждую минуту
-        first=15      # Первая проверка через 10 секунд
+        interval=60,  # Проверяем каждую минуту
+        first=10      # Первая проверка через 10 секунд
     )
     
     # Проверяем и создаем jobs для напоминаний о воде при старте
@@ -5331,8 +5331,8 @@ def main():
 
     app.job_queue.run_repeating(
         check_payment_status, 
-        interval=600, 
-        first=45
+        interval=300, 
+        first=10
     )
 
     workout_conv_handler = ConversationHandler(
