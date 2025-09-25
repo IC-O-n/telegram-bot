@@ -36,7 +36,7 @@ SUBSCRIPTION_PRICES = {
 FREE_TRIAL_HOURS = 24  # Продолжительность бесплатного периода в часах
 PERMANENT_ACCESS_CODE = "S05D"  # Код для перманентного доступа
 
-# Ключи ЮКассsa (из secret.txt)
+# Ключи ЮКассы (из secret.txt)
 YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
 
@@ -846,7 +846,7 @@ async def start(update: Update, context: CallbackContext) -> int:
             
         # Продолжаем стандартный процесс
         await update.message.reply_text(
-            "Привет! Я твой персональный фитнес-ассистент NutriBot. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant NutriBot. Please choose your preferred language:\n\n"
+            "Привет! Я твой персональный фитнес-ассистент Nexus. Пожалуйста, выбери язык общения / Hello! I'm your personal fitness assistant Nexus. Please choose your preferred language:\n\n"
             "🇷🇺 Русский - отправь 'ru'\n"
             "🇬🇧 English - send 'en'\n\n"
         )
@@ -1216,8 +1216,8 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
     # Второе сообщение - инструкция по использованию бота
     if language == "ru":
         usage_text = (
-            "📚 Как пользоваться NutriBot — вашим персональным фитнес AI-ассистентом\n\n"
-            "NutriBot — это умный AI-помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
+            "📚 Как пользоваться Nexus — вашим персональным фитнес AI-ассистентом\n\n"
+            "Nexus — это умный AI-помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
             "🍎 Анализ питания по фото\n"
             "Отправьте боту фотографию вашего блюда, и он проведет детальный анализ:\n"
             "🔹 Состав и калории — белки, жиры, углеводы и общая калорийность.\n"
@@ -1265,8 +1265,8 @@ async def finish_questionnaire(update: Update, context: CallbackContext) -> int:
         )
     else:
         usage_text = (
-            "📚 How to use NutriBot — your personal fitness AI-assistant\n\n"
-            "NutriBot is a smart AI companion that helps you track nutrition, workouts, and healthy habits. Here's how to use it:\n\n"
+            "📚 How to use Nexus — your personal fitness AI-assistant\n\n"
+            "Nexus is a smart AI companion that helps you track nutrition, workouts, and healthy habits. Here's how to use it:\n\n"
             "🍎 Food analysis by photo\n"
             "Send a photo of your meal, and the bot will analyze it in detail:\n"
             "🔹 Composition and calories - proteins, fats, carbs, and total calories.\n"
@@ -2489,7 +2489,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
         if language == "ru":
             features_text = (
-                "🌟 *NutriBot - ваш персональный фитнес AI-компаньон!* 🌟\n\n"
+                "🌟 *Nexus - ваш персональный фитнес AI-компаньон!* 🌟\n\n"
                 "Я помогу вам достичь ваших целей в здоровье и фитнесе с помощью:\n\n"
                 "💪 *Персональные тренировки*\n"
                 "- Генерация программ под ваш уровень и оборудование\n"
@@ -2519,7 +2519,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             )
         else:
             features_text = (
-                "🌟 *NutriBot - Your Personal Fitness AI-Companion!* 🌟\n\n"
+                "🌟 *Nexus - Your Personal Fitness AI-Companion!* 🌟\n\n"
                 "I'll help you achieve your health and fitness goals with:\n\n"
                 "💪 *Personalized Workouts*\n"
                 "- Custom programs for your level and equipment\n"
@@ -2622,8 +2622,8 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
         if language == "ru":
             usage_text = (
-        "📚 Как пользоваться NutriBot — вашим персональным фитнес AI-ассистентом\n\n"
-        "NutriBot — это умный AI-помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
+        "📚 Как пользоваться Nexus — вашим персональным фитнес AI-ассистентом\n\n"
+        "Nexus — это умный AI-помощник, который поможет вам следить за питанием, тренировками и здоровыми привычками. Вот как им пользоваться:\n\n"
         "🍎 Анализ питания по фото\n"
         "Отправьте боту фотографию вашего блюда, и он проведет детальный анализ:\n"
         "🔹 Состав и калории — белки, жиры, углеводы и общая калорийность.\n"
@@ -2671,8 +2671,8 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             )
         else:
             usage_text = (
-        "📚 How to use NutriBot — your personal fitness AI-assistant\n\n"
-        "NutriBot is a smart AI companion that helps you track nutrition, workouts, and healthy habits. Here's how to use it:\n\n"
+        "📚 How to use Nexus — your personal fitness AI-assistant\n\n"
+        "Nexus is a smart AI companion that helps you track nutrition, workouts, and healthy habits. Here's how to use it:\n\n"
         "🍎 Food analysis by photo\n"
         "Send a photo of your meal, and the bot will analyze it in detail:\n"
         "🔹 Composition and calories - proteins, fats, carbs, and total calories.\n"
@@ -2877,7 +2877,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
                 "type": "redirect",
                 "return_url": "https://t.me/eatsmart_ai_bot"
             },
-            "description": f"Подписка {sub_type.replace('_', ' ')} на NutriBot",
+            "description": f"Подписка {sub_type.replace('_', ' ')} на Nexus",
             "metadata": {
                 "user_id": user_id,
                 "subscription_type": sub_type
@@ -3002,7 +3002,7 @@ async def info(update: Update, context: CallbackContext) -> None:
             sub_text = "❌ У вас нет активной подписки"
             
         info_text = (
-            f"NutriBot - ваш персональный фитнес AI-ассистент\n\n"
+            f"Nexus - ваш персональный фитнес AI-ассистент\n\n"
             f"{sub_text}\n\n"
             "Я помогу вам:\n"
             "• Следить за питанием и считать КБЖУ 🍎\n"
@@ -3027,7 +3027,7 @@ async def info(update: Update, context: CallbackContext) -> None:
             sub_text = "❌ You don't have an active subscription"
             
         info_text = (
-            f"NutriBot - your personal fitness AI-assistant\n\n"
+            f"Nexus - your personal fitness AI-assistant\n\n"
             f"{sub_text}\n\n"
             "I can help you with:\n"
             "• Tracking nutrition and counting calories 🍎\n"
@@ -3940,14 +3940,14 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         language = "ru"  # Можно добавить проверку языка из профиля
         if language == "ru":
             await update.message.reply_text(
-                "🙏 Спасибо, что попробовали NutriBot!\n\n"
+                "🙏 Спасибо, что попробовали Nexus!\n\n"
                 "Ваш пробный период подошел к концу. Мы видели, как Вы старались и прогрессировали!\n\n"
                 "Чтобы продолжить это путешествие к здоровью вместе с нами, оформите подписку через /info\n\n"
                 "💖 Ваше здоровье - лучшая инвестиция!"
             )
         else:
             await update.message.reply_text(
-                "🙏 Thank you for trying NutriBot!\n\n"
+                "🙏 Thank you for trying Nexus!\n\n"
                 "Your free trial has come to an end. We've seen how hard You've worked and the progress You've made!\n\n"
                 "To continue this health journey with us, subscribe using /info\n\n"
                 "💖 Your health is the best investment!"
