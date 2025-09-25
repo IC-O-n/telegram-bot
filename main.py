@@ -28,7 +28,7 @@ TOKEN = os.getenv("TOKEN")
 GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SUBSCRIPTION_PRICES = {
-    '1_month': 249,
+    '1_month': 1,
     '6_months': 1299,
     '12_months': 2299
 }
@@ -4077,57 +4077,15 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         contents.insert(0, {"text": f"Контекст текущего диалога / Current dialog context (последние сообщения / recent messages):\n{history_prompt}"})
 
     # Проверяем, запрашивает ли пользователь анализ питания
-        is_nutrition_analysis = ("анализ питания" in user_text.lower()) or ("nutrition analysis" in user_text.lower())
-
+    is_nutrition_analysis = ("анализ питания" in user_text.lower()) or ("nutrition analysis" in user_text.lower())
+    
     # Если запрошен анализ питания, добавляем meal_history в контекст
     if is_nutrition_analysis:
         meal_history = await get_meal_history(user_id)
         if meal_history:
             try:
-                # Проверяем и удаляем записи старше 7 дней
-                current_date = date.today()
-                dates_to_delete = []
-            
-                for day_str in list(meal_history.keys()):
-                    try:
-                        day_date = date.fromisoformat(day_str)
-                        if (current_date - day_date).days > 7:
-                            dates_to_delete.append(day_str)
-                    except ValueError:
-                        # Если дата в неправильном формате, пропускаем
-                        continue
-            
-                # Удаляем старые записи
-                for old_date in dates_to_delete:
-                    del meal_history[old_date]
-                    print(f"Удалена запись за {old_date} (старше 7 дней) для пользователя {user_id}")
-            
-                # Если были удалены старые записи, обновляем базу данных
-                if dates_to_delete:
-                    conn = pymysql.connect(
-                        host='x91345bo.beget.tech',
-                        user='x91345bo_nutrbot',
-                        password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-                        database='x91345bo_nutrbot',
-                        charset='utf8mb4',
-                        cursorclass=pymysql.cursors.DictCursor
-                    )
-                    try:
-                        with conn.cursor() as cursor:
-                            cursor.execute("""
-                                UPDATE user_profiles 
-                                SET meal_history = %s 
-                                WHERE user_id = %s
-                            """, (json.dumps(meal_history), user_id))
-                        conn.commit()
-                    except Exception as e:
-                        print(f"Ошибка при обновлении истории питания после удаления старых записей: {e}")
-                    finally:
-                        if conn:
-                            conn.close()
-            
                 meals_text = "🍽 История вашего питания / Your meal history:\n"
-    
+        
                 # Сортируем даты по убыванию (новые сверху)
                 sorted_dates = sorted(meal_history.keys(), reverse=True)
         
@@ -4146,7 +4104,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                                 print(f"Некорректные данные о приеме пищи для {meal_key}")
                     else:
                         print(f"Некорректный формат данных за день {day}")
-    
+        
                 contents.insert(0, {"text": meals_text})
             except Exception as e:
                 print(f"Ошибка при формировании истории питания: {e}")
@@ -5167,16 +5125,7 @@ TEXT: ...
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
-    
-            # Всегда используем реальный user_id вместо того, что может быть в SQL от Gemini
-            # Заменяем любые упоминания user_id в запросе на наш реальный user_id
-            sql_part = re.sub(r'user_id\s*=\s*\d+', f'user_id = {user_id}', sql_part, flags=re.IGNORECASE)
-            sql_part = re.sub(r'WHERE\s+user_id', f'WHERE user_id = {user_id}', sql_part, flags=re.IGNORECASE)
-    
-            # Также заменяем плейсхолдеры на реальный user_id
-            sql_part = sql_part.replace('?', '%s')
-            sql_part = sql_part.replace('%s', str(user_id))
-    
+            
             # Пропускаем SQL-запросы, связанные с nutrition_update и meal_history,
             # так как они обрабатываются отдельно
             if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
@@ -5190,18 +5139,18 @@ TEXT: ...
                         cursorclass=pymysql.cursors.DictCursor
                     )
                     with conn.cursor() as cursor:
-                        # Если в SQL еще остались плейсхолдеры, используем параметризованный запрос
-                        if '%s' in sql_part:
+                        sql_part = sql_part.replace('?', '%s')
+                        if "%s" in sql_part:
                             cursor.execute(sql_part, (user_id,))
                         else:
                             cursor.execute(sql_part)
                         conn.commit()
-                        print(f"Выполнен SQL для пользователя {user_id}: {sql_part}")
+                        print(f"Выполнен SQL: {sql_part}")
                 except Exception as e:
                     print(f"Ошибка при выполнении SQL: {e}")
                 finally:
                     if conn:
-                    conn.close()
+                        conn.close()
 
         # Извлекаем текст для пользователя
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
@@ -5406,8 +5355,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
 
