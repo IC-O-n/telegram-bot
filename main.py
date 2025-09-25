@@ -5167,7 +5167,16 @@ TEXT: ...
         sql_match = re.search(r'SQL:(.*?)(?=TEXT:|$)', response_text, re.DOTALL)
         if sql_match:
             sql_part = sql_match.group(1).strip()
-            
+    
+            # Всегда используем реальный user_id вместо того, что может быть в SQL от Gemini
+            # Заменяем любые упоминания user_id в запросе на наш реальный user_id
+            sql_part = re.sub(r'user_id\s*=\s*\d+', f'user_id = {user_id}', sql_part, flags=re.IGNORECASE)
+            sql_part = re.sub(r'WHERE\s+user_id', f'WHERE user_id = {user_id}', sql_part, flags=re.IGNORECASE)
+    
+            # Также заменяем плейсхолдеры на реальный user_id
+            sql_part = sql_part.replace('?', '%s')
+            sql_part = sql_part.replace('%s', str(user_id))
+    
             # Пропускаем SQL-запросы, связанные с nutrition_update и meal_history,
             # так как они обрабатываются отдельно
             if not any(keyword in sql_part.lower() for keyword in ['nutrition_update', 'meal_history', 'calories_today', 'proteins_today', 'fats_today', 'carbs_today']):
@@ -5181,18 +5190,18 @@ TEXT: ...
                         cursorclass=pymysql.cursors.DictCursor
                     )
                     with conn.cursor() as cursor:
-                        sql_part = sql_part.replace('?', '%s')
-                        if "%s" in sql_part:
+                        # Если в SQL еще остались плейсхолдеры, используем параметризованный запрос
+                        if '%s' in sql_part:
                             cursor.execute(sql_part, (user_id,))
                         else:
                             cursor.execute(sql_part)
                         conn.commit()
-                        print(f"Выполнен SQL: {sql_part}")
+                        print(f"Выполнен SQL для пользователя {user_id}: {sql_part}")
                 except Exception as e:
                     print(f"Ошибка при выполнении SQL: {e}")
                 finally:
                     if conn:
-                        conn.close()
+                    conn.close()
 
         # Извлекаем текст для пользователя
         text_matches = re.findall(r'TEXT:(.*?)(?=SQL:|$)', response_text, re.DOTALL)
