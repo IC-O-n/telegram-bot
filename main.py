@@ -3918,18 +3918,8 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
             conn.close()
 
 
-CUSTOM_STICKER_ID = "CAACAgIAAxkBAAEPud5pDjtc3Fb5U4Q3hcMdt1U2A7Qi-gACQwEAAs0bMAiAvonYgQO9kzYE"
+CUSTOM_STICKER_ID = "CAACAgIAAxkBAAEPu9BpEHUkC6KFwEYroojBFgX8_bNwlgACXlwBAAFji0YM9eoEXxmXHkE2BA"
 
-async def delete_sticker_after_delay(context: CallbackContext):
-    """Удаляет стикер через указанное время"""
-    job = context.job
-    try:
-        await context.bot.delete_message(
-            chat_id=job.chat_id,
-            message_id=job.data['sticker_message_id']
-        )
-    except Exception as e:
-        print(f"Ошибка при удалении стикера: {e}")
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
