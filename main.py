@@ -3972,18 +3972,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if has_photo:
         try:
             sticker_message = await update.message.reply_sticker(CUSTOM_STICKER_ID)
-            # Запланируем удаление стикера через 3 секунды
-            context.job_queue.run_once(
-                delete_sticker_after_delay,
-                when=2,  # 2 секунды
-                data={
-                    'sticker_message_id': sticker_message.message_id,
-                    'chat_id': update.message.chat_id
-                }
-            )
         except Exception as e:
             print(f"Ошибка при отправке стикера: {e}")
-
 
     # Оригинальная логика обработки сообщений
     message = update.message
@@ -5317,10 +5307,22 @@ TEXT: ...
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
+        if sticker_message:
+            try:
+                await sticker_message.delete()
+            except Exception as e:
+                print(f"Ошибка при удалении стикера: {e}")
+
 
         await update.message.reply_text(text_part)
 
     except Exception as e:
+        if sticker_message:
+            try:
+                await sticker_message.delete()
+            except Exception as e:
+                print(f"Ошибка при удалении стикера: {e}")
+
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
         if language == "en":
             error_message = "An error occurred while processing your request. Please try again."
