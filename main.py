@@ -5329,7 +5329,6 @@ TEXT: ...
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
 
-
 def main():
     init_db()
     
