@@ -3918,8 +3918,9 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
             conn.close()
 
 
+CUSTOM_STICKER_ID = "CAACAgIAAxkBAAEPud5pDjtc3Fb5U4Q3hcMdt1U2A7Qi-gACQwEAAs0bMAiAvonYgQO9kzYE"
 
-
+import asyncio
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
@@ -3953,6 +3954,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                 "💖 Your health is the best investment!"
             )
         return
+
+    # Проверяем, есть ли фото в сообщении
+    has_photo = bool(update.message.photo)
+
+    # Если есть фото - отправляем стикер
+    sticker_message = None
+    if has_photo:
+        try:
+            sticker_message = await update.message.reply_sticker(CUSTOM_STICKER_ID)
+        except Exception as e:
+            print(f"Ошибка при отправке стикера: {e}")
 
 
     # Оригинальная логика обработки сообщений
@@ -5287,10 +5299,23 @@ TEXT: ...
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
+        if sticker_message:
+            await asyncio.sleep(3)  # Ждем 3 секунды
+            try:
+                await sticker_message.delete()
+            except Exception as e:
+                print(f"Ошибка при удалении стикера: {e}")
+
 
         await update.message.reply_text(text_part)
 
     except Exception as e:
+        if sticker_message:
+            try:
+                await sticker_message.delete()
+            except Exception as e:
+                print(f"Ошибка при удалении стикера: {e}")
+
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
         if language == "en":
             error_message = "An error occurred while processing your request. Please try again."
