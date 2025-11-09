@@ -3918,7 +3918,7 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
             conn.close()
 
 
-CUSTOM_STICKER_ID = "CAACAgIAAxkBAAEPu9BpEHUkC6KFwEYroojBFgX8_bNwlgACXlwBAAFji0YM9eoEXxmXHkE2BA"
+CUSTOM_STICKER_ID = "CAACAgIAAxkBAAEPud5pDjtc3Fb5U4Q3hcMdt1U2A7Qi-gACQwEAAs0bMAiAvonYgQO9kzYE"
 
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
