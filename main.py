@@ -5300,7 +5300,7 @@ TEXT: ...
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
         if sticker_message:
-            await asyncio.sleep(3)  # Ждем 3 секунды
+            await asyncio.sleep(2)  # Ждем 3 секунды
             try:
                 await sticker_message.delete()
             except Exception as e:
