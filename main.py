@@ -3408,6 +3408,9 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
         [
             InlineKeyboardButton("На спортплощадке", callback_data="playground"),
             InlineKeyboardButton("Дома", callback_data="home"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад" if language == "ru" else "🔙 Back", callback_data="back_to_menu")
         ]
     ]
     
@@ -3420,6 +3423,9 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
             [
                 InlineKeyboardButton("Playground", callback_data="playground"),
                 InlineKeyboardButton("Home", callback_data="home"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Back", callback_data="back_to_menu")
             ]
         ]
     
@@ -3470,6 +3476,9 @@ async def select_workout_duration(update: Update, context: CallbackContext) -> i
         [
             InlineKeyboardButton("1.5 часа", callback_data="90"),
             InlineKeyboardButton("2 часа", callback_data="120"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад" if language == "ru" else "🔙 Back", callback_data="back_to_workout_start")
         ]
     ]
     
@@ -3483,6 +3492,9 @@ async def select_workout_duration(update: Update, context: CallbackContext) -> i
             [
                 InlineKeyboardButton("1.5 hours", callback_data="90"),
                 InlineKeyboardButton("2 hours", callback_data="120"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Back", callback_data="back_to_workout_start")
             ]
         ]
     
@@ -3528,6 +3540,9 @@ async def ask_special_requests(update: Update, context: CallbackContext) -> int:
         [
             InlineKeyboardButton("Да", callback_data="yes"),
             InlineKeyboardButton("Нет", callback_data="no"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад" if language == "ru" else "🔙 Back", callback_data="back_to_duration")
         ]
     ]
     
@@ -3536,6 +3551,9 @@ async def ask_special_requests(update: Update, context: CallbackContext) -> int:
             [
                 InlineKeyboardButton("Yes", callback_data="yes"),
                 InlineKeyboardButton("No", callback_data="no"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Back", callback_data="back_to_duration")
             ]
         ]
     
@@ -3548,6 +3566,80 @@ async def ask_special_requests(update: Update, context: CallbackContext) -> int:
     
     await query.edit_message_text(text=text, reply_markup=reply_markup)
     return WORKOUT_SPECIAL_REQUESTS
+
+
+# Добавляем обработчики для кнопок "Назад" в workout_conv_handler
+async def back_to_workout_start(update: Update, context: CallbackContext) -> int:
+    """Возврат к выбору места тренировки"""
+    query = update.callback_query
+    await query.answer()
+
+    # Очищаем данные о выборе места тренировки
+    if 'workout_location' in context.user_data:
+        del context.user_data['workout_location']
+
+    return await start_workout(update, context)
+
+async def back_to_duration(update: Update, context: CallbackContext) -> int:
+    """Возврат к выбору продолжительности тренировки"""
+    query = update.callback_query
+    await query.answer()
+
+    # Очищаем данные о продолжительности
+    if 'workout_duration' in context.user_data:
+        del context.user_data['workout_duration']
+
+    return await select_workout_duration(update, context)
+
+async def back_to_menu(update: Update, context: CallbackContext) -> int:
+    """Возврат в главное меню из любого места диалога тренировки"""
+    query = update.callback_query
+    await query.answer()
+
+    # Очищаем все данные о тренировке
+    for key in ['workout_location', 'workout_duration', 'workout_special_requests', 'awaiting_special_requests']:
+        if key in context.user_data:
+            del context.user_data[key]
+
+    user_id = query.from_user.id
+    language = "ru"
+
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT language FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cursor.fetchone()
+            if row and row['language']:
+                language = row['language']
+    except Exception as e:
+        print(f"Ошибка при получении языка: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    keyboard = [
+        [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start Workout", callback_data="start_workout")],
+        [InlineKeyboardButton("✨ О возможностях бота" if language == "ru" else "✨ About bot features", callback_data="bot_features")],
+        [InlineKeyboardButton("📚 Как пользоваться" if language == "ru" else "📚 How to use", callback_data="bot_usage")]
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        "📱 *Меню управления ботом*\n\n"
+        "Здесь вы можете управлять основными функциями" if language == "ru" else "📱 *Bot Control Menu*\n\nHere you can manage main functions",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+    return ConversationHandler.END
+
 
 async def get_special_requests(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
@@ -3604,6 +3696,8 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     # Сохраняем данные для следующего шага
     context.user_data['awaiting_special_requests'] = True
     return WORKOUT_GENERATE
+
+
 
 async def generate_workout(update: Update, context: CallbackContext) -> int:
     # Определяем, откуда пришел запрос
@@ -5362,11 +5456,18 @@ def main():
     workout_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_workout, pattern="^start_workout$")],
         states={
-            WORKOUT_LOCATION: [CallbackQueryHandler(select_workout_duration)],
-            WORKOUT_DURATION: [CallbackQueryHandler(ask_special_requests)],
+            WORKOUT_LOCATION: [
+                CallbackQueryHandler(select_workout_duration, pattern="^(gym|outdoor|playground|home)$"),
+                CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$")
+            ],
+            WORKOUT_DURATION: [
+                CallbackQueryHandler(ask_special_requests, pattern="^(15|30|60|90|120)$"),
+                CallbackQueryHandler(back_to_workout_start, pattern="^back_to_workout_start$")
+            ],
             WORKOUT_SPECIAL_REQUESTS: [
                 CallbackQueryHandler(get_special_requests, pattern="^yes$"),
                 CallbackQueryHandler(generate_workout, pattern="^no$"),
+                CallbackQueryHandler(back_to_duration, pattern="^back_to_duration$")
             ],
             WORKOUT_GENERATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, generate_workout)],
         },
