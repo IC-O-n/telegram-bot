@@ -3214,7 +3214,19 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления с краткой статистикой"""
-    user_id = update.message.from_user.id
+    # Определяем откуда пришел запрос - из сообщения или callback query
+    if update.message:
+        user_id = update.message.from_user.id
+        chat_id = update.message.chat_id
+        from_query = False
+    elif update.callback_query:
+        user_id = update.callback_query.from_user.id
+        chat_id = update.callback_query.message.chat_id
+        from_query = True
+        query = update.callback_query
+        await query.answer()
+    else:
+        return
 
     if not await check_access(user_id):
         await info(update, context)  # Показываем информацию о подписке
@@ -3246,7 +3258,10 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             profile = cursor.fetchone()
 
             if not profile:
-                await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
+                if from_query:
+                    await query.edit_message_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
+                else:
+                    await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
                 return
 
             language = profile['language'] or "ru"
@@ -3350,11 +3365,18 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await update.message.reply_text(
-                stats_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+            if from_query:
+                await query.edit_message_text(
+                    stats_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text(
+                    stats_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
             
     except Exception as e:
         print(f"Ошибка при получении данных для меню: {e}")
@@ -3362,11 +3384,14 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
         error_msg = "Произошла ошибка при загрузке данных. Пожалуйста, попробуйте позже."
         if language == "en":
             error_msg = "An error occurred while loading data. Please try again later."
-        await update.message.reply_text(error_msg)
+        
+        if from_query:
+            await query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
     finally:
         if conn:
             conn.close()
-
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
@@ -3601,155 +3626,9 @@ async def back_to_menu(update: Update, context: CallbackContext) -> int:
         if key in context.user_data:
             del context.user_data[key]
     
-    user_id = query.from_user.id
+    # Просто вызываем menu_command, который сам разберется с query
+    await menu_command(update, context)
     
-    # Получаем данные пользователя для отображения статистики (как в menu_command)
-    conn = None
-    try:
-        conn = pymysql.connect(
-            host='x91345bo.beget.tech',
-            user='x91345bo_nutrbot',
-            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
-            database='x91345bo_nutrbot',
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor
-        )
-        
-        with conn.cursor() as cursor:
-            # Получаем основную информацию о пользователе
-            cursor.execute("""
-                SELECT 
-                    language, name, age, weight, water_drunk_today, calories_today,
-                    proteins_today, fats_today, carbs_today, reminders,
-                    subscription_status, subscription_type, subscription_end,
-                    wakeup_time, sleep_time
-                FROM user_profiles 
-                WHERE user_id = %s
-            """, (user_id,))
-            profile = cursor.fetchone()
-
-            if not profile:
-                await query.edit_message_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
-                return ConversationHandler.END
-
-            language = profile['language'] or "ru"
-            name = profile['name'] or ""
-            age = profile['age'] or ""
-            weight = profile['weight'] or 70
-            recommended_water = int(weight * 30)
-            water_drunk = profile['water_drunk_today'] or 0
-            remaining_water = max(0, recommended_water - water_drunk)
-            
-            calories = profile['calories_today'] or 0
-            proteins = profile['proteins_today'] or 0
-            fats = profile['fats_today'] or 0
-            carbs = profile['carbs_today'] or 0
-            
-            # Получаем время пробуждения и сна
-            wakeup_time = profile['wakeup_time'] or "07:00"
-            sleep_time = profile['sleep_time'] or "23:00"
-            
-            # Обработка напоминаний
-            reminders = []
-            if profile['reminders']:
-                try:
-                    reminders = json.loads(profile['reminders'])
-                except:
-                    reminders = []
-            
-            # Формируем текст статистики (как в menu_command)
-            if language == "ru":
-                stats_text = (
-                    f"👤 *{name}* • {age} лет • {weight} кг\n\n"
-                    f"💧 *Вода сегодня:* {water_drunk}/{recommended_water} мл ({remaining_water} мл осталось)\n\n"
-                    f"🍽 *Питание сегодня:*\n"
-                    f"• Калории: {calories} ккал\n"
-                    f"• Белки: {proteins} г\n"
-                    f"• Жиры: {fats} г\n"
-                    f"• Углеводы: {carbs} г\n\n"
-                    f"⏰ *Активные напоминания:*\n"
-                )
-                
-                if reminders:
-                    for rem in reminders:
-                        stats_text += f"• {rem['text']} в {rem['time']}\n"
-                else:
-                    stats_text += "Нет активных напоминаний\n"
-                
-                # Добавляем информацию о времени пробуждения и сне
-                stats_text += f"\n🌅 *Время пробуждения:* {wakeup_time}\n"
-                stats_text += f"🌙 *Время сна:* {sleep_time}\n"
-                
-                # Добавляем информацию о подписке
-                subscription = await check_subscription(user_id)
-                if subscription['status'] == 'trial':
-                    stats_text += f"\n🆓 *Пробный период до:* {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
-                elif subscription['status'] == 'active':
-                    stats_text += f"\n✅ *Подписка {subscription['type'].replace('_', ' ')} до:* {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
-                elif subscription['status'] == 'permanent':
-                    stats_text += "\n🌟 *Перманентный доступ*"
-                else:
-                    stats_text += "\n❌ *Нет активной подписки*"
-                
-            else:
-                stats_text = (
-                    f"👤 *{name}* • {age} y.o. • {weight} kg\n\n"
-                    f"💧 *Water today:* {water_drunk}/{recommended_water} ml ({remaining_water} ml left)\n\n"
-                    f"🍽 *Nutrition today:*\n"
-                    f"• Calories: {calories} kcal\n"
-                    f"• Proteins: {proteins} g\n"
-                    f"• Fats: {fats} g\n"
-                    f"• Carbs: {carbs} g\n\n"
-                    f"⏰ *Active reminders:*\n"
-                )
-                
-                if reminders:
-                    for rem in reminders:
-                        stats_text += f"• {rem['text']} at {rem['time']}\n"
-                else:
-                    stats_text += "No active reminders\n"
-                
-                # Добавляем информацию о времени пробуждения и сне
-                stats_text += f"\n🌅 *Wake-up time:* {wakeup_time}\n"
-                stats_text += f"🌙 *Sleep time:* {sleep_time}\n"
-                
-                # Добавляем информацию о подписке
-                subscription = await check_subscription(user_id)
-                if subscription['status'] == 'trial':
-                    stats_text += f"\n🆓 *Trial until:* {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
-                elif subscription['status'] == 'active':
-                    stats_text += f"\n✅ *{subscription['type'].replace('_', ' ')} subscription until:* {subscription['end_date'].strftime('%d.%m.%Y %H:%M')}"
-                elif subscription['status'] == 'permanent':
-                    stats_text += "\n🌟 *Permanent access*"
-                else:
-                    stats_text += "\n❌ *No active subscription*"
-            
-            # Формируем клавиатуру меню
-            keyboard = [
-                [InlineKeyboardButton("🏋️ Начать тренировку" if language == "ru" else "🏋️ Start Workout", callback_data="start_workout")],
-                [InlineKeyboardButton("✨ О возможностях бота" if language == "ru" else "✨ About bot features", callback_data="bot_features")],
-                [InlineKeyboardButton("📚 Как пользоваться" if language == "ru" else "📚 How to use", callback_data="bot_usage")]
-            ]
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                stats_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-            
-    except Exception as e:
-        print(f"Ошибка при возврате в меню: {e}")
-        language = profile.get('language', 'ru') if profile else 'ru'
-        error_msg = "Произошла ошибка при загрузке данных. Пожалуйста, попробуйте позже."
-        if language == "en":
-            error_msg = "An error occurred while loading data. Please try again later."
-        await query.edit_message_text(error_msg)
-    finally:
-        if conn:
-            conn.close()
-
     return ConversationHandler.END
 
 async def get_special_requests(update: Update, context: CallbackContext) -> int:
