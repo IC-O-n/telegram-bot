@@ -1040,13 +1040,76 @@ async def ask_target(update: Update, context: CallbackContext) -> int:
 async def ask_timezone(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
-    user_profiles[user_id]["target_metric"] = update.message.text
+    timezone_input = update.message.text.strip()
     
+    # Проверяем формат ввода с помощью регулярного выражения
+    # Допустимые форматы:
+    # - UTC+3, UTC-5, UTC+10
+    # - +3, -5, +10
+    # - 3, -5 (просто числа)
+    timezone_pattern = r'^(UTC)?[+-]?\d+$'
+    
+    if not re.match(timezone_pattern, timezone_input, re.IGNORECASE):
+        # Неправильный формат - просим повторить ввод
+        if language == "ru":
+            await update.message.reply_text(
+                "❌ Неверный формат времени. Пожалуйста, укажите часовой пояс в одном из форматов:\n"
+                "• UTC+3\n"
+                "• +3\n" 
+                "• -5\n"
+                "• 3\n\n"
+                "Примеры: UTC+3, +7, -5, 3"
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Invalid time format. Please specify the timezone in one of these formats:\n"
+                "• UTC+3\n"
+                "• +3\n"
+                "• -5\n" 
+                "• 3\n\n"
+                "Examples: UTC+3, +7, -5, 3"
+            )
+        return ASK_TIMEZONE  # Остаемся в том же состоянии
+    
+    # Обработка корректного ввода
+    try:
+        # Извлекаем числовое значение смещения
+        if timezone_input.upper().startswith('UTC'):
+            offset_str = timezone_input[3:]  # Убираем 'UTC'
+        else:
+            offset_str = timezone_input
+        
+        # Обрабатываем случай, когда нет знака (просто число)
+        if offset_str and not (offset_str.startswith('+') or offset_str.startswith('-')):
+            offset_str = '+' + offset_str
+        
+        offset = int(offset_str)
+        
+        # Преобразуем в формат для pytz (знаки обратные)
+        tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+        
+        user_profiles[user_id]["timezone"] = tz.zone
+        print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
+        
+    except Exception as e:
+        print(f"Ошибка определения часового пояса: {e}")
+        # Ошибка обработки - просим повторить ввод
+        if language == "ru":
+            await update.message.reply_text(
+                "❌ Ошибка обработки часового пояса. Пожалуйста, укажите в формате UTC+3 или +3:"
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Error processing timezone. Please specify in UTC+3 or +3 format:"
+            )
+        return ASK_TIMEZONE
+    
+    # Продолжаем анкету
     if language == "ru":
-        await update.message.reply_text("В каком часовом поясе ты находишься? (Например: UTC+3, +3, -5, Europe/Moscow)")
+        await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
     else:
-        await update.message.reply_text("What timezone are you in? (e.g. UTC-5, +3, -8, Europe/London)")
-    return ASK_TIMEZONE
+        await update.message.reply_text("What time do you usually wake up? (Format: HH:MM, e.g. 07:30)")
+    return ASK_WAKEUP_TIME
 
 
 async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
@@ -1054,61 +1117,37 @@ async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     language = user_profiles[user_id].get("language", "ru")
     timezone_input = update.message.text.strip()
     
-    # Улучшенная обработка часового пояса
+    # Упрощенная обработка часового пояса
     try:
-        # Обработка форматов: +3, -5, UTC+3, UTC-5
-        timezone_match = re.match(r'^(UTC)?([+-])?(\d+)$', timezone_input.upper())
-        
-        if timezone_match:
-            # Извлекаем компоненты: знак и число
-            prefix, sign, offset_str = timezone_match.groups()
-            offset = int(offset_str)
-            
-            # Если знак не указан, предполагаем "+"
-            if not sign:
-                sign = "+"
-            
-            # Преобразуем в формат для pytz (знаки обратные)
-            if sign == '+':
-                tz = pytz.timezone(f"Etc/GMT-{offset}")
-            else:  # sign == '-'
-                tz = pytz.timezone(f"Etc/GMT+{offset}")
-                
-            user_profiles[user_id]["timezone"] = tz.zone
-            print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone} (из ввода: {timezone_input})")
-            
+        if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
+            # Преобразуем UTC+3 в Etc/GMT-3 (знаки обратные)
+            offset_str = timezone_input[3:]
+            offset = int(offset_str) if offset_str else 0
+            tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+        elif timezone_input.startswith("+"):
+            # Обработка формата "+3"
+            offset = int(timezone_input[1:])
+            tz = pytz.timezone(f"Etc/GMT{-offset}")
+        elif timezone_input.startswith("-"):
+            # Обработка формата "-5"
+            offset = int(timezone_input[1:])
+            tz = pytz.timezone(f"Etc/GMT{+offset}")
         elif "/" in timezone_input:
-            # Попробуем найти город/регион в базе данных pytz
+            tz = pytz.timezone(timezone_input)
+        else:
+            # Попробуем найти город в базе данных pytz
             try:
                 tz = pytz.timezone(timezone_input)
-                user_profiles[user_id]["timezone"] = tz.zone
-                print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
             except pytz.UnknownTimeZoneError:
                 # Если город не найден, используем UTC как fallback
                 tz = pytz.UTC
-                user_profiles[user_id]["timezone"] = tz.zone
-                if language == "ru":
-                    await update.message.reply_text(f"Часовой пояс '{timezone_input}' не найден. Использую UTC. Вы сможете изменить это позже.")
-                else:
-                    await update.message.reply_text(f"Timezone '{timezone_input}' not found. Using UTC. You can change this later.")
-        else:
-            # Если формат не распознан, используем UTC как fallback
-            tz = pytz.UTC
-            user_profiles[user_id]["timezone"] = tz.zone
-            if language == "ru":
-                await update.message.reply_text(f"Формат '{timezone_input}' не распознан. Использую UTC. Вы сможете изменить это позже.")
-            else:
-                await update.message.reply_text(f"Format '{timezone_input}' not recognized. Using UTC. You can change this later.")
-                
+        
+        user_profiles[user_id]["timezone"] = tz.zone
+        print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
     except Exception as e:
         print(f"Ошибка определения часового пояса: {e}")
         # Используем UTC как fallback
-        tz = pytz.UTC
-        user_profiles[user_id]["timezone"] = tz.zone
-        if language == "ru":
-            await update.message.reply_text("Произошла ошибка при определении часового пояса. Использую UTC.")
-        else:
-            await update.message.reply_text("An error occurred while determining timezone. Using UTC.")
+        user_profiles[user_id]["timezone"] = "UTC"
     
     if language == "ru":
         await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
