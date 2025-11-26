@@ -516,7 +516,32 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                             WHERE user_id = %s
                         ''', (today.isoformat(), user_id))
                         conn.commit()
-                        print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+                        
+                        # ПРОВЕРКА: убеждаемся, что обнуление произошло
+                        cursor.execute("SELECT calories_today, proteins_today, fats_today, carbs_today, water_drunk_today FROM user_profiles WHERE user_id = %s", (user_id,))
+                        check_result = cursor.fetchone()
+                        
+                        # Если данные не обнулились, выполняем повторный запрос
+                        if (check_result['calories_today'] != 0 or check_result['proteins_today'] != 0 or 
+                            check_result['fats_today'] != 0 or check_result['carbs_today'] != 0 or 
+                            check_result['water_drunk_today'] != 0):
+                            
+                            print(f"Первое обнуление не сработало для пользователя {user_id}. Выполняем повторное обнуление.")
+                            cursor.execute('''
+                                UPDATE user_profiles 
+                                SET 
+                                    calories_today = 0,
+                                    proteins_today = 0,
+                                    fats_today = 0,
+                                    carbs_today = 0,
+                                    water_drunk_today = 0,
+                                    last_nutrition_update = %s
+                                WHERE user_id = %s
+                            ''', (today.isoformat(), user_id))
+                            conn.commit()
+                            print(f"Повторно сброшены дневные показатели для пользователя {user_id}")
+                        else:
+                            print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
                 else:
                     # Если last_nutrition_update NULL, устанавливаем текущую дату
                     cursor.execute('''
@@ -546,7 +571,32 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                         WHERE user_id = %s
                     ''', (today.isoformat(), user_id))
                     conn.commit()
-                    print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+                    
+                    # ПРОВЕРКА: убеждаемся, что обнуление произошло
+                    cursor.execute("SELECT calories_today, proteins_today, fats_today, carbs_today, water_drunk_today FROM user_profiles WHERE user_id = %s", (user_id,))
+                    check_result = cursor.fetchone()
+                    
+                    # Если данные не обнулились, выполняем повторный запрос
+                    if (check_result['calories_today'] != 0 or check_result['proteins_today'] != 0 or 
+                        check_result['fats_today'] != 0 or check_result['carbs_today'] != 0 or 
+                        check_result['water_drunk_today'] != 0):
+                        
+                        print(f"Первое обнуление не сработало для пользователя {user_id}. Выполняем повторное обнуление.")
+                        cursor.execute('''
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = 0,
+                                proteins_today = 0,
+                                fats_today = 0,
+                                carbs_today = 0,
+                                water_drunk_today = 0,
+                                last_nutrition_update = %s
+                            WHERE user_id = %s
+                        ''', (today.isoformat(), user_id))
+                        conn.commit()
+                        print(f"Повторно сброшены дневные показатели для пользователя {user_id}")
+                    else:
+                        print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
             else:
                 # Если last_nutrition_update NULL, устанавливаем текущую дату
                 cursor.execute('''
@@ -560,7 +610,6 @@ async def reset_daily_nutrition_if_needed(user_id: int):
     finally:
         if conn:
             conn.close()
-
 
 async def update_user_activity(user_id: int):
     """Обновляет время последней активности пользователя с учетом timezone"""
@@ -1043,55 +1092,105 @@ async def ask_timezone(update: Update, context: CallbackContext) -> int:
     user_profiles[user_id]["target_metric"] = update.message.text
     
     if language == "ru":
-        await update.message.reply_text("В каком часовом поясе ты находишься? (Например: UTC+3)")
+        await update.message.reply_text(
+            "В каком часовом поясе ты находишься?\n\n"
+            "Укажите в формате:\n"
+            "• UTC+3 или UTC-5\n"
+            "• +3 или -5\n"
+            "• 3 или 5 (будет интерпретировано как UTC+3 или UTC+5)\n\n"
+            "Примеры:\n"
+            "• utc+3\n• -5\n• +10\n• 7"
+        )
     else:
-        await update.message.reply_text("What timezone are you in? (e.g. UTC-5)")
+        await update.message.reply_text(
+            "What timezone are you in?\n\n"
+            "Please specify in format:\n"
+            "• UTC+3 or UTC-5\n"
+            "• +3 or -5\n"
+            "• 3 or 5 (will be interpreted as UTC+3 or UTC+5)\n\n"
+            "Examples:\n"
+            "• utc+3\n• -5\n• +10\n• 7"
+        )
     return ASK_TIMEZONE
 
 
 async def ask_wakeup_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
     language = user_profiles[user_id].get("language", "ru")
-    timezone_input = update.message.text.strip()
+    timezone_input = update.message.text.strip().lower()
     
-    # Упрощенная обработка часового пояса
+    # Валидация временной зоны
+    valid_timezone = False
+    tz = pytz.UTC  # значение по умолчанию
+    
     try:
-        if timezone_input.startswith(("UTC+", "UTC-", "GMT+", "GMT-")):
-            # Преобразуем UTC+3 в Etc/GMT-3 (знаки обратные)
+        # Проверяем формат UTC±X (например, utc+3, utc-5)
+        if timezone_input.startswith('utc'):
+            # Извлекаем числовую часть
             offset_str = timezone_input[3:]
-            offset = int(offset_str) if offset_str else 0
-            tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
-        elif timezone_input.startswith("+"):
-            # Обработка формата "+3"
-            offset = int(timezone_input[1:])
-            tz = pytz.timezone(f"Etc/GMT{-offset}")
-        elif timezone_input.startswith("-"):
-            # Обработка формата "-5"
-            offset = int(timezone_input[1:])
-            tz = pytz.timezone(f"Etc/GMT{+offset}")
-        elif "/" in timezone_input:
-            tz = pytz.timezone(timezone_input)
-        else:
-            # Попробуем найти город в базе данных pytz
-            try:
-                tz = pytz.timezone(timezone_input)
-            except pytz.UnknownTimeZoneError:
-                # Если город не найден, используем UTC как fallback
-                tz = pytz.UTC
+            if offset_str and (offset_str[0] in ['+', '-'] or offset_str.isdigit()):
+                # Если есть знак или только цифры
+                if offset_str[0] in ['+', '-']:
+                    offset = int(offset_str)
+                else:
+                    offset = int(offset_str)
+                    offset_str = f"+{offset_str}" if offset >= 0 else f"{offset_str}"
+                
+                # Создаем временную зону
+                tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+                valid_timezone = True
+                user_profiles[user_id]["timezone"] = tz.zone
+                print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
         
-        user_profiles[user_id]["timezone"] = tz.zone
-        print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
-    except Exception as e:
+        # Проверяем формат ±X (например, +3, -5, +10, -7)
+        elif timezone_input.startswith(('+', '-')):
+            offset = int(timezone_input)
+            tz = pytz.timezone(f"Etc/GMT{-offset}" if offset > 0 else f"Etc/GMT{+offset}")
+            valid_timezone = True
+            user_profiles[user_id]["timezone"] = tz.zone
+            print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
+            
+        # Проверяем только цифры (например, 3, 5, 10)
+        elif timezone_input.isdigit():
+            offset = int(timezone_input)
+            tz = pytz.timezone(f"Etc/GMT{-offset}")
+            valid_timezone = True
+            user_profiles[user_id]["timezone"] = tz.zone
+            print(f"Установлен часовой пояс для пользователя {user_id}: {tz.zone}")
+            
+    except (ValueError, pytz.UnknownTimeZoneError) as e:
         print(f"Ошибка определения часового пояса: {e}")
-        # Используем UTC как fallback
-        user_profiles[user_id]["timezone"] = "UTC"
+        valid_timezone = False
+    
+    # Если временная зона не валидна, просим повторить ввод
+    if not valid_timezone:
+        if language == "ru":
+            await update.message.reply_text(
+                "❌ Неверный формат временной зоны.\n\n"
+                "Пожалуйста, укажите временную зону в одном из форматов:\n"
+                "• UTC+3 или UTC-5\n"
+                "• +3 или -5\n"
+                "• 3 или 5 (будет интерпретировано как UTC+3 или UTC+5)\n\n"
+                "Примеры правильных ответов:\n"
+                "• utc+3\n• -5\n• +10\n• 7"
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Invalid timezone format.\n\n"
+                "Please specify your timezone in one of these formats:\n"
+                "• UTC+3 or UTC-5\n"
+                "• +3 or -5\n"
+                "• 3 or 5 (will be interpreted as UTC+3 or UTC+5)\n\n"
+                "Examples of correct answers:\n"
+                "• utc+3\n• -5\n• +10\n• 7"
+            )
+        return ASK_TIMEZONE
     
     if language == "ru":
         await update.message.reply_text("Во сколько ты обычно просыпаешься? (Формат: ЧЧ:ММ, например 07:30)")
     else:
         await update.message.reply_text("What time do you usually wake up? (Format: HH:MM, e.g. 07:30)")
     return ASK_WAKEUP_TIME
-
 
 async def ask_sleep_time(update: Update, context: CallbackContext) -> int:
     user_id = update.message.from_user.id
@@ -1365,10 +1464,12 @@ async def check_reminders(context: CallbackContext):
 
                             # Обновляем дату последней отправки
                             reminder["last_sent"] = now.date().isoformat()
+                            
+                            # ИСПРАВЛЕНИЕ: используем параметризованный запрос
                             with conn.cursor() as update_cursor:
                                 update_cursor.execute(
                                     "UPDATE user_profiles SET reminders = %s WHERE user_id = %s",
-                                    (json.dumps(reminders), user['user_id'])
+                                    (json.dumps(reminders), user['user_id'])  # передаем параметры кортежем
                                 )
                             conn.commit()
                             
@@ -3214,7 +3315,19 @@ async def post_init(application: Application) -> None:
 
 async def menu_command(update: Update, context: CallbackContext) -> None:
     """Обработчик команды /menu - показывает меню управления с краткой статистикой"""
-    user_id = update.message.from_user.id
+    # Определяем откуда пришел запрос - из сообщения или callback query
+    if update.message:
+        user_id = update.message.from_user.id
+        chat_id = update.message.chat_id
+        from_query = False
+    elif update.callback_query:
+        user_id = update.callback_query.from_user.id
+        chat_id = update.callback_query.message.chat_id
+        from_query = True
+        query = update.callback_query
+        await query.answer()
+    else:
+        return
 
     if not await check_access(user_id):
         await info(update, context)  # Показываем информацию о подписке
@@ -3246,7 +3359,10 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             profile = cursor.fetchone()
 
             if not profile:
-                await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
+                if from_query:
+                    await query.edit_message_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
+                else:
+                    await update.message.reply_text("Профиль не найден. Пройди анкету с помощью /start.\nProfile not found. Complete the questionnaire with /start.")
                 return
 
             language = profile['language'] or "ru"
@@ -3350,11 +3466,18 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await update.message.reply_text(
-                stats_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+            if from_query:
+                await query.edit_message_text(
+                    stats_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text(
+                    stats_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
             
     except Exception as e:
         print(f"Ошибка при получении данных для меню: {e}")
@@ -3362,11 +3485,14 @@ async def menu_command(update: Update, context: CallbackContext) -> None:
         error_msg = "Произошла ошибка при загрузке данных. Пожалуйста, попробуйте позже."
         if language == "en":
             error_msg = "An error occurred while loading data. Please try again later."
-        await update.message.reply_text(error_msg)
+        
+        if from_query:
+            await query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
     finally:
         if conn:
             conn.close()
-
 
 async def start_workout(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
@@ -3408,6 +3534,9 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
         [
             InlineKeyboardButton("На спортплощадке", callback_data="playground"),
             InlineKeyboardButton("Дома", callback_data="home"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад" if language == "ru" else "🔙 Back", callback_data="back_to_menu")
         ]
     ]
     
@@ -3420,6 +3549,9 @@ async def start_workout(update: Update, context: CallbackContext) -> int:
             [
                 InlineKeyboardButton("Playground", callback_data="playground"),
                 InlineKeyboardButton("Home", callback_data="home"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Back", callback_data="back_to_menu")
             ]
         ]
     
@@ -3470,6 +3602,9 @@ async def select_workout_duration(update: Update, context: CallbackContext) -> i
         [
             InlineKeyboardButton("1.5 часа", callback_data="90"),
             InlineKeyboardButton("2 часа", callback_data="120"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад" if language == "ru" else "🔙 Back", callback_data="back_to_workout_start")
         ]
     ]
     
@@ -3483,6 +3618,9 @@ async def select_workout_duration(update: Update, context: CallbackContext) -> i
             [
                 InlineKeyboardButton("1.5 hours", callback_data="90"),
                 InlineKeyboardButton("2 hours", callback_data="120"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Back", callback_data="back_to_workout_start")
             ]
         ]
     
@@ -3528,6 +3666,9 @@ async def ask_special_requests(update: Update, context: CallbackContext) -> int:
         [
             InlineKeyboardButton("Да", callback_data="yes"),
             InlineKeyboardButton("Нет", callback_data="no"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад" if language == "ru" else "🔙 Back", callback_data="back_to_duration")
         ]
     ]
     
@@ -3536,6 +3677,9 @@ async def ask_special_requests(update: Update, context: CallbackContext) -> int:
             [
                 InlineKeyboardButton("Yes", callback_data="yes"),
                 InlineKeyboardButton("No", callback_data="no"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Back", callback_data="back_to_duration")
             ]
         ]
     
@@ -3548,6 +3692,45 @@ async def ask_special_requests(update: Update, context: CallbackContext) -> int:
     
     await query.edit_message_text(text=text, reply_markup=reply_markup)
     return WORKOUT_SPECIAL_REQUESTS
+
+
+# Добавляем обработчики для кнопок "Назад" в workout_conv_handler
+async def back_to_workout_start(update: Update, context: CallbackContext) -> int:
+    """Возврат к выбору места тренировки"""
+    query = update.callback_query
+    await query.answer()
+
+    # Очищаем данные о выборе места тренировки
+    if 'workout_location' in context.user_data:
+        del context.user_data['workout_location']
+
+    return await start_workout(update, context)
+
+async def back_to_duration(update: Update, context: CallbackContext) -> int:
+    """Возврат к выбору продолжительности тренировки"""
+    query = update.callback_query
+    await query.answer()
+
+    # Очищаем данные о продолжительности
+    if 'workout_duration' in context.user_data:
+        del context.user_data['workout_duration']
+
+    return await select_workout_duration(update, context)
+
+async def back_to_menu(update: Update, context: CallbackContext) -> int:
+    """Возврат в главное меню из любого места диалога тренировки"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Очищаем все данные о тренировке
+    for key in ['workout_location', 'workout_duration', 'workout_special_requests', 'awaiting_special_requests']:
+        if key in context.user_data:
+            del context.user_data[key]
+    
+    # Просто вызываем menu_command, который сам разберется с query
+    await menu_command(update, context)
+    
+    return ConversationHandler.END
 
 async def get_special_requests(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
@@ -3604,6 +3787,8 @@ async def get_special_requests(update: Update, context: CallbackContext) -> int:
     # Сохраняем данные для следующего шага
     context.user_data['awaiting_special_requests'] = True
     return WORKOUT_GENERATE
+
+
 
 async def generate_workout(update: Update, context: CallbackContext) -> int:
     # Определяем, откуда пришел запрос
@@ -3918,7 +4103,7 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
             conn.close()
 
 
-
+CUSTOM_STICKER_ID = "CAACAgIAAxkBAAEPud5pDjtc3Fb5U4Q3hcMdt1U2A7Qi-gACQwEAAs0bMAiAvonYgQO9kzYE"
 
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
@@ -3954,6 +4139,16 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             )
         return
 
+    # Проверяем, есть ли фото в сообщении
+    has_photo = bool(update.message.photo)
+    
+    # Если есть фото - отправляем стикер
+    sticker_message = None
+    if has_photo:
+        try:
+            sticker_message = await update.message.reply_sticker(CUSTOM_STICKER_ID)
+        except Exception as e:
+            print(f"Ошибка при отправке стикера: {e}")
 
     # Оригинальная логика обработки сообщений
     message = update.message
@@ -4229,6 +4424,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 
 6. ⚠️ Если пользователь отправляет еду и явно указывает, что он съест/ест/съел её (например: "мой завтрак", "это мой обед", "сегодня на ужин", "я съел 2 яйца и тост"):
+    - При расчете и отображении дневных показателей ("Сегодня: [X] ккал") используй актуальные данные из базы данных (поля calories_today, proteins_today, fats_today, carbs_today)
+   - не суммируй данные из предыдущих дней или из памяти диалога
    - Для фото: анализируй визуальное содержимое
    - Для текста: анализируй описание
    - Определи примерный состав блюда/продуктов   
@@ -4514,6 +4711,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
    - Проверь, есть ли уже такое напоминание в базе (поле reminders в формате JSON)
    - Если напоминание уже существует - обнови его время
    - Если это новое напоминание - добавь его в список
+   - При расчете используй актуальные данные из (reminders)
    - Формат хранения в базе:
      [{"text": "текст напоминания", "time": "ЧЧ:ММ", "last_sent": "дата последней отправки"}]
    - SQL для добавления/обновления:
@@ -4942,9 +5140,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         Removal
         Готово! 🎯 Запись о последнем приеме пищи удалена. Если нужно что-то уточнить или исправить — просто скажите! Всегда рад помочь. 💪
 
-
         
 ⚠️ Никогда не выдумывай детали, которых нет в профиле или на фото. Если не уверен — уточни или скажи, что не знаешь.
+
+Тебя зовут - Nexus.
 
 ⚠️ Всегда строго учитывай известные факты о пользователе из его профиля И контекст текущего диалога.
 
@@ -5284,16 +5483,27 @@ TEXT: ...
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
+        if sticker_message:
+            try:
+                await sticker_message.delete()
+            except Exception as e:
+                print(f"Ошибка при удалении стикера: {e}")
+
 
         await update.message.reply_text(text_part)
 
     except Exception as e:
+        if sticker_message:
+            try:
+                await sticker_message.delete()
+            except Exception as e:
+                print(f"Ошибка при удалении стикера: {e}")
+
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
         if language == "en":
             error_message = "An error occurred while processing your request. Please try again."
         await update.message.reply_text(error_message)
         print(f"Ошибка при генерации ответа: {e}")
-
 
 def main():
     init_db()
@@ -5338,11 +5548,18 @@ def main():
     workout_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_workout, pattern="^start_workout$")],
         states={
-            WORKOUT_LOCATION: [CallbackQueryHandler(select_workout_duration)],
-            WORKOUT_DURATION: [CallbackQueryHandler(ask_special_requests)],
+            WORKOUT_LOCATION: [
+                CallbackQueryHandler(select_workout_duration, pattern="^(gym|outdoor|playground|home)$"),
+                CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$")
+            ],
+            WORKOUT_DURATION: [
+                CallbackQueryHandler(ask_special_requests, pattern="^(15|30|60|90|120)$"),
+                CallbackQueryHandler(back_to_workout_start, pattern="^back_to_workout_start$")
+            ],
             WORKOUT_SPECIAL_REQUESTS: [
                 CallbackQueryHandler(get_special_requests, pattern="^yes$"),
                 CallbackQueryHandler(generate_workout, pattern="^no$"),
+                CallbackQueryHandler(back_to_duration, pattern="^back_to_duration$")
             ],
             WORKOUT_GENERATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, generate_workout)],
         },
