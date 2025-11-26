@@ -516,7 +516,32 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                             WHERE user_id = %s
                         ''', (today.isoformat(), user_id))
                         conn.commit()
-                        print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+                        
+                        # ПРОВЕРКА: убеждаемся, что обнуление произошло
+                        cursor.execute("SELECT calories_today, proteins_today, fats_today, carbs_today, water_drunk_today FROM user_profiles WHERE user_id = %s", (user_id,))
+                        check_result = cursor.fetchone()
+                        
+                        # Если данные не обнулились, выполняем повторный запрос
+                        if (check_result['calories_today'] != 0 or check_result['proteins_today'] != 0 or 
+                            check_result['fats_today'] != 0 or check_result['carbs_today'] != 0 or 
+                            check_result['water_drunk_today'] != 0):
+                            
+                            print(f"Первое обнуление не сработало для пользователя {user_id}. Выполняем повторное обнуление.")
+                            cursor.execute('''
+                                UPDATE user_profiles 
+                                SET 
+                                    calories_today = 0,
+                                    proteins_today = 0,
+                                    fats_today = 0,
+                                    carbs_today = 0,
+                                    water_drunk_today = 0,
+                                    last_nutrition_update = %s
+                                WHERE user_id = %s
+                            ''', (today.isoformat(), user_id))
+                            conn.commit()
+                            print(f"Повторно сброшены дневные показатели для пользователя {user_id}")
+                        else:
+                            print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
                 else:
                     # Если last_nutrition_update NULL, устанавливаем текущую дату
                     cursor.execute('''
@@ -546,7 +571,32 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                         WHERE user_id = %s
                     ''', (today.isoformat(), user_id))
                     conn.commit()
-                    print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+                    
+                    # ПРОВЕРКА: убеждаемся, что обнуление произошло
+                    cursor.execute("SELECT calories_today, proteins_today, fats_today, carbs_today, water_drunk_today FROM user_profiles WHERE user_id = %s", (user_id,))
+                    check_result = cursor.fetchone()
+                    
+                    # Если данные не обнулились, выполняем повторный запрос
+                    if (check_result['calories_today'] != 0 or check_result['proteins_today'] != 0 or 
+                        check_result['fats_today'] != 0 or check_result['carbs_today'] != 0 or 
+                        check_result['water_drunk_today'] != 0):
+                        
+                        print(f"Первое обнуление не сработало для пользователя {user_id}. Выполняем повторное обнуление.")
+                        cursor.execute('''
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = 0,
+                                proteins_today = 0,
+                                fats_today = 0,
+                                carbs_today = 0,
+                                water_drunk_today = 0,
+                                last_nutrition_update = %s
+                            WHERE user_id = %s
+                        ''', (today.isoformat(), user_id))
+                        conn.commit()
+                        print(f"Повторно сброшены дневные показатели для пользователя {user_id}")
+                    else:
+                        print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
             else:
                 # Если last_nutrition_update NULL, устанавливаем текущую дату
                 cursor.execute('''
@@ -560,7 +610,6 @@ async def reset_daily_nutrition_if_needed(user_id: int):
     finally:
         if conn:
             conn.close()
-
 
 async def update_user_activity(user_id: int):
     """Обновляет время последней активности пользователя с учетом timezone"""
