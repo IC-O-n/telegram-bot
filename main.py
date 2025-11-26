@@ -4105,6 +4105,254 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
 
 CUSTOM_STICKER_ID = "CAACAgIAAxkBAAEPud5pDjtc3Fb5U4Q3hcMdt1U2A7Qi-gACQwEAAs0bMAiAvonYgQO9kzYE"
 
+# Добавляем новую константу для времени проверки сна
+SLEEP_SUMMARY_CHECK_INTERVAL = 300  # Проверять каждые 5 минут
+
+# Добавляем функцию для отправки дневного итога
+async def send_daily_summary(context: CallbackContext, user_id: int):
+    """Отправляет пользователю итог дня за 1 час до сна"""
+
+    # Проверяем доступ
+    if not await check_access(user_id):
+        return
+
+    # Получаем данные пользователя
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT language, name, sleep_time, timezone, goal, diet, health, activity,
+                       calories_today, proteins_today, fats_today, carbs_today, water_drunk_today,
+                       weight, height, age, gender
+                FROM user_profiles
+                WHERE user_id = %s
+            """, (user_id,))
+            profile = cursor.fetchone()
+
+            if not profile:
+                return
+
+            # Получаем историю питания за сегодня
+            cursor.execute("SELECT meal_history FROM user_profiles WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            meal_history = json.loads(result['meal_history']) if result and result['meal_history'] else {}
+
+        today_str = date.today().isoformat()
+        today_meals = meal_history.get(today_str, {})
+
+        if not today_meals:
+            # Если сегодня не было приемов пищи, не отправляем отчет
+            return
+
+        language = profile['language'] or "ru"
+
+        # Формируем промпт для генерации отчета
+        if language == "ru":
+            prompt = f"""
+            Сгенерируй подробный итог дня для пользователя. Учитывай все данные:
+
+            Профиль пользователя:
+            - Имя: {profile['name']}
+            - Пол: {profile['gender']}
+            - Возраст: {profile['age']}
+            - Вес: {profile['weight']} кг
+            - Рост: {profile['height']} см
+            - Цель: {profile['goal']}
+            - Активность: {profile['activity']}
+            - Питание: {profile['diet']}
+            - Здоровье: {profile['health']}
+
+            Дневная статистика:
+            - Калории: {profile['calories_today']} ккал
+            - Белки: {profile['proteins_today']} г
+            - Жиры: {profile['fats_today']} г
+            - Углеводы: {profile['carbs_today']} г
+            - Вода: {profile['water_drunk_today']} мл
+
+            Приемы пищи за сегодня:
+            {json.dumps(today_meals, ensure_ascii=False, indent=2)}
+
+            Сформируй развернутый отчет в следующем формате:
+
+            📊 ИТОГ ДНЯ
+
+            🍽 Анализ питания:
+            [Подробный анализ каждого приема пищи - что было хорошего, что плохого, какие продукты были полезны, а какие нет]
+
+            💡 Рекомендации по улучшению:
+            [Конкретные рекомендации по улучшению рациона на основе сегодняшнего питания]
+
+            🎯 Учет целей:
+            [Как сегодняшнее питание соотносится с целями пользователя: {profile['goal']}]
+
+            🍎 Что стоит изменить завтра:
+            [Конкретные предложения по завтрашнему рациону на основе сегодняшних продуктов]
+
+            💧 Гидротация:
+            [Анализ потребления воды и рекомендации]
+
+            📈 Общая оценка дня:
+            [Итоговая оценка и мотивационное сообщение]
+
+            Будь конкретным, дружелюбным и поддерживающим. Учитывай индивидуальные особенности пользователя.
+            """
+        else:
+            prompt = f"""
+            Generate a detailed daily summary for the user. Consider all data:
+
+            User profile:
+            - Name: {profile['name']}
+            - Gender: {profile['gender']}
+            - Age: {profile['age']}
+            - Weight: {profile['weight']} kg
+            - Height: {profile['height']} cm
+            - Goal: {profile['goal']}
+            - Activity: {profile['activity']}
+            - Diet: {profile['diet']}
+            - Health: {profile['health']}
+
+            Daily statistics:
+            - Calories: {profile['calories_today']} kcal
+            - Proteins: {profile['proteins_today']} g
+            - Fats: {profile['fats_today']} g
+            - Carbs: {profile['carbs_today']} g
+            - Water: {profile['water_drunk_today']} ml
+
+            Today's meals:
+            {json.dumps(today_meals, ensure_ascii=False, indent=2)}
+
+            Format your response as:
+
+            📊 DAILY SUMMARY
+
+            🍽 Nutrition Analysis:
+            [Detailed analysis of each meal - what was good, what was bad, which foods were beneficial]
+
+            💡 Improvement Recommendations:
+            [Specific recommendations for improving the diet based on today's food]
+
+            🎯 Goal Alignment:
+            [How today's nutrition aligns with user's goals: {profile['goal']}]
+
+            🍎 What to change tomorrow:
+            [Specific suggestions for tomorrow's diet based on today's products]
+
+            💧 Hydration:
+            [Water intake analysis and recommendations]
+
+            📈 Overall Day Assessment:
+            [Final assessment and motivational message]
+
+            Be specific, friendly and supportive. Consider user's individual characteristics.
+            """
+
+        # Генерируем отчет с помощью Gemini
+        response = model.generate_content(prompt)
+
+        if response.text:
+            # Очищаем текст от проблемных символов Markdown
+            cleaned_text = clean_markdown(response.text)
+
+            # Отправляем сообщение пользователю
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=cleaned_text
+            )
+            print(f"Отправлен дневной итог пользователю {user_id}")
+
+    except Exception as e:
+        print(f"Ошибка при отправке дневного итога пользователю {user_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+# Добавляем функцию проверки времени для отправки итогов
+async def check_sleep_time_summary(context: CallbackContext):
+    """Проверяет время сна пользователей и отправляет итоги за 1 час до сна"""
+    print(f"\n{datetime.now()}: Запущена проверка времени сна для отправки итогов")
+
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host='x91345bo.beget.tech',
+            user='x91345bo_nutrbot',
+            password='E8G5RsAboc8FJrzmqbp4GAMbRZ',
+            database='x91345bo_nutrbot',
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor
+        )
+
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    user_id,
+                    timezone,
+                    sleep_time,
+                    last_activity_time
+                FROM user_profiles
+                WHERE sleep_time IS NOT NULL
+                AND timezone IS NOT NULL
+            """)
+            users = cursor.fetchall()
+
+        for user in users:
+            try:
+                # Проверяем подписку
+                subscription = await check_subscription(user['user_id'])
+                if subscription['status'] == 'expired':
+                    continue
+
+                # Получаем часовой пояс пользователя
+                tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
+                now = datetime.now(tz)
+
+                # Получаем время сна пользователя
+                sleep_time = datetime.strptime(user['sleep_time'], "%H:%M").time()
+                sleep_dt = datetime.combine(now.date(), sleep_time).astimezone(tz)
+
+                # Вычисляем время за 1 час до сна
+                summary_time = sleep_dt - timedelta(hours=1)
+
+                # Проверяем, находится ли текущее время в интервале ±2.5 минут от времени отправки
+                time_diff = abs((now - summary_time).total_seconds())
+
+                if time_diff <= 150:  # 2.5 минуты = 150 секунд
+                    print(f"Время отправки итога для пользователя {user['user_id']}: текущее время {now.time()}, время сна {sleep_time}")
+
+                    # Проверяем, не отправляли ли уже сегодня итог
+                    last_activity = user['last_activity_time']
+                    if last_activity:
+                        if last_activity.tzinfo is None:
+                            last_activity = tz.localize(last_activity)
+                        else:
+                            last_activity = last_activity.astimezone(tz)
+
+                        # Если последняя активность была после времени сна вчера, значит сегодня еще не отправляли
+                        yesterday_sleep = sleep_dt - timedelta(days=1)
+                        if last_activity > yesterday_sleep:
+                            # Отправляем итог
+                            await send_daily_summary(context, user['user_id'])
+
+                            # Обновляем время активности
+                            await update_user_activity(user['user_id'])
+
+            except Exception as e:
+                print(f"Ошибка при проверке пользователя {user['user_id']}: {e}")
+
+    except Exception as e:
+        print(f"Ошибка при проверке времени сна: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 async def handle_message(update: Update, context: CallbackContext) -> None:
     user_id = update.message.from_user.id
@@ -5526,6 +5774,13 @@ def main():
         check_reminders,
         interval=60,  # Проверяем каждую минуту
         first=10      # Первая проверка через 10 секунд
+    )
+
+    # Добавляем job для проверки времени сна и отправки итогов
+    app.job_queue.run_repeating(
+        check_sleep_time_summary,
+        interval=SLEEP_SUMMARY_CHECK_INTERVAL,
+        first=10
     )
     
     # Проверяем и создаем jobs для напоминаний о воде при старте
