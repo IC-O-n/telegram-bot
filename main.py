@@ -4143,12 +4143,12 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     has_photo = bool(update.message.photo)
     
     # Если есть фото - отправляем стикер
-    sticker_message = None
-    if has_photo:
-        try:
-            sticker_message = await update.message.reply_sticker(CUSTOM_STICKER_ID)
-        except Exception as e:
-            print(f"Ошибка при отправке стикера: {e}")
+    #sticker_message = None
+    #if has_photo:
+        #try:
+            #sticker_message = await update.message.reply_sticker(CUSTOM_STICKER_ID)
+        #except Exception as e:
+            #print(f"Ошибка при отправке стикера: {e}")
 
     # Оригинальная логика обработки сообщений
     message = update.message
@@ -5483,21 +5483,21 @@ TEXT: ...
                 except Exception as e:
                     print(f"Ошибка при сохранении данных о приеме пищи: {e}")
 
-        if sticker_message:
-            try:
-                await sticker_message.delete()
-            except Exception as e:
-                print(f"Ошибка при удалении стикера: {e}")
+        #if sticker_message:
+            #try:
+                #await sticker_message.delete()
+            #except Exception as e:
+                #print(f"Ошибка при удалении стикера: {e}")
 
 
         await update.message.reply_text(text_part)
 
     except Exception as e:
-        if sticker_message:
-            try:
-                await sticker_message.delete()
-            except Exception as e:
-                print(f"Ошибка при удалении стикера: {e}")
+        #if sticker_message:
+            #try:
+                #await sticker_message.delete()
+            #except Exception as e:
+                #print(f"Ошибка при удалении стикера: {e}")
 
         error_message = "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз."
         if language == "en":
