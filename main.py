@@ -504,6 +504,7 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                     
                     if last_update < today:
                         # Гарантированный сброс, если дата последнего обновления не сегодня
+                        # ПЕРВЫЙ запрос на обнуление
                         cursor.execute('''
                             UPDATE user_profiles 
                             SET 
@@ -515,8 +516,22 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                                 last_nutrition_update = %s
                             WHERE user_id = %s
                         ''', (today.isoformat(), user_id))
+                        
+                        # ВТОРОЙ запрос на обнуление (дублирующий для надежности)
+                        cursor.execute('''
+                            UPDATE user_profiles 
+                            SET 
+                                calories_today = 0,
+                                proteins_today = 0,
+                                fats_today = 0,
+                                carbs_today = 0,
+                                water_drunk_today = 0,
+                                last_nutrition_update = %s
+                            WHERE user_id = %s
+                        ''', (today.isoformat(), user_id))
+                        
                         conn.commit()
-                        print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+                        print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone}) - выполнено 2 запроса")
                 else:
                     # Если last_nutrition_update NULL, устанавливаем текущую дату
                     cursor.execute('''
@@ -534,6 +549,7 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                     last_update = date.fromisoformat(last_update)
                 
                 if last_update < today:
+                    # ПЕРВЫЙ запрос на обнуление
                     cursor.execute('''
                         UPDATE user_profiles 
                         SET 
@@ -545,8 +561,22 @@ async def reset_daily_nutrition_if_needed(user_id: int):
                             last_nutrition_update = %s
                         WHERE user_id = %s
                     ''', (today.isoformat(), user_id))
+                    
+                    # ВТОРОЙ запрос на обнуление (дублирующий для надежности)
+                    cursor.execute('''
+                        UPDATE user_profiles 
+                        SET 
+                            calories_today = 0,
+                            proteins_today = 0,
+                            fats_today = 0,
+                            carbs_today = 0,
+                            water_drunk_today = 0,
+                            last_nutrition_update = %s
+                        WHERE user_id = %s
+                    ''', (today.isoformat(), user_id))
+                    
                     conn.commit()
-                    print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone})")
+                    print(f"Сброшены дневные показатели для пользователя {user_id} (timezone: {user_timezone.zone}) - выполнено 2 запроса")
             else:
                 # Если last_nutrition_update NULL, устанавливаем текущую дату
                 cursor.execute('''
@@ -560,7 +590,6 @@ async def reset_daily_nutrition_if_needed(user_id: int):
     finally:
         if conn:
             conn.close()
-
 
 async def update_user_activity(user_id: int):
     """Обновляет время последней активности пользователя с учетом timezone"""
