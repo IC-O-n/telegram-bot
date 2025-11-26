@@ -4106,7 +4106,7 @@ async def drank_command(update: Update, context: CallbackContext) -> None:
 CUSTOM_STICKER_ID = "CAACAgIAAxkBAAEPud5pDjtc3Fb5U4Q3hcMdt1U2A7Qi-gACQwEAAs0bMAiAvonYgQO9kzYE"
 
 # Добавляем новую константу для времени проверки сна
-SLEEP_SUMMARY_CHECK_INTERVAL = 300  # Проверять каждые 5 минут
+SLEEP_SUMMARY_CHECK_INTERVAL = 270  # Проверять каждые 5 минут
 
 # Добавляем функцию для отправки дневного итога
 async def send_daily_summary(context: CallbackContext, user_id: int):
@@ -5780,7 +5780,7 @@ def main():
     app.job_queue.run_repeating(
         check_sleep_time_summary,
         interval=SLEEP_SUMMARY_CHECK_INTERVAL,
-        first=10
+        first=15
     )
     
     # Проверяем и создаем jobs для напоминаний о воде при старте
