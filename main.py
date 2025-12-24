@@ -129,7 +129,8 @@ def init_db():
                         trial_end DATETIME,
                         payment_id VARCHAR(50),
                         payment_notified TINYINT DEFAULT 0,
-                        last_activity_time DATETIME
+                        last_activity_time DATETIME,
+                        last_summary_sent_date DATE
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """)
             else:
@@ -144,7 +145,8 @@ def init_db():
                     ('payment_id', "ALTER TABLE user_profiles ADD COLUMN payment_id VARCHAR(50)"),
                     ('payment_notified', "ALTER TABLE user_profiles ADD COLUMN payment_notified TINYINT DEFAULT 0"),
                     ('last_activity_time', "ALTER TABLE user_profiles ADD COLUMN last_activity_time DATETIME"),
-                    ('last_meal_reminder_time', "ALTER TABLE user_profiles ADD COLUMN last_meal_reminder_time DATETIME")
+                    ('last_meal_reminder_time', "ALTER TABLE user_profiles ADD COLUMN last_meal_reminder_time DATETIME"),
+                    ('last_summary_sent_date', "ALTER TABLE user_profiles ADD COLUMN last_summary_sent_date DATE")
                 ]
                 
                 for column_name, alter_query in columns_to_add:
@@ -4273,7 +4275,6 @@ async def send_daily_summary(context: CallbackContext, user_id: int):
         if conn:
             conn.close()
 
-# Добавляем функцию проверки времени для отправки итогов
 async def check_sleep_time_summary(context: CallbackContext):
     """Проверяет время сна пользователей и отправляет итоги за 1 час до сна"""
     print(f"\n{datetime.now()}: Запущена проверка времени сна для отправки итогов")
@@ -4295,7 +4296,7 @@ async def check_sleep_time_summary(context: CallbackContext):
                     user_id, 
                     timezone,
                     sleep_time,
-                    last_activity_time
+                    last_summary_sent_date
                 FROM user_profiles
                 WHERE sleep_time IS NOT NULL 
                 AND timezone IS NOT NULL
@@ -4312,10 +4313,15 @@ async def check_sleep_time_summary(context: CallbackContext):
                 # Получаем часовой пояс пользователя
                 tz = pytz.timezone(user['timezone']) if user['timezone'] else pytz.UTC
                 now = datetime.now(tz)
+                today = now.date()
                 
                 # Получаем время сна пользователя
                 sleep_time = datetime.strptime(user['sleep_time'], "%H:%M").time()
-                sleep_dt = datetime.combine(now.date(), sleep_time).astimezone(tz)
+                sleep_dt = datetime.combine(today, sleep_time).astimezone(tz)
+                
+                # Если время сна уже прошло сегодня, используем завтрашний день
+                if now > sleep_dt:
+                    sleep_dt = datetime.combine(today + timedelta(days=1), sleep_time).astimezone(tz)
                 
                 # Вычисляем время за 1 час до сна
                 summary_time = sleep_dt - timedelta(hours=1)
@@ -4324,24 +4330,38 @@ async def check_sleep_time_summary(context: CallbackContext):
                 time_diff = abs((now - summary_time).total_seconds())
                 
                 if time_diff <= 150:  # 2.5 минуты = 150 секунд
-                    print(f"Время отправки итога для пользователя {user['user_id']}: текущее время {now.time()}, время сна {sleep_time}")
+                    print(f"Время отправки итога для пользователя {user['user_id']}: текущее время {now.time()}, время сна {sleep_time}, время отправки {summary_time.time()}")
                     
-                    # Проверяем, не отправляли ли уже сегодня итог
-                    last_activity = user['last_activity_time']
-                    if last_activity:
-                        if last_activity.tzinfo is None:
-                            last_activity = tz.localize(last_activity)
-                        else:
-                            last_activity = last_activity.astimezone(tz)
+                    # Проверяем дату последней отправки итога
+                    last_summary_date = user['last_summary_sent_date']
+                    should_send_summary = False
+                    
+                    if not last_summary_date:
+                        # Никогда не отправляли - отправляем
+                        should_send_summary = True
+                    else:
+                        # Конвертируем дату в объект date
+                        if isinstance(last_summary_date, str):
+                            last_summary_date = date.fromisoformat(last_summary_date)
                         
-                        # Если последняя активность была после времени сна вчера, значит сегодня еще не отправляли
-                        yesterday_sleep = sleep_dt - timedelta(days=1)
-                        if last_activity > yesterday_sleep:
-                            # Отправляем итог
-                            await send_daily_summary(context, user['user_id'])
-                            
-                            # Обновляем время активности
-                            await update_user_activity(user['user_id'])
+                        # Отправляем, если последняя отправка была не сегодня
+                        if last_summary_date < today:
+                            should_send_summary = True
+                    
+                    if should_send_summary:
+                        # Отправляем итог
+                        await send_daily_summary(context, user['user_id'])
+                        
+                        # Обновляем дату последней отправки
+                        with conn.cursor() as update_cursor:
+                            update_cursor.execute("""
+                                UPDATE user_profiles 
+                                SET last_summary_sent_date = %s 
+                                WHERE user_id = %s
+                            """, (today.isoformat(), user['user_id']))
+                        conn.commit()
+                        
+                        print(f"Отправлен дневной итог пользователю {user['user_id']} и обновлена дата отправки")
                     
             except Exception as e:
                 print(f"Ошибка при проверке пользователя {user['user_id']}: {e}")
